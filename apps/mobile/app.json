@@ -1,0 +1,21 @@
+{
+  "expo": {
+    "name": "Trust First Nutrition",
+    "slug": "trust-first-nutrition",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#fbfaf6"
+      }
+    },
+    "extra": {
+      "apiBaseUrl": "http://localhost:8015"
+    }
+  }
+}

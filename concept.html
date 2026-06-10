@@ -1,0 +1,1082 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI 칼로리 코치 서비스 컨셉</title>
+    <style>
+      :root {
+        --ink: #20221f;
+        --muted: #6b7067;
+        --line: #d8ded2;
+        --paper: #fbfaf6;
+        --surface: #ffffff;
+        --soft: #eef4ec;
+        --green: #4f7d5a;
+        --green-strong: #2f6540;
+        --tomato: #d35b45;
+        --amber: #cc8a25;
+        --blue: #4b8397;
+        --shadow: 0 24px 70px rgba(32, 34, 31, 0.16);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(180deg, #f4f7f1 0%, #fbfaf6 42%, #eef2ed 100%);
+        color: var(--ink);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .page {
+        width: min(1480px, calc(100vw - 40px));
+        margin: 0 auto;
+        padding: 40px 0 46px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 28px;
+        margin-bottom: 30px;
+      }
+
+      .brand-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        color: var(--green-strong);
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .brand-mark::before {
+        content: "";
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        background:
+          radial-gradient(circle at 62% 32%, #f2c069 0 18%, transparent 19%),
+          linear-gradient(135deg, var(--green-strong), var(--green));
+        box-shadow: inset 0 -5px 12px rgba(255, 255, 255, 0.22);
+      }
+
+      h1 {
+        max-width: 790px;
+        margin: 0;
+        color: #171916;
+        font-size: clamp(34px, 4vw, 62px);
+        line-height: 0.97;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 520px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.55;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: 300px repeat(2, minmax(320px, 390px));
+        gap: 18px;
+        align-items: start;
+        justify-content: center;
+      }
+
+      .strategy {
+        grid-row: span 2;
+        align-self: start;
+        min-height: 660px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.78);
+        backdrop-filter: blur(14px);
+      }
+
+      .strategy h2,
+      .strategy h3 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      .strategy h2 {
+        font-size: 24px;
+        line-height: 1.18;
+      }
+
+      .strategy h3 {
+        margin-top: 24px;
+        margin-bottom: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .pill-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 18px;
+      }
+
+      .pill {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 11px 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .pill span:last-child {
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .color-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+      }
+
+      .swatch {
+        height: 48px;
+        border: 1px solid rgba(32, 34, 31, 0.12);
+        border-radius: 8px;
+      }
+
+      .type-sample {
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .type-sample strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 34px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .type-sample p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      .phone-wrap {
+        display: grid;
+        gap: 12px;
+      }
+
+      .screen-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0;
+        text-align: center;
+        text-transform: uppercase;
+      }
+
+      .phone {
+        width: 100%;
+        min-width: 0;
+        aspect-ratio: 390 / 812;
+        padding: 10px;
+        border: 1px solid rgba(32, 34, 31, 0.18);
+        border-radius: 30px;
+        background: #191b18;
+        box-shadow: var(--shadow);
+      }
+
+      .screen {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+        border-radius: 22px;
+        background: var(--paper);
+      }
+
+      .status {
+        display: flex;
+        justify-content: space-between;
+        padding: 14px 18px 8px;
+        color: #2b2f29;
+        font-size: 11px;
+        font-weight: 850;
+      }
+
+      .appbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 8px 18px 14px;
+      }
+
+      .appbar-title {
+        display: grid;
+        gap: 2px;
+      }
+
+      .appbar-title small {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 720;
+      }
+
+      .appbar-title strong {
+        font-size: 21px;
+        line-height: 1.1;
+        letter-spacing: 0;
+      }
+
+      .icon-btn {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--green-strong);
+        font-size: 15px;
+        font-weight: 900;
+      }
+
+      .content {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+        padding: 0 16px 16px;
+      }
+
+      .hero-metric {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .metric-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .metric-top span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 740;
+      }
+
+      .metric-top strong {
+        color: var(--green-strong);
+        font-size: 12px;
+      }
+
+      .big-kcal {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 12px;
+      }
+
+      .big-kcal strong {
+        font-size: 52px;
+        line-height: 0.9;
+        letter-spacing: 0;
+      }
+
+      .big-kcal span {
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 760;
+      }
+
+      .progress {
+        overflow: hidden;
+        height: 9px;
+        border-radius: 999px;
+        background: #e7eadf;
+      }
+
+      .progress > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--green), var(--amber));
+      }
+
+      .macro-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .macro {
+        padding: 11px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .macro span {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .macro strong {
+        font-size: 18px;
+      }
+
+      .scan-cta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--green-strong);
+        color: #fff;
+        font: inherit;
+        text-align: left;
+      }
+
+      .scan-cta strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 16px;
+      }
+
+      .scan-cta span {
+        color: rgba(255, 255, 255, 0.74);
+        font-size: 12px;
+        font-weight: 660;
+      }
+
+      .camera-dot {
+        display: grid;
+        flex: 0 0 auto;
+        place-items: center;
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.16);
+        font-size: 19px;
+        font-weight: 900;
+      }
+
+      .meal-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .meal-row {
+        display: grid;
+        grid-template-columns: 38px 1fr auto;
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .meal-thumb {
+        width: 38px;
+        height: 38px;
+        border-radius: 8px;
+        background: var(--soft);
+      }
+
+      .meal-thumb.red {
+        background: #f4ddd8;
+      }
+
+      .meal-thumb.blue {
+        background: #dfeef3;
+      }
+
+      .meal-row strong {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 13px;
+      }
+
+      .meal-row span {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .meal-row b {
+        font-size: 13px;
+      }
+
+      .photo-stage {
+        position: relative;
+        min-height: 250px;
+        overflow: hidden;
+        border-radius: 8px;
+        background: #dfe6db;
+      }
+
+      .photo-stage img {
+        width: 100%;
+        height: 100%;
+        min-height: 250px;
+        object-fit: cover;
+        display: block;
+      }
+
+      .photo-stage::after {
+        content: "";
+        position: absolute;
+        inset: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        border-radius: 8px;
+        box-shadow: 0 0 0 999px rgba(20, 24, 21, 0.22);
+      }
+
+      .photo-badge {
+        position: absolute;
+        left: 24px;
+        top: 24px;
+        z-index: 1;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--green-strong);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .result-panel {
+        display: grid;
+        gap: 11px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .range-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .range-row span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 720;
+      }
+
+      .range-row strong {
+        font-size: 28px;
+        line-height: 1;
+        letter-spacing: 0;
+      }
+
+      .confidence {
+        display: grid;
+        gap: 7px;
+      }
+
+      .confidence div {
+        display: flex;
+        justify-content: space-between;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .tag {
+        padding: 6px 8px;
+        border: 1px solid #d9e3d3;
+        border-radius: 999px;
+        background: #f8fbf6;
+        color: var(--green-strong);
+        font-size: 11px;
+        font-weight: 780;
+      }
+
+      .notice {
+        padding: 12px;
+        border: 1px solid #f0d4b5;
+        border-radius: 8px;
+        background: #fff8ee;
+        color: #7a4e11;
+        font-size: 12px;
+        line-height: 1.35;
+        font-weight: 650;
+      }
+
+      .question {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .question small {
+        color: var(--green-strong);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .question h2 {
+        margin: 10px 0 8px;
+        font-size: 24px;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      .question p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .choice-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .choice {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        font-size: 13px;
+        font-weight: 790;
+      }
+
+      .choice.active {
+        border-color: #9fbd96;
+        background: var(--soft);
+        color: var(--green-strong);
+      }
+
+      .choice span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .text-reply {
+        min-height: 78px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: #4f554d;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .primary-btn {
+        width: 100%;
+        min-height: 48px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--ink);
+        color: #fff;
+        font: inherit;
+        font-size: 14px;
+        font-weight: 850;
+      }
+
+      .insight {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .insight small {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .insight h2 {
+        margin: 8px 0 10px;
+        font-size: 28px;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .insight p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .adjustment {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 14px;
+        border: 1px solid #bdd3b9;
+        border-radius: 8px;
+        background: #f2f8ef;
+      }
+
+      .adjustment strong {
+        display: block;
+        margin-bottom: 3px;
+        font-size: 14px;
+      }
+
+      .adjustment span {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .adjustment b {
+        color: var(--green-strong);
+        font-size: 22px;
+      }
+
+      .week-grid {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 5px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .day {
+        display: grid;
+        gap: 7px;
+        justify-items: center;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .bar {
+        width: 100%;
+        height: 58px;
+        border-radius: 999px;
+        background: #e9ede5;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .bar span {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 999px;
+        background: var(--green);
+      }
+
+      .tip-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .tip {
+        display: grid;
+        grid-template-columns: 4px 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+        color: #4a5148;
+        font-size: 12px;
+        line-height: 1.4;
+        font-weight: 650;
+      }
+
+      .tip::before {
+        content: "";
+        width: 4px;
+        height: 100%;
+        min-height: 28px;
+        border-radius: 999px;
+        background: var(--tomato);
+      }
+
+      .bottom-nav {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 4px;
+        margin-top: auto;
+        padding: 8px 12px 12px;
+        border-top: 1px solid rgba(216, 222, 210, 0.72);
+        background: rgba(251, 250, 246, 0.9);
+      }
+
+      .nav-item {
+        display: grid;
+        gap: 4px;
+        justify-items: center;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 760;
+      }
+
+      .nav-item::before {
+        content: "";
+        width: 20px;
+        height: 20px;
+        border: 2px solid currentColor;
+        border-radius: 7px;
+      }
+
+      .nav-item.active {
+        color: var(--green-strong);
+      }
+
+      .nav-item.scan::before {
+        border-radius: 999px;
+        background: currentColor;
+        box-shadow: inset 0 0 0 6px #fff;
+      }
+
+      @media (max-width: 1260px) {
+        .board {
+          grid-template-columns: repeat(2, minmax(280px, 1fr));
+          justify-content: stretch;
+        }
+
+        .strategy {
+          grid-row: auto;
+          min-height: auto;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .page {
+          width: min(100vw - 24px, 420px);
+          padding-top: 24px;
+        }
+
+        .topbar {
+          display: block;
+        }
+
+        .lead {
+          margin-top: 14px;
+          font-size: 15px;
+        }
+
+        .board {
+          grid-template-columns: 1fr;
+        }
+
+        .phone {
+          max-width: 390px;
+          margin: 0 auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div>
+          <div class="brand-mark">working concept - HANIP AI</div>
+          <h1>사진 한 장에서 시작해, 질문 한 번으로 정확해지는 식단 코치</h1>
+        </div>
+        <p class="lead">
+          Cal AI의 빠른 기록감에 한식 데이터, 신뢰구간, 개인화 인터뷰를 더한
+          국내형 AI 칼로리 서비스의 첫 인상 시각화입니다.
+        </p>
+      </header>
+
+      <section class="board" aria-label="AI 칼로리 앱 컨셉 보드">
+        <aside class="strategy">
+          <h2>제품 느낌</h2>
+          <div class="pill-list">
+            <div class="pill"><span>핵심 약속</span><span>30초 신뢰 기록</span></div>
+            <div class="pill"><span>차별점</span><span>한식 보정</span></div>
+            <div class="pill"><span>신뢰 장치</span><span>kcal 범위</span></div>
+            <div class="pill"><span>유료 이유</span><span>AI 코치</span></div>
+          </div>
+
+          <h3>Palette</h3>
+          <div class="color-row">
+            <div class="swatch" style="background: #2f6540"></div>
+            <div class="swatch" style="background: #d35b45"></div>
+            <div class="swatch" style="background: #cc8a25"></div>
+            <div class="swatch" style="background: #4b8397"></div>
+          </div>
+
+          <div class="type-sample">
+            <strong>620</strong>
+            <p>
+              큰 숫자는 칼로리, 작은 문장은 불확실성과 다음 행동을 설명합니다.
+              음식 앱 특유의 죄책감보다 조용한 피드백을 우선합니다.
+            </p>
+          </div>
+
+          <h3>Design rules</h3>
+          <div class="pill-list">
+            <div class="pill"><span>카드 반경</span><span>8px</span></div>
+            <div class="pill"><span>폰트</span><span>System UI</span></div>
+            <div class="pill"><span>톤</span><span>차분한 전문성</span></div>
+            <div class="pill"><span>CTA</span><span>촬영/확정 중심</span></div>
+          </div>
+        </aside>
+
+        <div class="phone-wrap">
+          <div class="screen-label">01 Today</div>
+          <article class="phone">
+            <div class="screen">
+              <div class="status"><span>9:41</span><span>LTE 87%</span></div>
+              <div class="appbar">
+                <div class="appbar-title">
+                  <small>오늘의 식단</small>
+                  <strong>점심 전이에요</strong>
+                </div>
+                <div class="icon-btn" aria-label="알림">i</div>
+              </div>
+              <div class="content">
+                <section class="hero-metric">
+                  <div class="metric-top">
+                    <span>남은 권장 섭취량</span>
+                    <strong>목표 -0.4kg/주</strong>
+                  </div>
+                  <div class="big-kcal">
+                    <strong>1,180</strong>
+                    <span>kcal</span>
+                  </div>
+                  <div class="progress"><span style="width: 42%"></span></div>
+                </section>
+                <div class="macro-grid">
+                  <div class="macro"><span>단백질</span><strong>38g</strong></div>
+                  <div class="macro"><span>탄수화물</span><strong>126g</strong></div>
+                  <div class="macro"><span>지방</span><strong>29g</strong></div>
+                </div>
+                <button class="scan-cta">
+                  <span>
+                    <strong>음식 사진 찍기</strong>
+                    <span>사진으로 분석하고 바로 확인</span>
+                  </span>
+                  <span class="camera-dot">+</span>
+                </button>
+                <div class="meal-list">
+                  <div class="meal-row">
+                    <div class="meal-thumb"></div>
+                    <div><strong>그릭요거트 볼</strong><span>아침 - 확정됨</span></div>
+                    <b>410</b>
+                  </div>
+                  <div class="meal-row">
+                    <div class="meal-thumb red"></div>
+                    <div><strong>아메리카노</strong><span>간식 - 직접 입력</span></div>
+                    <b>8</b>
+                  </div>
+                  <div class="meal-row">
+                    <div class="meal-thumb blue"></div>
+                    <div><strong>물</strong><span>1.2L / 2.0L</span></div>
+                    <b>60%</b>
+                  </div>
+                </div>
+              </div>
+              <nav class="bottom-nav">
+                <div class="nav-item active">홈</div>
+                <div class="nav-item scan">스캔</div>
+                <div class="nav-item">리포트</div>
+                <div class="nav-item">코치</div>
+              </nav>
+            </div>
+          </article>
+        </div>
+
+        <div class="phone-wrap">
+          <div class="screen-label">02 Scan Result</div>
+          <article class="phone">
+            <div class="screen">
+              <div class="status"><span>9:41</span><span>LTE 87%</span></div>
+              <div class="appbar">
+                <div class="appbar-title">
+                  <small>AI 분석 중</small>
+                  <strong>제육덮밥으로 보여요</strong>
+                </div>
+                <div class="icon-btn" aria-label="닫기">x</div>
+              </div>
+              <div class="content">
+                <div class="photo-stage">
+                  <img src="assets/meal-preview.png" alt="AI가 분석 중인 한식 식사 사진" />
+                  <div class="photo-badge">신뢰도 82%</div>
+                </div>
+                <section class="result-panel">
+                  <div class="range-row">
+                    <span>예상 섭취량</span>
+                    <strong>540-710</strong>
+                  </div>
+                  <div class="confidence">
+                    <div><span>확실한 항목</span><span>제육, 밥, 김치</span></div>
+                    <div class="progress"><span style="width: 82%"></span></div>
+                  </div>
+                  <div class="tag-row">
+                    <span class="tag">제육볶음</span>
+                    <span class="tag">쌀밥</span>
+                    <span class="tag">계란</span>
+                    <span class="tag">김치</span>
+                  </div>
+                  <div class="notice">
+                    밥 양과 양념 기름 때문에 범위가 넓어요. 한 질문만 답하면 더
+                    좁혀드릴게요.
+                  </div>
+                </section>
+                <button class="primary-btn">정확도 높이기</button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="phone-wrap">
+          <div class="screen-label">03 Deep Interview</div>
+          <article class="phone">
+            <div class="screen">
+              <div class="status"><span>9:41</span><span>LTE 87%</span></div>
+              <div class="appbar">
+                <div class="appbar-title">
+                  <small>1개의 확인 질문</small>
+                  <strong>밥 양만 알려주세요</strong>
+                </div>
+                <div class="icon-btn" aria-label="건너뛰기">→</div>
+              </div>
+              <div class="content">
+                <section class="question">
+                  <small>정확도 +12%</small>
+                  <h2>밥은 어느 정도 드셨나요?</h2>
+                  <p>
+                    사진상 밥이 소스에 가려져 있어요. 답변은 다음 비슷한 식사에도
+                    자동 반영됩니다.
+                  </p>
+                </section>
+                <div class="choice-list">
+                  <div class="choice"><strong>반 공기</strong><span>약 105g</span></div>
+                  <div class="choice active"><strong>한 공기보다 조금 적게</strong><span>약 170g</span></div>
+                  <div class="choice"><strong>한 공기 이상</strong><span>약 220g+</span></div>
+                </div>
+                <div class="text-reply">
+                  AI 보정 요약: 밥 170g 기준으로 계산하고, 비슷한 덮밥 기록에도 우선 반영합니다.
+                </div>
+                <section class="result-panel">
+                  <div class="range-row">
+                    <span>보정 후 예상</span>
+                    <strong>615</strong>
+                  </div>
+                  <div class="macro-grid">
+                    <div class="macro"><span>단백질</span><strong>31g</strong></div>
+                    <div class="macro"><span>탄수</span><strong>72g</strong></div>
+                    <div class="macro"><span>지방</span><strong>19g</strong></div>
+                  </div>
+                </section>
+                <button class="primary-btn">점심으로 기록</button>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="phone-wrap">
+          <div class="screen-label">04 Weekly Coach</div>
+          <article class="phone">
+            <div class="screen">
+              <div class="status"><span>9:41</span><span>LTE 87%</span></div>
+              <div class="appbar">
+                <div class="appbar-title">
+                  <small>AI 코치 리포트</small>
+                  <strong>이번 주는 꽤 안정적</strong>
+                </div>
+                <div class="icon-btn" aria-label="공유">↗</div>
+              </div>
+              <div class="content">
+                <section class="insight">
+                  <small>체중 변화 기반 보정</small>
+                  <h2>실제 소비량은 예상보다 높아요</h2>
+                  <p>
+                    7일 기록과 체중 변화를 보면 하루 목표를 110kcal 올려도 감량
+                    속도는 유지될 가능성이 큽니다.
+                  </p>
+                </section>
+                <div class="adjustment">
+                  <div>
+                    <strong>새 권장 목표</strong>
+                    <span>1,740kcal에서 1,850kcal로 조정</span>
+                  </div>
+                  <b>+110</b>
+                </div>
+                <div class="week-grid">
+                  <div class="day">월<div class="bar"><span style="height: 68%"></span></div></div>
+                  <div class="day">화<div class="bar"><span style="height: 74%"></span></div></div>
+                  <div class="day">수<div class="bar"><span style="height: 61%"></span></div></div>
+                  <div class="day">목<div class="bar"><span style="height: 82%"></span></div></div>
+                  <div class="day">금<div class="bar"><span style="height: 76%"></span></div></div>
+                  <div class="day">토<div class="bar"><span style="height: 91%"></span></div></div>
+                  <div class="day">일<div class="bar"><span style="height: 64%"></span></div></div>
+                </div>
+                <div class="tip-list">
+                  <div class="tip">점심 외식일에는 밥 양 질문을 먼저 띄우면 오차가 가장 크게 줄어요.</div>
+                  <div class="tip">나트륨이 높은 날은 다음 식사에서 국물 없는 메뉴를 추천합니다.</div>
+                  <div class="tip">단백질은 평균 18g 부족합니다. 편의점 닭가슴살보다 두부/계란 조합이 더 잘 맞아요.</div>
+                </div>
+              </div>
+              <nav class="bottom-nav">
+                <div class="nav-item">홈</div>
+                <div class="nav-item scan">스캔</div>
+                <div class="nav-item active">리포트</div>
+                <div class="nav-item">코치</div>
+              </nav>
+            </div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
