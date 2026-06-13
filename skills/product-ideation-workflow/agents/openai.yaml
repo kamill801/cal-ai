@@ -1,0 +1,8 @@
+interface:
+  display_name: "Product Ideation Workflow"
+  short_description: "Interview ideas into specs, design, and build plans"
+  brand_color: "#8A7BFF"
+  default_prompt: "Use $product-ideation-workflow to turn my rough product idea into interview-driven PRD, TECHSPEC, PLAN, and DESIGN docs."
+
+policy:
+  allow_implicit_invocation: true

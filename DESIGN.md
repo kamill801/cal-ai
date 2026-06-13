@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Draft, active for MVP implementation until Figma review replaces or refines it.
-- Last refreshed: 2026-06-09
+- Last refreshed: 2026-06-13
 - Primary product surfaces:
   - Mobile app first: onboarding, today dashboard, scan/camera, analysis result, clarification, meal save, insight/coach, settings/privacy.
   - Optional web/PWA surfaces later: landing page, account, support, privacy.
@@ -21,7 +21,12 @@
 - Figma status:
   - Initial editable MVP screen board exists in Figma.
   - Created screens: Onboarding, Today Dashboard, Scan Loading, Analysis Result, Clarification Sheet, Coach Insight.
-  - Treat this as a directional implementation reference until reviewed and refined.
+  - Redesign loop boards exist in Figma:
+    - Pass 1 `19:2`: direction exploration.
+    - Pass 2 `20:2`: real meal evidence and review flow.
+    - Pass 3 `21:2`: native sheet refinement.
+    - Pass 4 `23:2`: confidence/range system refinement.
+  - Treat Pass 3 as the main implementation baseline and borrow Pass 4's confidence/range semantics selectively.
 
 ## Brand
 
@@ -30,6 +35,7 @@
   - `HANIP AI` may be used as a temporary concept label only.
 - Personality:
   - Calm, precise, body-aware, warm, practical.
+  - Professional but not stiff: the app should feel like a careful coach who notices details, not a clinical dashboard.
   - More like a careful nutrition assistant than a loud diet challenge app.
   - Friendly enough for daily use, but restrained enough to make calorie estimates feel trustworthy.
 - Trust signals:
@@ -130,6 +136,10 @@
 - Principle 5: Calm health language.
   - Avoid guilt. Use directional guidance.
   - Focus on the next useful choice rather than judging the previous meal.
+- Principle 6: Warm professionalism.
+  - Keep the analysis expert-level, but make the surface feel human, appetizing, and easy to return to every day.
+  - Avoid sterile report-card layouts, heavy tables, and overly clinical confidence language on the main path.
+  - Use warmth through food photography, soft contrast, optimistic microcopy, and small completion moments rather than mascots or decorative clutter.
 - Tradeoffs:
   - Use fewer decorative elements inside the app than Clay-style marketing pages.
   - Prefer dense, scannable controls over oversized editorial sections.
@@ -137,6 +147,11 @@
 
 ## Visual language
 
+- Target visual position:
+  - `Warm Trust Nutrition`: trustworthy enough for nutrition decisions, warm enough for daily consumer use.
+  - The strongest axis is trust plus cleanliness. The missing axis to strengthen before implementation is visual warmth.
+  - Do not chase cuteness as the main identity. Add lightness through rounded food thumbnails, friendly Korean copy, saved-state delight, and generous breathing room.
+  - The app should not feel like a medical report, spreadsheet, or generic AI assistant.
 - Color:
   - The palette borrows warmth from the Clay reference but shifts toward a food/nutrition product.
   - Base canvas: `#fffaf0` for warm app background where appropriate.
@@ -155,6 +170,11 @@
   - Insight accent: lavender `#b8a4ed`, used sparingly.
   - Warning: `#f59e0b`; error: `#ef4444`; success: `#22c55e`.
   - Do not use gradient-orb or bokeh backgrounds.
+  - Color usage:
+    - Use warm off-white as the ambient base, but keep primary content cards white so the app does not become beige.
+    - Use deep leaf only for meaningful progress, confidence, and primary scan/save actions.
+    - Use protein blue, carbs ochre, and fat coral as small semantic accents, not page-wide themes.
+    - Add small peach or amber warmth around meal context and saved-state moments; do not overuse it in analysis panels.
 - Typography:
   - App UI should use Inter or the platform system stack: `Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`.
   - Korean rendering should be verified with a Korean-capable fallback such as `Apple SD Gothic Neo`, `Pretendard`, or system sans if installed.
@@ -191,6 +211,12 @@
   - Use simple line icons from the implementation icon set, preferably lucide if available.
   - Use icons for camera, close, back, save, info, edit, settings, privacy, and chart actions.
   - Never use another app's screenshots or product UI fragments as in-app assets.
+- Warmth and delight:
+  - Use a real meal photo thumbnail in analysis, clarification, result, and saved states so the interface keeps a connection to the user's food.
+  - Add a small positive saved confirmation, such as `기록했어요` plus the updated remaining calories, rather than a large celebratory screen.
+  - Use one friendly sentence per decision point. Example: `밥 양만 확인하면 범위가 꽤 줄어요.`
+  - Keep animation functional: range narrowing, selected chip response, saved confirmation. Avoid decorative loops.
+  - Avoid cartoon mascots, emoji-heavy UI, confetti, and childish copy unless a later brand decision explicitly chooses a cute identity.
 
 ## Components
 
@@ -294,6 +320,7 @@
 
 - Tone:
   - Calm, precise, nonjudgmental, Korean-first.
+  - Expert in substance, warm in delivery.
   - Speak like a careful coach, not a hype-driven influencer.
 - Terminology:
   - Use `예상`, `범위`, `신뢰도`, `사진상 확인 어려운 부분`, `보정`, `다음 식사`.
@@ -302,6 +329,10 @@
 - Microcopy rules:
   - Prefer "약 540-710kcal로 보여요. 밥 양이 가장 큰 변수예요."
   - Avoid "정확히 623kcal입니다."
+  - Prefer "밥 양만 확인하면 범위가 꽤 줄어요."
+  - Avoid "정확도 개선을 위해 추가 입력이 필요합니다."
+  - Prefer "기록했어요. 저녁은 단백질을 조금 더 챙기면 좋아요."
+  - Avoid "저장 완료. 일일 목표 대비 잔여 영양소를 확인하세요."
   - Prefer "다음 식사는 단백질을 보충하고 지방은 낮추는 쪽이 좋아요."
   - Avoid "오늘 식단은 실패했어요."
   - Keep primary button text action-based: `식사로 기록`, `정확도 높이기`, `목표 조정 확인`.
