@@ -78,3 +78,104 @@ class DashboardTodayResponse(BaseModel):
     consumed: NutritionTarget
     next_meal_guidance: NextMealGuidance
     meals: list[DashboardMeal]
+
+
+class CalorieRange(BaseModel):
+    low: int
+    midpoint: int
+    high: int
+
+
+class AnalysisSummary(BaseModel):
+    calories_kcal: int
+    calorie_range: CalorieRange
+    protein_g: int
+    carbs_g: int
+    fat_g: int
+    confidence: float = Field(ge=0, le=1)
+    confidence_label: Literal["high", "medium_high", "medium", "low", "manual"]
+    confidence_group: Literal["certain", "estimated", "needs_check", "manual"]
+
+
+class DetectedFoodItem(BaseModel):
+    id: str
+    name: str
+    assumption_label: str
+    confidence_label: Literal["high", "medium_high", "medium", "low", "manual"]
+
+
+class ClarificationOption(BaseModel):
+    label: str
+    value: str
+    helper_text: str | None = None
+
+
+class ClarificationQuestion(BaseModel):
+    question_key: str
+    question: str
+    helper_text: str
+    type: Literal["single_choice"]
+    options: list[ClarificationOption]
+
+
+class AnalysisResult(BaseModel):
+    id: str
+    meal_name: str
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    stage_text: str
+    summary: AnalysisSummary
+    detected_foods: list[DetectedFoodItem]
+    uncertainty_reasons: list[str]
+    primary_explanation: str
+    clarification_question: ClarificationQuestion | None = None
+
+
+class AnalysisJobRequest(BaseModel):
+    image_upload_id: str
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
+    optional_note: str | None = None
+
+
+class AnalysisJobCreateResponse(BaseModel):
+    analysis_job_id: str
+    status: Literal["queued"]
+
+
+class AnalysisJobResponse(BaseModel):
+    id: str
+    status: Literal["queued", "analyzing", "needs_clarification", "completed"]
+    result: AnalysisResult
+
+
+class ClarificationAnswer(BaseModel):
+    question_key: str
+    value: str
+
+
+class ClarificationRequest(BaseModel):
+    answers: list[ClarificationAnswer]
+
+
+class RangeNarrowingResponse(BaseModel):
+    before: CalorieRange
+    after: CalorieRange
+    copy_text: str = Field(serialization_alias="copy", validation_alias="copy")
+
+
+class ClarificationResponse(BaseModel):
+    status: Literal["completed"]
+    result: AnalysisResult
+    range_narrowing: RangeNarrowingResponse | None = None
+
+
+class MealLogRequest(BaseModel):
+    analysis_job_id: str
+    result_id: str
+    clarification_value: Literal["half_bowl", "one_bowl", "large_bowl", "unknown"]
+
+
+class SavedImpactResponse(BaseModel):
+    confirmation: str
+    remaining_calories_kcal: int
+    next_meal_suggestion: str
+    dashboard: DashboardTodayResponse
