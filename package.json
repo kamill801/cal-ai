@@ -13,5 +13,16 @@
     "test:api": "services/api/.venv/bin/python -m pytest services/api/tests",
     "typecheck:mobile": "npm --workspace apps/mobile run typecheck",
     "typecheck:shared": "npm --workspace packages/shared run typecheck"
+  },
+  "overrides": {
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.14",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6"
   }
 }

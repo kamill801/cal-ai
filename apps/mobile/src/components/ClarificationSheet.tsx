@@ -8,13 +8,15 @@ export function ClarificationSheet({
   narrowing,
   selectedValue,
   onSelect,
-  onSkip
+  onSkip,
+  disabled = false
 }: {
   question: ClarificationQuestion;
   narrowing?: RangeNarrowingResult;
   selectedValue?: string;
   onSelect: (value: string) => void;
   onSkip: () => void;
+  disabled?: boolean;
 }) {
   return (
     <View style={styles.sheet} accessibilityLabel="한 번만 확인하는 보정 질문">
@@ -30,8 +32,9 @@ export function ClarificationSheet({
               key={option.value}
               activeOpacity={0.86}
               accessibilityRole="button"
-              accessibilityState={{ selected }}
-              style={[styles.chip, selected && styles.chipSelected]}
+              accessibilityState={{ selected, disabled }}
+              disabled={disabled}
+              style={[styles.chip, selected && styles.chipSelected, disabled && styles.disabled]}
               onPress={() => onSelect(option.value)}
             >
               <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{option.label}</Text>
@@ -41,7 +44,7 @@ export function ClarificationSheet({
         })}
       </View>
       {narrowing ? <RangeNarrowing narrowing={narrowing} /> : null}
-      <TouchableOpacity activeOpacity={0.82} style={styles.skipButton} onPress={onSkip}>
+      <TouchableOpacity activeOpacity={0.82} style={[styles.skipButton, disabled && styles.disabled]} disabled={disabled} onPress={onSkip}>
         <Text style={styles.skipText}>잘 모르겠다면 그대로 저장해도 돼요</Text>
       </TouchableOpacity>
     </View>
@@ -115,6 +118,9 @@ const styles = StyleSheet.create({
   skipButton: {
     minHeight: 44,
     justifyContent: "center"
+  },
+  disabled: {
+    opacity: 0.58
   },
   skipText: {
     color: colors.muted,

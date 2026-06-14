@@ -3,6 +3,7 @@ export type ActivityLevel = "sedentary" | "light" | "moderate" | "high" | "athle
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 export type ConfidenceLabel = "high" | "medium_high" | "medium" | "low" | "manual";
 export type ConfidenceGroup = "certain" | "estimated" | "needs_check" | "manual";
+export type AnalysisJobStatus = "queued" | "analyzing" | "needs_clarification" | "completed" | "failed";
 
 export interface NutritionTarget {
   caloriesKcal: number;
@@ -120,10 +121,59 @@ export interface SavedImpactViewModel {
   dashboard: DashboardTodayResponse;
 }
 
+export interface AnalysisJobError {
+  code: string;
+  message: string;
+}
+
+export interface AnalysisJobViewModel {
+  id: string;
+  status: AnalysisJobStatus;
+  result?: AnalysisResult;
+  error?: AnalysisJobError;
+}
+
 export interface MockAnalysisJobResponse {
   id: string;
-  status: "queued" | "analyzing" | "needs_clarification" | "completed";
-  result: AnalysisResult;
+  status: AnalysisJobStatus;
+  result?: AnalysisResult;
+  error?: AnalysisJobError;
+}
+
+export interface ApiNutritionTarget {
+  calories_kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+}
+
+export interface ApiNutrientGap {
+  nutrient: "protein_g" | "carbs_g" | "fat_g" | "calories_kcal";
+  amount: number;
+  severity: "low" | "medium" | "high";
+}
+
+export interface ApiNextMealGuidance {
+  deficits: ApiNutrientGap[];
+  excesses: ApiNutrientGap[];
+  menu_type_recommendations: string[];
+  explanation: string;
+}
+
+export interface ApiDashboardMeal {
+  id: string;
+  name: string;
+  meal_type: MealType;
+  calories_kcal: number;
+  confidence_label: ConfidenceLabel;
+}
+
+export interface ApiDashboardTodayResponse {
+  date: string;
+  target: ApiNutritionTarget;
+  consumed: ApiNutritionTarget;
+  next_meal_guidance: ApiNextMealGuidance;
+  meals: ApiDashboardMeal[];
 }
 
 export interface ApiCalorieRange {
@@ -176,10 +226,80 @@ export interface ApiAnalysisResult {
   clarification_question?: ApiClarificationQuestion | null;
 }
 
+export interface ApiAnalysisJobError {
+  code: string;
+  message: string;
+}
+
+export interface ApiAnalysisJobCreateResponse {
+  analysis_job_id: string;
+  status: "queued";
+}
+
+export interface ApiAnalysisJobResponse {
+  id: string;
+  status: AnalysisJobStatus;
+  result: ApiAnalysisResult | null;
+  error?: ApiAnalysisJobError | null;
+}
+
+export interface ApiRangeNarrowingResult {
+  before: ApiCalorieRange;
+  after: ApiCalorieRange;
+  copy?: string;
+  copy_text?: string;
+}
+
+export interface ApiClarificationResponse {
+  status: "completed";
+  result: ApiAnalysisResult;
+  range_narrowing?: ApiRangeNarrowingResult | null;
+}
+
+export interface ApiMealLogRequest {
+  analysis_job_id: string;
+  result_id: string;
+  clarification_value: string;
+}
+
 export interface ApiSavedImpact {
   confirmation: string;
   remaining_calories_kcal: number;
   next_meal_suggestion: string;
+}
+
+export interface ApiSavedImpactResponse extends ApiSavedImpact {
+  dashboard: ApiDashboardTodayResponse;
+}
+
+export function mapApiNutritionTarget(target: ApiNutritionTarget): NutritionTarget {
+  return {
+    caloriesKcal: target.calories_kcal,
+    proteinG: target.protein_g,
+    carbsG: target.carbs_g,
+    fatG: target.fat_g
+  };
+}
+
+export function mapApiDashboardToday(response: ApiDashboardTodayResponse): DashboardTodayResponse {
+  return {
+    date: response.date,
+    target: mapApiNutritionTarget(response.target),
+    consumed: mapApiNutritionTarget(response.consumed),
+    nextMealGuidance: {
+      deficits: response.next_meal_guidance.deficits,
+      excesses: response.next_meal_guidance.excesses,
+      menuTypeRecommendations: response.next_meal_guidance.menu_type_recommendations,
+      explanation: response.next_meal_guidance.explanation
+    },
+    meals: response.meals.map((meal) => ({
+      id: meal.id,
+      name: meal.name,
+      mealType: meal.meal_type,
+      caloriesKcal: meal.calories_kcal,
+      confidenceLabel: meal.confidence_label
+    }))
+  };
 }
 
 export function mapApiCalorieRange(range: ApiCalorieRange): CalorieRange {
@@ -226,6 +346,35 @@ export function mapApiAnalysisResult(result: ApiAnalysisResult): AnalysisResult 
   };
 }
 
+export function mapApiAnalysisJob(response: ApiAnalysisJobResponse): AnalysisJobViewModel {
+  return {
+    id: response.id,
+    status: response.status,
+    result: response.result ? mapApiAnalysisResult(response.result) : undefined,
+    error: response.error ? { code: response.error.code, message: response.error.message } : undefined
+  };
+}
+
+export function mapApiRangeNarrowing(result: ApiRangeNarrowingResult): RangeNarrowingResult {
+  return {
+    before: mapApiCalorieRange(result.before),
+    after: mapApiCalorieRange(result.after),
+    copy: result.copy ?? result.copy_text ?? "범위를 다시 계산했어요."
+  };
+}
+
+export function mapApiClarificationResponse(response: ApiClarificationResponse): {
+  status: "completed";
+  result: AnalysisResult;
+  rangeNarrowing?: RangeNarrowingResult;
+} {
+  return {
+    status: response.status,
+    result: mapApiAnalysisResult(response.result),
+    rangeNarrowing: response.range_narrowing ? mapApiRangeNarrowing(response.range_narrowing) : undefined
+  };
+}
+
 export function mapApiSavedImpact(impact: ApiSavedImpact, dashboard: DashboardTodayResponse): SavedImpactViewModel {
   return {
     confirmation: impact.confirmation,
@@ -233,4 +382,8 @@ export function mapApiSavedImpact(impact: ApiSavedImpact, dashboard: DashboardTo
     nextMealSuggestion: impact.next_meal_suggestion,
     dashboard
   };
+}
+
+export function mapApiSavedImpactResponse(response: ApiSavedImpactResponse): SavedImpactViewModel {
+  return mapApiSavedImpact(response, mapApiDashboardToday(response.dashboard));
 }

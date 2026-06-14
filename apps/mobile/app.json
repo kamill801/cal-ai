@@ -13,9 +13,6 @@
       "adaptiveIcon": {
         "backgroundColor": "#fbfaf6"
       }
-    },
-    "extra": {
-      "apiBaseUrl": "http://localhost:8015"
     }
   }
 }

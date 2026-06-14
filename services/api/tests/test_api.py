@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app import main as api_main
 from app.main import app
+from app.services.analysis_provider import StructuredOutputMalformedError
 
 
 client = TestClient(app)
@@ -184,3 +186,20 @@ def test_save_contract_requires_clarification_value() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_malformed_provider_output_returns_safe_503(monkeypatch) -> None:
+    class MalformedProvider:
+        def create_job(self, payload):
+            raise StructuredOutputMalformedError("openai_output_malformed")
+
+    monkeypatch.setattr(api_main, "get_analysis_provider", lambda: MalformedProvider())
+
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "analysis_provider_unavailable"
+    assert "openai_output_malformed" not in response.text

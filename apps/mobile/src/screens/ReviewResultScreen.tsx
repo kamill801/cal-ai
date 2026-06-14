@@ -1,29 +1,38 @@
 import type { AnalysisResult, RangeNarrowingResult } from "@cal-ai/shared";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { CalorieRange } from "../components/CalorieRange";
+import { FlowStatusCard } from "../components/FlowStatusCard";
 import { ConfidencePill } from "../components/ConfidencePill";
 import { MacroSummary } from "../components/MacroSummary";
 import { MealPhotoFrame } from "../components/MealPhotoFrame";
 import { RangeNarrowing } from "../components/RangeNarrowing";
+import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { scanPhotoSource } from "../mockData";
 import { colors, radii, spacing, typography } from "../theme";
 
 export function ReviewResultScreen({
   analysis,
   narrowing,
+  status,
+  error,
   onSave,
-  onEdit
+  onEdit,
+  onRetry
 }: {
   analysis: AnalysisResult;
   narrowing?: RangeNarrowingResult;
+  status: RequestStatus;
+  error?: FlowError;
   onSave: () => void;
   onEdit: () => void;
+  onRetry: () => void;
 }) {
+  const isSaving = status === "loading";
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>결과 확인</Text>
-        <Text style={styles.title}>저장해도 괜찮은 추정이에요</Text>
+        <Text style={styles.title}>{isSaving ? "식사 기록으로 저장하고 있어요" : "저장해도 괜찮은 추정이에요"}</Text>
       </View>
 
       <MealPhotoFrame
@@ -54,12 +63,15 @@ export function ReviewResultScreen({
         ))}
       </View>
 
+      {isSaving ? <FlowStatusCard title="저장 중" message="식사 기록과 오늘 대시보드를 업데이트하고 있어요." /> : null}
+      {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}
+
       <View style={styles.actionRow}>
-        <TouchableOpacity activeOpacity={0.82} style={styles.secondaryButton} onPress={onEdit} accessibilityRole="button">
+        <TouchableOpacity activeOpacity={0.82} style={[styles.secondaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={onEdit} accessibilityRole="button" accessibilityState={{ disabled: isSaving }}>
           <Text style={styles.secondaryButtonText}>수정</Text>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.86} style={styles.primaryButton} onPress={onSave} accessibilityRole="button">
-          <Text style={styles.primaryButtonText}>식사로 기록</Text>
+        <TouchableOpacity activeOpacity={0.86} style={[styles.primaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={onSave} accessibilityRole="button" accessibilityState={{ disabled: isSaving, busy: isSaving }}>
+          <Text style={styles.primaryButtonText}>{isSaving ? "저장 중" : "식사로 기록"}</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -147,6 +159,9 @@ const styles = StyleSheet.create({
     borderRadius: radii.control,
     backgroundColor: colors.black,
     padding: spacing.md
+  },
+  buttonDisabled: {
+    opacity: 0.55
   },
   primaryButtonText: {
     color: colors.surface,

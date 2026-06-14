@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from app.schemas import (
     AnalysisJobCreateResponse,
@@ -17,13 +17,23 @@ from app.schemas import (
     OnboardingResponse,
     SavedImpactResponse,
 )
-from app.services.mock_analysis import apply_mock_clarification, get_mock_analysis_job, get_mock_dashboard_today, save_mock_meal
+from app.services.analysis_provider import (
+    AnalysisProviderConfigurationError,
+    AnalysisProviderDryRunError,
+    StructuredOutputMalformedError,
+    get_analysis_provider,
+)
+from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.targets import calculate_initial_target
 
 app = FastAPI(
     title="Trust-First AI Nutrition Logger API",
     version="0.1.0",
 )
+
+
+def provider_unavailable_error() -> HTTPException:
+    return HTTPException(status_code=503, detail={"code": "analysis_provider_unavailable", "message": "분석 제공자를 사용할 수 없어요. 로컬 mock 설정을 확인해 주세요."})
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -44,20 +54,31 @@ def dashboard_today() -> DashboardTodayResponse:
 
 @app.post("/v1/analysis-jobs", response_model=AnalysisJobCreateResponse)
 def create_analysis_job(payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
-    return AnalysisJobCreateResponse(analysis_job_id=f"mock-{payload.meal_type}-001", status="queued")
+    try:
+        return get_analysis_provider().create_job(payload)
+    except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
+        raise provider_unavailable_error() from exc
 
 
 @app.get("/v1/analysis-jobs/{job_id}", response_model=AnalysisJobResponse)
 def analysis_job(job_id: str) -> AnalysisJobResponse:
-    return get_mock_analysis_job(job_id)
+    try:
+        return get_analysis_provider().get_job(job_id)
+    except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
+        raise provider_unavailable_error() from exc
 
 
 @app.post("/v1/analysis-jobs/{job_id}/clarifications", response_model=ClarificationResponse)
 def clarify_analysis_job(job_id: str, payload: ClarificationRequest) -> ClarificationResponse:
-    rice_answer = next((answer.value for answer in payload.answers if answer.question_key == "rice_amount"), "unknown")
-    return apply_mock_clarification(job_id, rice_answer)
+    try:
+        return get_analysis_provider().apply_clarification(job_id, payload)
+    except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
+        raise provider_unavailable_error() from exc
 
 
 @app.post("/v1/meal-logs", response_model=SavedImpactResponse)
 def create_meal_log(payload: MealLogRequest) -> SavedImpactResponse:
-    return save_mock_meal(payload.clarification_value, payload.analysis_job_id)
+    try:
+        return get_analysis_provider().save_meal(payload)
+    except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
+        raise provider_unavailable_error() from exc

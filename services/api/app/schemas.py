@@ -141,10 +141,16 @@ class AnalysisJobCreateResponse(BaseModel):
     status: Literal["queued"]
 
 
+class AnalysisJobError(BaseModel):
+    code: str
+    message: str
+
+
 class AnalysisJobResponse(BaseModel):
     id: str
-    status: Literal["queued", "analyzing", "needs_clarification", "completed"]
-    result: AnalysisResult
+    status: Literal["queued", "analyzing", "needs_clarification", "completed", "failed"]
+    result: AnalysisResult | None = None
+    error: AnalysisJobError | None = None
 
 
 class ClarificationAnswer(BaseModel):
