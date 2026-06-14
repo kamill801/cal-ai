@@ -43,6 +43,38 @@ async function expectProviderUnavailable(): Promise<void> {
   }
 }
 
+async function expectImageUploadMapsResponse(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url, init) => {
+    if (String(url).endsWith("/v1/image-uploads") && init?.method === "POST") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            image_upload_id: "local-upload-local-demo-meal-preview",
+            image_reference: "local-image://local-upload-local-demo-meal-preview",
+            status: "ready"
+          })
+      } as Response);
+    }
+    return Promise.reject(new Error("unexpected request"));
+  }) as typeof fetch;
+  try {
+    const uploaded = await createCalAiApiClient("http://127.0.0.1:8015").uploadImage({
+      localAssetId: "local-demo-meal-preview",
+      fileName: "meal-preview.png",
+      contentType: "image/png",
+      byteSize: 420000
+    });
+    if (uploaded.imageUploadId !== "local-upload-local-demo-meal-preview" || uploaded.imageReference !== "local-image://local-upload-local-demo-meal-preview") {
+      throw new Error("image upload response did not map");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function expectProviderDryRun(): Promise<void> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() =>
@@ -197,6 +229,7 @@ async function expectTimeoutStatusFallback(): Promise<void> {
 
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
+  await expectImageUploadMapsResponse();
   await expectProviderUnavailable();
   await expectProviderDryRun();
   await expectMalformedOutput();

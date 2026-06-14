@@ -58,6 +58,20 @@ class ApiErrorDetail(BaseModel):
     kind: Literal["provider", "validation", "not_found", "server", "unknown"]
 
 
+class ImageUploadRequest(BaseModel):
+    local_asset_id: str = Field(min_length=1, max_length=120)
+    file_name: str = Field(min_length=1, max_length=180)
+    content_type: str = Field(min_length=1, max_length=64)
+    byte_size: int = Field(gt=0)
+    simulate_failure: bool = False
+
+
+class ImageUploadResponse(BaseModel):
+    image_upload_id: str
+    image_reference: str
+    status: Literal["ready"]
+
+
 class DashboardMeal(BaseModel):
     id: str
     name: str
@@ -138,7 +152,7 @@ class AnalysisResult(BaseModel):
 
 
 class AnalysisJobRequest(BaseModel):
-    image_upload_id: str
+    image_upload_id: str = Field(min_length=1, max_length=180)
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
     optional_note: str | None = None
 

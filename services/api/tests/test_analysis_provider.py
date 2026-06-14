@@ -4,7 +4,7 @@ import socket
 
 import pytest
 
-from app.schemas import AnalysisJobRequest
+from app.schemas import AnalysisJobRequest, ImageUploadRequest
 from app.services.analysis_provider import (
     AnalysisProviderDryRunError,
     MockAnalysisProvider,
@@ -14,6 +14,7 @@ from app.services.analysis_provider import (
     get_analysis_provider,
     parse_with_retry,
 )
+from app.services.image_uploads import create_mock_image_upload, resolve_image_reference
 
 
 def test_provider_defaults_to_mock_without_api_key() -> None:
@@ -26,10 +27,18 @@ def test_provider_defaults_to_mock_without_api_key() -> None:
 
 def test_openai_dry_run_provider_is_keyless_until_real_calls_are_enabled() -> None:
     provider = get_analysis_provider({"AI_PROVIDER": "openai", "AI_MODEL_VISION": "gpt-5.5"})
+    upload = create_mock_image_upload(
+        ImageUploadRequest(
+            local_asset_id="dry-run-provider-demo",
+            file_name="meal.png",
+            content_type="image/png",
+            byte_size=420000,
+        )
+    )
 
     assert isinstance(provider, OpenAIAnalysisProvider)
     with pytest.raises(AnalysisProviderDryRunError) as exc_info:
-        provider.create_job(AnalysisJobRequest(image_upload_id="local-demo-meal-preview", meal_type="lunch"))
+        provider.create_job(AnalysisJobRequest(image_upload_id=upload.image_upload_id, meal_type="lunch"))
 
     assert str(exc_info.value) == "openai_provider_dry_run_only"
 
@@ -40,9 +49,17 @@ def test_openai_provider_is_dry_run_and_makes_no_network_call(monkeypatch: pytes
 
     monkeypatch.setattr(socket, "socket", fail_socket)
     provider = get_analysis_provider({"AI_PROVIDER": "openai", "AI_MODEL_VISION": "gpt-5.5"})
+    upload = create_mock_image_upload(
+        ImageUploadRequest(
+            local_asset_id="no-network-provider-demo",
+            file_name="meal.png",
+            content_type="image/png",
+            byte_size=420000,
+        )
+    )
 
     with pytest.raises(AnalysisProviderDryRunError):
-        provider.create_job(AnalysisJobRequest(image_upload_id="local-demo-meal-preview", meal_type="lunch"))
+        provider.create_job(AnalysisJobRequest(image_upload_id=upload.image_upload_id, meal_type="lunch"))
 
 
 def test_openai_request_payload_uses_responses_image_and_json_schema_shape() -> None:
@@ -53,6 +70,19 @@ def test_openai_request_payload_uses_responses_image_and_json_schema_shape() -> 
     assert payload["input"][0]["content"][1]["type"] == "input_image"
     assert payload["text"]["format"]["type"] == "json_schema"
     assert payload["text"]["format"]["strict"] is True
+
+
+def test_openai_provider_resolves_uploaded_image_reference() -> None:
+    upload = create_mock_image_upload(
+        ImageUploadRequest(
+            local_asset_id="openai-demo",
+            file_name="meal.png",
+            content_type="image/png",
+            byte_size=420000,
+        )
+    )
+
+    assert resolve_image_reference(upload.image_upload_id) == "local-image://local-upload-openai-demo"
 
 
 def test_malformed_structured_output_retries_then_fails_closed() -> None:

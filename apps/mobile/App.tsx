@@ -31,6 +31,18 @@ export default function App() {
           }
         }
         switch (activeCommand.type) {
+          case "UPLOAD_IMAGE": {
+            const uploaded = await apiClient.uploadImage({
+              localAssetId: activeCommand.localAssetId,
+              fileName: activeCommand.fileName,
+              contentType: activeCommand.contentType,
+              byteSize: activeCommand.byteSize
+            });
+            if (isCurrent) {
+              dispatch({ type: "IMAGE_UPLOADED", imageUploadId: uploaded.imageUploadId });
+            }
+            return;
+          }
           case "CREATE_ANALYSIS_JOB": {
             const created = await apiClient.createAnalysisJob({ imageUploadId: activeCommand.imageUploadId, mealType: activeCommand.mealType });
             if (isCurrent) {

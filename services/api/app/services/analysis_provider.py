@@ -18,6 +18,7 @@ from app.schemas import (
     SavedImpactResponse,
 )
 from app.services.mock_analysis import apply_mock_clarification, get_mock_analysis_job, save_mock_meal
+from app.services.image_uploads import resolve_image_reference
 
 SAFE_PROVIDER_ERROR_MESSAGE = "분석 제공자를 설정할 수 없어요. 로컬 mock 분석으로 개발을 계속할 수 있어요."
 
@@ -71,7 +72,7 @@ class OpenAIAnalysisProvider:
         self._text_model = text_model or self._vision_model
 
     def create_job(self, payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
-        _ = self.build_responses_payload(image_reference=payload.image_upload_id, meal_type=payload.meal_type, optional_note=payload.optional_note)
+        _ = self.build_responses_payload(image_reference=resolve_image_reference(payload.image_upload_id), meal_type=payload.meal_type, optional_note=payload.optional_note)
         raise AnalysisProviderDryRunError("openai_provider_dry_run_only")
 
     def get_job(self, job_id: str) -> AnalysisJobResponse:

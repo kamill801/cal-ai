@@ -6,6 +6,7 @@ export type ConfidenceGroup = "certain" | "estimated" | "needs_check" | "manual"
 export type AnalysisJobStatus = "queued" | "analyzing" | "needs_clarification" | "completed" | "failed";
 export type ApiErrorKind = "provider" | "validation" | "not_found" | "server" | "unknown";
 export type ClientErrorKind = ApiErrorKind | "network" | "http" | "timeout" | "job_failed";
+export type ImageContentType = "image/jpeg" | "image/png" | "image/webp";
 
 export interface NutritionTarget {
   caloriesKcal: number;
@@ -142,6 +143,12 @@ export interface AnalysisJobViewModel {
   error?: AnalysisJobError;
 }
 
+export interface ImageUploadViewModel {
+  imageUploadId: string;
+  imageReference: string;
+  status: "ready";
+}
+
 export interface MockAnalysisJobResponse {
   id: string;
   status: AnalysisJobStatus;
@@ -243,6 +250,20 @@ export interface ApiAnalysisJobError {
 export interface ApiAnalysisJobCreateResponse {
   analysis_job_id: string;
   status: "queued";
+}
+
+export interface ApiImageUploadRequest {
+  local_asset_id: string;
+  file_name: string;
+  content_type: ImageContentType;
+  byte_size: number;
+  simulate_failure?: boolean;
+}
+
+export interface ApiImageUploadResponse {
+  image_upload_id: string;
+  image_reference: string;
+  status: "ready";
 }
 
 export interface ApiAnalysisJobResponse {
@@ -361,6 +382,14 @@ export function mapApiAnalysisJob(response: ApiAnalysisJobResponse): AnalysisJob
     status: response.status,
     result: response.result ? mapApiAnalysisResult(response.result) : undefined,
     error: response.error ? { code: response.error.code, message: response.error.message } : undefined
+  };
+}
+
+export function mapApiImageUpload(response: ApiImageUploadResponse): ImageUploadViewModel {
+  return {
+    imageUploadId: response.image_upload_id,
+    imageReference: response.image_reference,
+    status: response.status
   };
 }
 

@@ -16,6 +16,8 @@ from app.schemas import (
     ClarificationResponse,
     DashboardTodayResponse,
     HealthResponse,
+    ImageUploadRequest,
+    ImageUploadResponse,
     MealLogRequest,
     OnboardingRequest,
     OnboardingResponse,
@@ -27,6 +29,7 @@ from app.services.analysis_provider import (
     StructuredOutputMalformedError,
     get_analysis_provider,
 )
+from app.services.image_uploads import ImageUploadError, create_mock_image_upload, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.targets import calculate_initial_target
 
@@ -75,6 +78,12 @@ def malformed_output_error() -> HTTPException:
     )
 
 
+def image_upload_error(exc: ImageUploadError) -> HTTPException:
+    if exc.code == "image_upload_not_found":
+        return api_error(status_code=404, code=exc.code, message=exc.message, retryable=False, kind="not_found")
+    return api_error(status_code=400 if not exc.retryable else 503, code=exc.code, message=exc.message, retryable=exc.retryable, kind="validation" if not exc.retryable else "server")
+
+
 def provider_error_from_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, StructuredOutputMalformedError):
         return malformed_output_error()
@@ -110,10 +119,21 @@ def dashboard_today() -> DashboardTodayResponse:
     return get_mock_dashboard_today()
 
 
+@app.post("/v1/image-uploads", response_model=ImageUploadResponse)
+def create_image_upload(payload: ImageUploadRequest) -> ImageUploadResponse:
+    try:
+        return create_mock_image_upload(payload)
+    except ImageUploadError as exc:
+        raise image_upload_error(exc) from exc
+
+
 @app.post("/v1/analysis-jobs", response_model=AnalysisJobCreateResponse)
 def create_analysis_job(payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
     try:
+        resolve_image_reference(payload.image_upload_id)
         return get_analysis_provider().create_job(payload)
+    except ImageUploadError as exc:
+        raise image_upload_error(exc) from exc
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
         raise provider_error_from_exception(exc) from exc
 

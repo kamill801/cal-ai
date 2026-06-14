@@ -8,6 +8,20 @@ from app.services.analysis_provider import AnalysisProviderConfigurationError, A
 client = TestClient(app)
 
 
+def upload_demo_image(local_asset_id: str = "local-demo-image") -> str:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": local_asset_id,
+            "file_name": "meal-preview.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["image_upload_id"]
+
+
 def test_health() -> None:
     response = client.get("/health")
 
@@ -46,10 +60,116 @@ def test_dashboard_today_mock_contract() -> None:
     assert body["next_meal_guidance"]["menu_type_recommendations"]
 
 
+def test_image_upload_returns_local_reference_for_analysis() -> None:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "local-demo-meal-preview",
+            "file_name": "meal-preview.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "image_upload_id": "local-upload-local-demo-meal-preview",
+        "image_reference": "local-image://local-upload-local-demo-meal-preview",
+        "status": "ready",
+    }
+
+
+def test_image_upload_rejects_too_large_image() -> None:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "large-demo",
+            "file_name": "large.png",
+            "content_type": "image/png",
+            "byte_size": 8_000_001,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "image_too_large",
+        "message": "이미지 용량은 8MB 이하로 줄여 주세요.",
+        "retryable": False,
+        "kind": "validation",
+    }
+
+
+def test_image_upload_rejects_unsupported_image_type() -> None:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "heic-demo",
+            "file_name": "meal.heic",
+            "content_type": "image/heic",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == {
+        "code": "unsupported_image_type",
+        "message": "JPG, PNG, WebP 이미지만 업로드할 수 있어요.",
+        "retryable": False,
+        "kind": "validation",
+    }
+
+
+def test_image_upload_rejects_overlong_content_type_metadata() -> None:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "metadata-demo",
+            "file_name": "meal.png",
+            "content_type": f"image/{'x' * 80}",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "validation_error"
+
+
+def test_image_upload_failed_simulation_is_retryable() -> None:
+    response = client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "temporary-failure",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+            "simulate_failure": True,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "image_upload_failed",
+        "message": "이미지를 업로드하지 못했어요. 다시 시도해 주세요.",
+        "retryable": True,
+        "kind": "server",
+    }
+
+
+def test_analysis_job_requires_image_reference() -> None:
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": "", "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "validation_error"
+
+
 def test_analysis_job_serialized_contract_shape() -> None:
     create_response = client.post(
         "/v1/analysis-jobs",
-        json={"image_upload_id": "local-demo-image", "meal_type": "lunch", "optional_note": "밥은 거의 다 먹었어요"},
+        json={"image_upload_id": upload_demo_image(), "meal_type": "lunch", "optional_note": "밥은 거의 다 먹었어요"},
     )
     assert create_response.status_code == 200
     assert create_response.json() == {"analysis_job_id": "mock-lunch-001", "status": "queued"}
@@ -87,7 +207,7 @@ def test_analysis_job_serialized_contract_shape() -> None:
 def test_mock_jobs_preserve_requested_meal_type() -> None:
     create_response = client.post(
         "/v1/analysis-jobs",
-        json={"image_upload_id": "local-demo-image", "meal_type": "breakfast"},
+        json={"image_upload_id": upload_demo_image("breakfast-demo"), "meal_type": "breakfast"},
     )
     assert create_response.status_code == 200
     assert create_response.json()["analysis_job_id"] == "mock-breakfast-001"
@@ -203,7 +323,7 @@ def test_malformed_provider_output_returns_safe_503(monkeypatch) -> None:
 
     response = client.post(
         "/v1/analysis-jobs",
-        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+        json={"image_upload_id": upload_demo_image("malformed-demo"), "meal_type": "lunch"},
     )
 
     assert response.status_code == 503
@@ -225,7 +345,7 @@ def test_provider_dry_run_returns_distinct_safe_503(monkeypatch) -> None:
 
     response = client.post(
         "/v1/analysis-jobs",
-        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+        json={"image_upload_id": upload_demo_image("dry-run-demo"), "meal_type": "lunch"},
     )
 
     assert response.status_code == 503
@@ -247,7 +367,7 @@ def test_provider_configuration_returns_distinct_safe_503(monkeypatch) -> None:
 
     response = client.post(
         "/v1/analysis-jobs",
-        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+        json={"image_upload_id": upload_demo_image("misconfigured-demo"), "meal_type": "lunch"},
     )
 
     assert response.status_code == 503
@@ -258,3 +378,18 @@ def test_provider_configuration_returns_distinct_safe_503(monkeypatch) -> None:
         "kind": "provider",
     }
     assert "ai_provider_api_key_missing" not in response.text
+
+
+def test_analysis_job_rejects_unknown_image_upload_id() -> None:
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": "local-upload-not-created", "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "image_upload_not_found",
+        "message": "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.",
+        "retryable": False,
+        "kind": "not_found",
+    }

@@ -10,8 +10,10 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function startAndCreateJob(): ScanToSaveState {
   const started = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN" });
-  assert(started.pendingCommand?.type === "CREATE_ANALYSIS_JOB", "start creates analysis job command");
-  const created = scanToSaveReducer(started, { type: "ANALYSIS_JOB_CREATED", analysisJobId: "mock-lunch-001" });
+  assert(started.pendingCommand?.type === "UPLOAD_IMAGE", "start creates image upload command");
+  const uploaded = scanToSaveReducer(started, { type: "IMAGE_UPLOADED", imageUploadId: "local-upload-local-demo-meal-preview" });
+  assert(uploaded.pendingCommand?.type === "CREATE_ANALYSIS_JOB", "uploaded image schedules analysis job command");
+  const created = scanToSaveReducer(uploaded, { type: "ANALYSIS_JOB_CREATED", analysisJobId: "mock-lunch-001" });
   assert(created.pendingCommand?.type === "FETCH_ANALYSIS_JOB", "created job schedules fetch");
   return created;
 }
@@ -21,6 +23,20 @@ function queuedJob(): AnalysisJobViewModel {
 }
 
 export function runAsyncFlowSmoke(): void {
+  const uploading = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN" });
+  const failedUpload = scanToSaveReducer(uploading, {
+    type: "COMMAND_FAILED",
+    command: uploading.pendingCommand!,
+    message: "이미지를 업로드하지 못했어요.",
+    code: "image_upload_failed",
+    kind: "server",
+    retryable: true,
+    status: 503
+  });
+  assert(failedUpload.error?.code === "image_upload_failed", "upload failure preserves code");
+  const retriedUpload = scanToSaveReducer(failedUpload, { type: "RETRY_LAST" });
+  assert(retriedUpload.status === "loading" && retriedUpload.pendingCommand?.type === "UPLOAD_IMAGE", "upload retry replays upload command");
+
   const created = startAndCreateJob();
   const failedTransport = scanToSaveReducer(created, {
     type: "COMMAND_FAILED",

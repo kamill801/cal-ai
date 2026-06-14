@@ -14,6 +14,7 @@ export interface FlowError {
 }
 
 export type ScanToSaveCommand =
+  | { type: "UPLOAD_IMAGE"; requestId: number; localAssetId: string; fileName: string; contentType: "image/jpeg" | "image/png" | "image/webp"; byteSize: number }
   | { type: "CREATE_ANALYSIS_JOB"; requestId: number; imageUploadId: string; mealType: MealType }
   | { type: "FETCH_ANALYSIS_JOB"; requestId: number; jobId: string; pollAttempt: number; delayMs?: number }
   | { type: "SUBMIT_CLARIFICATION"; requestId: number; jobId: string; questionKey: string; value: string }
@@ -38,6 +39,7 @@ export interface ScanToSaveState {
 
 export type ScanToSaveAction =
   | { type: "START_SCAN" }
+  | { type: "IMAGE_UPLOADED"; imageUploadId: string }
   | { type: "ANALYSIS_JOB_CREATED"; analysisJobId: string }
   | { type: "ANALYSIS_JOB_LOADED"; job: AnalysisJobViewModel }
   | { type: "OPEN_CLARIFICATION" }
@@ -51,7 +53,9 @@ export type ScanToSaveAction =
   | { type: "RETRY_LAST" }
   | { type: "RETURN_DASHBOARD" };
 
-const LOCAL_DEMO_IMAGE_UPLOAD_ID = "local-demo-meal-preview";
+const LOCAL_DEMO_IMAGE_ASSET_ID = "local-demo-meal-preview";
+const LOCAL_DEMO_IMAGE_FILE_NAME = "meal-preview.png";
+const LOCAL_DEMO_IMAGE_BYTE_SIZE = 420_000;
 const MAX_ANALYSIS_POLL_ATTEMPTS = 5;
 
 export function createInitialScanToSaveState(): ScanToSaveState {
@@ -78,7 +82,19 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
           lastFailedCommand: undefined,
           analysisJobId: undefined
         },
-        (requestId) => ({ type: "CREATE_ANALYSIS_JOB", requestId, imageUploadId: LOCAL_DEMO_IMAGE_UPLOAD_ID, mealType: "lunch" })
+        (requestId) => ({
+          type: "UPLOAD_IMAGE",
+          requestId,
+          localAssetId: LOCAL_DEMO_IMAGE_ASSET_ID,
+          fileName: LOCAL_DEMO_IMAGE_FILE_NAME,
+          contentType: "image/png",
+          byteSize: LOCAL_DEMO_IMAGE_BYTE_SIZE
+        })
+      );
+    case "IMAGE_UPLOADED":
+      return withCommand(
+        { ...state, screen: "analyzing", status: "loading", error: undefined, pendingCommand: undefined },
+        (requestId) => ({ type: "CREATE_ANALYSIS_JOB", requestId, imageUploadId: action.imageUploadId, mealType: "lunch" })
       );
     case "ANALYSIS_JOB_CREATED":
       return withCommand(
@@ -201,7 +217,14 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
         code: job.error?.code,
         retryable: true
       },
-      lastFailedCommand: { type: "CREATE_ANALYSIS_JOB", requestId: state.requestSeq + 1, imageUploadId: LOCAL_DEMO_IMAGE_UPLOAD_ID, mealType: "lunch" }
+      lastFailedCommand: {
+        type: "UPLOAD_IMAGE",
+        requestId: state.requestSeq + 1,
+        localAssetId: LOCAL_DEMO_IMAGE_ASSET_ID,
+        fileName: LOCAL_DEMO_IMAGE_FILE_NAME,
+        contentType: "image/png",
+        byteSize: LOCAL_DEMO_IMAGE_BYTE_SIZE
+      }
     };
   }
 

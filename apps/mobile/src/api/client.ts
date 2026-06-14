@@ -5,16 +5,20 @@ import type {
   ApiAnalysisJobResponse,
   ApiClarificationResponse,
   ApiDashboardTodayResponse,
+  ApiImageUploadResponse,
   ApiSavedImpactResponse,
+  ImageContentType,
   MealType
 } from "@cal-ai/shared";
 import {
   mapApiAnalysisJob,
   mapApiClarificationResponse,
   mapApiDashboardToday,
+  mapApiImageUpload,
   mapApiSavedImpactResponse,
   type AnalysisJobViewModel,
   type DashboardTodayResponse,
+  type ImageUploadViewModel,
   type RangeNarrowingResult,
   type SavedImpactViewModel,
   type AnalysisResult
@@ -55,6 +59,7 @@ export class ApiClientError extends Error {
 
 export interface CalAiApiClient {
   getTodayDashboard(): Promise<DashboardTodayResponse>;
+  uploadImage(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number; simulateFailure?: boolean }): Promise<ImageUploadViewModel>;
   createAnalysisJob(input: { imageUploadId: string; mealType?: MealType; optionalNote?: string }): Promise<{ analysisJobId: string; status: "queued" }>;
   getAnalysisJob(jobId: string): Promise<AnalysisJobViewModel>;
   submitClarification(input: { jobId: string; questionKey: string; value: string }): Promise<{ result: AnalysisResult; rangeNarrowing?: RangeNarrowingResult }>;
@@ -67,6 +72,20 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl()): CalAiApiClient 
   return {
     async getTodayDashboard() {
       return mapApiDashboardToday(await request<ApiDashboardTodayResponse>(root, "/v1/dashboard/today"));
+    },
+    async uploadImage(input) {
+      return mapApiImageUpload(
+        await request<ApiImageUploadResponse>(root, "/v1/image-uploads", {
+          method: "POST",
+          body: {
+            local_asset_id: input.localAssetId,
+            file_name: input.fileName,
+            content_type: input.contentType,
+            byte_size: input.byteSize,
+            simulate_failure: input.simulateFailure ?? false
+          }
+        })
+      );
     },
     async createAnalysisJob(input) {
       const response = await request<ApiAnalysisJobCreateResponse>(root, "/v1/analysis-jobs", {

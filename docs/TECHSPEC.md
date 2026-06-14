@@ -264,6 +264,8 @@ Flow:
 
 Small target calculations and dashboard reads are synchronous.
 
+The MVP upload seam is mock/local only. `image_reference` is a server-owned placeholder that later maps to object storage or a model-readable image URL/data URL; clients should pass only `image_upload_id` into analysis job creation.
+
 ## 8. Functional Requirements
 
 ### FR-1: User Profile and Onboarding
@@ -869,6 +871,39 @@ Response:
   "status": "queued"
 }
 ```
+
+### POST /v1/image-uploads
+
+Purpose: create a mock/local upload record before analysis job creation.
+
+Request:
+
+```json
+{
+  "local_asset_id": "local-demo-meal-preview",
+  "file_name": "meal-preview.png",
+  "content_type": "image/png",
+  "byte_size": 420000
+}
+```
+
+Response:
+
+```json
+{
+  "image_upload_id": "local-upload-local-demo-meal-preview",
+  "image_reference": "local-image://local-upload-local-demo-meal-preview",
+  "status": "ready"
+}
+```
+
+MVP constraints:
+
+- The mock store is process-local and disposable.
+- Production object storage remains deferred.
+- Unknown `image_upload_id` values must fail before provider/model payload construction.
+- Supported content types are JPG, PNG, and WebP.
+- Images above 8MB are rejected.
 
 ### GET /v1/analysis-jobs/{id}
 

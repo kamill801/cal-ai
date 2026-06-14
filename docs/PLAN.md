@@ -95,7 +95,8 @@ Tasks:
 - [x] Preserve distinct provider error codes for provider unavailable, dry-run scaffold, and malformed structured output.
 - [x] Keep the OpenAI dry-run scaffold keyless until real calls are explicitly approved.
 - [ ] Add image picker/camera UI.
-- [ ] Add upload endpoint and object storage integration.
+- [x] Add mock/local upload endpoint and upload-ready mobile analysis flow.
+- [ ] Add production object storage integration.
 - [ ] Create `analysis_jobs` table.
 - [ ] Implement queue/worker.
 - [ ] Implement first AI vision analysis call with schema validation.
@@ -273,7 +274,7 @@ Current scaffold status:
 - [x] Add backend analysis provider interface and deterministic mock provider.
 - [x] Add OpenAI-ready dry-run scaffold and structured-output validation tests.
 - [x] Add mobile loading/error/retry semantics for create/fetch/poll.
-- [ ] Implement image upload.
+- [x] Implement mock/local image upload seam.
 - [ ] Integrate first real AI structured result after explicit API key/paid-call approval.
 
 ### Session 5: Clarification and Save
