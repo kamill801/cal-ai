@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -31,6 +31,7 @@ from app.services.analysis_provider import (
 )
 from app.services.image_uploads import ImageUploadError, create_mock_image_upload, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
+from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
 from app.services.targets import calculate_initial_target
 
 ApiErrorKind = Literal["provider", "validation", "not_found", "server", "unknown"]
@@ -78,10 +79,26 @@ def malformed_output_error() -> HTTPException:
     )
 
 
+def persistence_unavailable_error() -> HTTPException:
+    return api_error(
+        status_code=503,
+        code="persistence_unavailable",
+        message="로컬 저장소를 사용할 수 없어요. API 설정을 확인한 뒤 다시 시도해 주세요.",
+        retryable=True,
+        kind="server",
+    )
+
+
 def image_upload_error(exc: ImageUploadError) -> HTTPException:
     if exc.code == "image_upload_not_found":
         return api_error(status_code=404, code=exc.code, message=exc.message, retryable=False, kind="not_found")
-    return api_error(status_code=400 if not exc.retryable else 503, code=exc.code, message=exc.message, retryable=exc.retryable, kind="validation" if not exc.retryable else "server")
+    return api_error(
+        status_code=400 if not exc.retryable else 503,
+        code=exc.code,
+        message=exc.message,
+        retryable=exc.retryable,
+        kind="validation" if not exc.retryable else "server",
+    )
 
 
 def provider_error_from_exception(exc: Exception) -> HTTPException:
@@ -90,6 +107,13 @@ def provider_error_from_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, AnalysisProviderDryRunError):
         return provider_dry_run_error()
     return provider_unavailable_error()
+
+
+def persistence_repository() -> PersistenceRepository:
+    try:
+        return get_persistence_repository()
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
 
 
 @app.exception_handler(RequestValidationError)
@@ -120,43 +144,81 @@ def dashboard_today() -> DashboardTodayResponse:
 
 
 @app.post("/v1/image-uploads", response_model=ImageUploadResponse)
-def create_image_upload(payload: ImageUploadRequest) -> ImageUploadResponse:
+def create_image_upload(
+    payload: ImageUploadRequest,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> ImageUploadResponse:
     try:
-        return create_mock_image_upload(payload)
+        return create_mock_image_upload(payload, repository=repository)
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
 
 
 @app.post("/v1/analysis-jobs", response_model=AnalysisJobCreateResponse)
-def create_analysis_job(payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
+def create_analysis_job(
+    payload: AnalysisJobRequest,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> AnalysisJobCreateResponse:
     try:
-        resolve_image_reference(payload.image_upload_id)
-        return get_analysis_provider().create_job(payload)
+        image_reference = resolve_image_reference(payload.image_upload_id, repository=repository)
+        response = get_analysis_provider().create_job(payload)
+        repository.save_analysis_job(
+            payload=payload,
+            image_reference=image_reference,
+            create_response=response,
+        )
+        return response
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
         raise provider_error_from_exception(exc) from exc
 
 
 @app.get("/v1/analysis-jobs/{job_id}", response_model=AnalysisJobResponse)
-def analysis_job(job_id: str) -> AnalysisJobResponse:
+def analysis_job(
+    job_id: str,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> AnalysisJobResponse:
     try:
-        return get_analysis_provider().get_job(job_id)
+        response = get_analysis_provider().get_job(job_id)
+        repository.save_analysis_job_response(response)
+        return response
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
         raise provider_error_from_exception(exc) from exc
 
 
 @app.post("/v1/analysis-jobs/{job_id}/clarifications", response_model=ClarificationResponse)
-def clarify_analysis_job(job_id: str, payload: ClarificationRequest) -> ClarificationResponse:
+def clarify_analysis_job(
+    job_id: str,
+    payload: ClarificationRequest,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> ClarificationResponse:
     try:
-        return get_analysis_provider().apply_clarification(job_id, payload)
+        response = get_analysis_provider().apply_clarification(job_id, payload)
+        repository.save_clarification(analysis_job_id=job_id, payload=payload, response=response)
+        return response
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
         raise provider_error_from_exception(exc) from exc
 
 
 @app.post("/v1/meal-logs", response_model=SavedImpactResponse)
-def create_meal_log(payload: MealLogRequest) -> SavedImpactResponse:
+def create_meal_log(
+    payload: MealLogRequest,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> SavedImpactResponse:
     try:
-        return get_analysis_provider().save_meal(payload)
+        response = get_analysis_provider().save_meal(payload)
+        repository.save_meal_log(payload=payload, response=response)
+        return response
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
         raise provider_error_from_exception(exc) from exc

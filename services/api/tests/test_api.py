@@ -1,8 +1,15 @@
+import os
+
 from fastapi.testclient import TestClient
 
 from app import main as api_main
 from app.main import app
-from app.services.analysis_provider import AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError
+from app.services.analysis_provider import (
+    AnalysisProviderConfigurationError,
+    AnalysisProviderDryRunError,
+    StructuredOutputMalformedError,
+)
+from app.services.persistence import SQLitePersistenceRepository
 
 
 client = TestClient(app)
@@ -78,6 +85,84 @@ def test_image_upload_returns_local_reference_for_analysis() -> None:
         "image_reference": "local-image://local-upload-local-demo-meal-preview",
         "status": "ready",
     }
+
+
+def test_recreating_deterministic_mock_job_clears_stale_persisted_response() -> None:
+    first_upload_id = upload_demo_image("first-dinner-demo")
+    first_create = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": first_upload_id, "meal_type": "dinner", "optional_note": "first"},
+    )
+    assert first_create.status_code == 200
+    job_id = first_create.json()["analysis_job_id"]
+
+    first_fetch = client.get(f"/v1/analysis-jobs/{job_id}")
+    assert first_fetch.status_code == 200
+
+    repository = SQLitePersistenceRepository(os.environ["CAL_AI_API_DATA_PATH"])
+    first_record = repository.get_analysis_job(job_id)
+    assert first_record is not None
+    assert first_record.response is not None
+
+    second_upload_id = upload_demo_image("second-dinner-demo")
+    second_create = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": second_upload_id, "meal_type": "dinner", "optional_note": "second"},
+    )
+    assert second_create.status_code == 200
+    assert second_create.json()["analysis_job_id"] == job_id
+
+    second_record = repository.get_analysis_job(job_id)
+    assert second_record is not None
+    assert second_record.image_upload_id == second_upload_id
+    assert second_record.request.optional_note == "second"
+    assert second_record.status == "queued"
+    assert second_record.response is None
+
+
+def test_scan_to_save_metadata_persists_across_repository_instances() -> None:
+    upload_id = upload_demo_image("persisted-demo")
+    create_response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": upload_id, "meal_type": "dinner", "optional_note": "소스는 조금만"},
+    )
+    assert create_response.status_code == 200
+    job_id = create_response.json()["analysis_job_id"]
+
+    job_response = client.get(f"/v1/analysis-jobs/{job_id}")
+    assert job_response.status_code == 200
+
+    clarify_response = client.post(
+        f"/v1/analysis-jobs/{job_id}/clarifications",
+        json={"answers": [{"question_key": "rice_amount", "value": "large_bowl"}]},
+    )
+    assert clarify_response.status_code == 200
+
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={"analysis_job_id": job_id, "result_id": "analysis-dinner-001", "clarification_value": "large_bowl"},
+    )
+    assert save_response.status_code == 200
+
+    restarted_repository = SQLitePersistenceRepository(os.environ["CAL_AI_API_DATA_PATH"])
+    upload = restarted_repository.get_image_upload(upload_id)
+    job = restarted_repository.get_analysis_job(job_id)
+    clarifications = restarted_repository.list_clarifications(job_id)
+    meal_logs = restarted_repository.list_meal_logs(job_id)
+
+    assert upload is not None
+    assert upload.file_name == "meal-preview.png"
+    assert upload.image_reference == f"local-image://{upload_id}"
+    assert job is not None
+    assert job.image_upload_id == upload_id
+    assert job.image_reference == upload.image_reference
+    assert job.request.optional_note == "소스는 조금만"
+    assert job.response is not None
+    assert job.response.status == "completed"
+    assert clarifications[0].request.answers[0].value == "large_bowl"
+    assert clarifications[0].response.result.meal_type == "dinner"
+    assert meal_logs[0].request.clarification_value == "large_bowl"
+    assert meal_logs[0].response.confirmation == "기록했어요"
 
 
 def test_image_upload_rejects_too_large_image() -> None:
@@ -226,7 +311,11 @@ def test_mock_jobs_preserve_requested_meal_type() -> None:
 
     save_response = client.post(
         "/v1/meal-logs",
-        json={"analysis_job_id": "mock-breakfast-001", "result_id": "analysis-breakfast-001", "clarification_value": "half_bowl"},
+        json={
+            "analysis_job_id": "mock-breakfast-001",
+            "result_id": "analysis-breakfast-001",
+            "clarification_value": "half_bowl",
+        },
     )
     assert save_response.status_code == 200
     assert save_response.json()["dashboard"]["meals"][0]["meal_type"] == "breakfast"
@@ -244,7 +333,14 @@ def test_clarification_and_save_contracts() -> None:
     assert clarify_body["range_narrowing"]["before"]["high"] - clarify_body["range_narrowing"]["before"]["low"] == 160
     assert clarify_body["range_narrowing"]["after"]["high"] - clarify_body["range_narrowing"]["after"]["low"] == 70
 
-    save_response = client.post("/v1/meal-logs", json={"analysis_job_id": "mock-lunch-001", "result_id": "analysis-lunch-001", "clarification_value": "one_bowl"})
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "analysis_job_id": "mock-lunch-001",
+            "result_id": "analysis-lunch-001",
+            "clarification_value": "one_bowl",
+        },
+    )
     assert save_response.status_code == 200
     save_body = save_response.json()
     assert save_body["confirmation"] == "기록했어요"
@@ -378,6 +474,30 @@ def test_provider_configuration_returns_distinct_safe_503(monkeypatch) -> None:
         "kind": "provider",
     }
     assert "ai_provider_api_key_missing" not in response.text
+
+
+def test_persistence_failure_returns_structured_api_error(monkeypatch) -> None:
+    monkeypatch.setenv("CAL_AI_API_DATA_PATH", "/tmp")
+    failing_client = TestClient(app, raise_server_exceptions=False)
+
+    response = failing_client.post(
+        "/v1/image-uploads",
+        json={
+            "local_asset_id": "persistence-failure-demo",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["detail"] == {
+        "code": "persistence_unavailable",
+        "message": "로컬 저장소를 사용할 수 없어요. API 설정을 확인한 뒤 다시 시도해 주세요.",
+        "retryable": True,
+        "kind": "server",
+    }
 
 
 def test_analysis_job_rejects_unknown_image_upload_id() -> None:

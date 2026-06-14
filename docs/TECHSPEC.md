@@ -264,7 +264,7 @@ Flow:
 
 Small target calculations and dashboard reads are synchronous.
 
-The MVP upload seam is mock/local only. `image_reference` is a server-owned placeholder that later maps to object storage or a model-readable image URL/data URL; clients should pass only `image_upload_id` into analysis job creation.
+The MVP upload seam is mock/local only. `image_reference` is a server-owned placeholder that later maps to object storage or a model-readable image URL/data URL; clients should pass only `image_upload_id` into analysis job creation. Local development persists upload metadata, analysis job requests/results, clarification events, and meal log records through a repository boundary backed by `CAL_AI_API_DATA_PATH` sqlite storage. This keeps restart behavior deterministic without adding production DB, object storage, auth, or OpenAI calls.
 
 ## 8. Functional Requirements
 
@@ -730,6 +730,17 @@ Adjustment should be suggested, not silently applied.
 | explanation | text | optional |  |
 | calculated_at | timestamptz | yes |  |
 
+### Local persistence foundation
+
+Before production DB/object storage is approved, the FastAPI service uses a repository boundary with local sqlite storage (`CAL_AI_API_DATA_PATH`, default `.local/cal-ai-api.db`). It stores restart-stable metadata for:
+
+- `image_uploads`: upload id, local asset metadata, server-owned `image_reference`; no image bytes.
+- `analysis_jobs`: create request, returned job id/status, latest job response JSON.
+- `clarifications`: submitted answers and resulting narrowed analysis response.
+- `meal_logs`: save request and saved-impact response.
+
+This foundation is intentionally local-only and has no auth/user scoping, cloud storage, external paid API calls, or OpenAI SDK import. Production tables below remain the target schema once DB/security decisions are approved.
+
 ### analysis_jobs
 
 | Field | Type | Required | Notes |
@@ -899,7 +910,8 @@ Response:
 
 MVP constraints:
 
-- The mock store is process-local and disposable.
+- The mock upload stores metadata only; image bytes remain local/client-owned until production object storage is explicitly approved.
+- Local development persistence uses sqlite via `CAL_AI_API_DATA_PATH` and must remain replaceable by production DB/storage repositories later.
 - Production object storage remains deferred.
 - Unknown `image_upload_id` values must fail before provider/model payload construction.
 - Supported content types are JPG, PNG, and WebP.

@@ -97,7 +97,8 @@ Tasks:
 - [ ] Add image picker/camera UI.
 - [x] Add mock/local upload endpoint and upload-ready mobile analysis flow.
 - [ ] Add production object storage integration.
-- [ ] Create `analysis_jobs` table.
+- [x] Add local persistence repository boundary for analysis jobs and image upload metadata.
+- [ ] Create production `analysis_jobs` table.
 - [ ] Implement queue/worker.
 - [ ] Implement first AI vision analysis call with schema validation.
 - [ ] Return analysis result with confidence and range.
@@ -121,7 +122,8 @@ Tasks:
 - [x] Add loading/error/retry handling for clarification submission.
 - [ ] Implement clarification planner.
 - [ ] Add eaten ratio, broth, and sauce/oil controls.
-- [ ] Store correction events.
+- [x] Add local persistence repository boundary for clarification events.
+- [ ] Store production correction events.
 
 Acceptance:
 
@@ -141,7 +143,8 @@ Tasks:
 - [x] Show updated mock Today dashboard after save.
 - [x] Add loading/error/retry handling for meal save.
 - [x] Preserve provider error codes through mobile `ApiClientError` and reducer state.
-- [ ] Add meal log item persistence.
+- [x] Add local persistence repository boundary for meal log records.
+- [ ] Add production meal log item persistence.
 - [ ] Build production Today dashboard.
 - [ ] Show calorie and macro progress.
 - [ ] Show meal list.
@@ -296,6 +299,12 @@ Follow-up summary — 2026-06-14:
 - Implemented: provider exception mapping now preserves distinct safe codes for unavailable provider config, dry-run OpenAI scaffold, and malformed structured output; mobile `ApiClientError` and reducer state preserve and display behavior by code without real OpenAI calls; OpenAI dry-run scaffold is keyless until real calls are explicitly approved.
 - Verified: mobile smoke, shared/mobile typecheck, API tests, and `git diff --check` pass; final review/QA evidence is attached to the Ultragoal ledger for this session.
 - Next: keep real OpenAI, storage, auth, DB, and payment work gated behind explicit product/security decisions.
+
+Persistence foundation summary — 2026-06-14:
+
+- Implemented: server-local sqlite repository boundary for image upload metadata, analysis jobs, clarification events, and meal log records while preserving mock provider/API contract behavior.
+- Verified: persistence records survive new repository instances; final command/review evidence is attached to the Ultragoal ledger for this session.
+- Next: production DB schema, object storage, auth/user scoping, and real OpenAI calls remain gated behind explicit decisions.
 
 ### Session 6: Personalization and Recommendation
 
