@@ -2,6 +2,8 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import type { FlowError } from "../flow/scanToSaveFlow";
 import { colors, radii, spacing, typography } from "../theme";
 
+const SHOW_DIAGNOSTIC_ERROR_CODES = process.env.NODE_ENV !== "production";
+
 export function FlowStatusCard({
   title,
   message,
@@ -14,12 +16,14 @@ export function FlowStatusCard({
   onRetry?: () => void;
 }) {
   const isError = Boolean(error);
+  const canRetry = Boolean(isError && onRetry && error?.retryable);
 
   return (
     <View style={[styles.card, isError && styles.errorCard]} accessibilityRole={isError ? "alert" : undefined}>
       <Text style={[styles.title, isError && styles.errorTitle]}>{error?.title ?? title}</Text>
       <Text style={styles.message}>{error?.message ?? message}</Text>
-      {isError && onRetry ? (
+      {isError && error?.code && SHOW_DIAGNOSTIC_ERROR_CODES ? <Text style={styles.meta}>진단 코드: {error.code}</Text> : null}
+      {canRetry ? (
         <TouchableOpacity activeOpacity={0.84} style={styles.retryButton} onPress={onRetry} accessibilityRole="button">
           <Text style={styles.retryText}>다시 시도</Text>
         </TouchableOpacity>
@@ -51,6 +55,10 @@ const styles = StyleSheet.create({
   message: {
     color: colors.body,
     ...typography.body
+  },
+  meta: {
+    color: colors.muted,
+    ...typography.caption
   },
   retryButton: {
     alignSelf: "flex-start",

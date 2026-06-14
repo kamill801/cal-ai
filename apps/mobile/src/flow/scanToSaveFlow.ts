@@ -1,14 +1,16 @@
-import type { AnalysisJobViewModel, AnalysisResult, DashboardTodayResponse, MealType, RangeNarrowingResult, SavedImpactViewModel } from "@cal-ai/shared";
+import type { AnalysisJobViewModel, AnalysisResult, ClientErrorKind, DashboardTodayResponse, MealType, RangeNarrowingResult, SavedImpactViewModel } from "@cal-ai/shared";
 import { todayDashboard } from "../mockData";
 
 export type RequestStatus = "idle" | "loading" | "success" | "error";
-export type FlowErrorKind = "transport" | "job_failed";
+export type FlowErrorKind = ClientErrorKind;
 
 export interface FlowError {
   kind: FlowErrorKind;
   title: string;
   message: string;
   code?: string;
+  retryable: boolean;
+  status?: number;
 }
 
 export type ScanToSaveCommand =
@@ -45,7 +47,7 @@ export type ScanToSaveAction =
   | { type: "EDIT_RESULT" }
   | { type: "SAVE_MEAL" }
   | { type: "MEAL_SAVED"; impact: SavedImpactViewModel }
-  | { type: "COMMAND_FAILED"; command: ScanToSaveCommand; message: string; code?: string }
+  | { type: "COMMAND_FAILED"; command: ScanToSaveCommand; message: string; code?: string; kind?: ClientErrorKind; retryable?: boolean; status?: number }
   | { type: "RETRY_LAST" }
   | { type: "RETURN_DASHBOARD" };
 
@@ -129,7 +131,7 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
       }
       return state.analysis.clarificationQuestion ? { ...state, screen: "clarifying", status: "idle", error: undefined } : state;
     case "SAVE_MEAL":
-      if (state.screen !== "review" || state.status === "loading" || !state.analysis || !state.analysisJobId) {
+      if (state.screen !== "review" || state.status === "loading" || state.error?.retryable === false || !state.analysis || !state.analysisJobId) {
         return state;
       }
       return withCommand(
@@ -160,14 +162,16 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
         pendingCommand: undefined,
         lastFailedCommand: action.command,
         error: {
-          kind: "transport",
-          title: "연결에 실패했어요",
+          kind: action.kind ?? "unknown",
+          title: titleForApiError(action.kind ?? "unknown"),
           message: action.message,
-          code: action.code
+          code: action.code,
+          retryable: action.retryable ?? true,
+          status: action.status
         }
       };
     case "RETRY_LAST":
-      if (!state.lastFailedCommand || state.status === "loading") {
+      if (!state.lastFailedCommand || state.status === "loading" || state.error?.retryable === false) {
         return state;
       }
       return withCommand(
@@ -194,7 +198,8 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
         kind: "job_failed",
         title: "분석을 완료하지 못했어요",
         message: job.error?.message ?? "사진 분석 중 문제가 생겼어요. 다시 시도해 주세요.",
-        code: job.error?.code
+        code: job.error?.code,
+        retryable: true
       },
       lastFailedCommand: { type: "CREATE_ANALYSIS_JOB", requestId: state.requestSeq + 1, imageUploadId: LOCAL_DEMO_IMAGE_UPLOAD_ID, mealType: "lunch" }
     };
@@ -213,7 +218,8 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
           kind: "job_failed",
           title: "분석 시간이 길어지고 있어요",
           message: "잠시 뒤 다시 시도해 주세요.",
-          code: "analysis_poll_timeout"
+          code: "analysis_poll_timeout",
+          retryable: true
         },
         lastFailedCommand: { type: "FETCH_ANALYSIS_JOB", requestId: state.requestSeq + 1, jobId: job.id, pollAttempt: 0 }
       };
@@ -230,7 +236,7 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
       ...state,
       status: "error",
       pendingCommand: undefined,
-      error: { kind: "job_failed", title: "분석 결과가 비어 있어요", message: "결과를 다시 불러와 주세요.", code: "missing_result" },
+      error: { kind: "job_failed", title: "분석 결과가 비어 있어요", message: "결과를 다시 불러와 주세요.", code: "missing_result", retryable: true },
       lastFailedCommand: { type: "FETCH_ANALYSIS_JOB", requestId: state.requestSeq + 1, jobId: job.id, pollAttempt: 0 }
     };
   }
@@ -240,6 +246,28 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
   }
 
   return { ...state, screen: "analyzing", status: "success", analysisJobId: job.id, analysis: job.result, pollAttempt: 0, pendingCommand: undefined, error: undefined };
+}
+
+function titleForApiError(kind: ClientErrorKind): string {
+  switch (kind) {
+    case "network":
+      return "API 서버에 연결할 수 없어요";
+    case "provider":
+      return "분석 제공자를 사용할 수 없어요";
+    case "validation":
+      return "요청 형식을 확인해 주세요";
+    case "not_found":
+      return "결과를 찾을 수 없어요";
+    case "server":
+      return "서버에서 문제가 생겼어요";
+    case "timeout":
+      return "요청 시간이 길어지고 있어요";
+    case "job_failed":
+      return "분석을 완료하지 못했어요";
+    case "http":
+    case "unknown":
+      return "요청을 처리하지 못했어요";
+  }
 }
 
 function pollDelayMs(attempt: number): number {

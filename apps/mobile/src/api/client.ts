@@ -1,4 +1,6 @@
 import type {
+  ApiErrorDetail,
+  ClientErrorKind,
   ApiAnalysisJobCreateResponse,
   ApiAnalysisJobResponse,
   ApiClarificationResponse,
@@ -19,16 +21,34 @@ import {
 } from "@cal-ai/shared";
 import { getApiBaseUrl } from "./config";
 
+const API_ERROR_KINDS: ApiErrorDetail["kind"][] = ["provider", "validation", "not_found", "server", "unknown"];
+
 export class ApiClientError extends Error {
   readonly status?: number;
   readonly code: string;
+  readonly kind: ClientErrorKind;
+  readonly retryable: boolean;
   readonly userMessage: string;
 
-  constructor({ message, status, code = "api_request_failed" }: { message: string; status?: number; code?: string }) {
+  constructor({
+    message,
+    status,
+    code = "api_request_failed",
+    kind = "http",
+    retryable = false
+  }: {
+    message: string;
+    status?: number;
+    code?: string;
+    kind?: ClientErrorKind;
+    retryable?: boolean;
+  }) {
     super(message);
     this.name = "ApiClientError";
     this.status = status;
     this.code = code;
+    this.kind = kind;
+    this.retryable = retryable;
     this.userMessage = message;
   }
 }
@@ -94,12 +114,87 @@ async function request<T>(root: string, path: string, options: { method?: "GET" 
       body: options.body ? JSON.stringify(options.body) : undefined
     });
   } catch {
-    throw new ApiClientError({ message: "API 서버에 연결할 수 없어요. FastAPI 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.", code: "network_error" });
+    throw new ApiClientError({
+      message: "API 서버에 연결할 수 없어요. FastAPI 서버가 켜져 있는지 확인한 뒤 다시 시도해 주세요.",
+      code: "network_error",
+      kind: "network",
+      retryable: true
+    });
   }
 
   if (!response.ok) {
-    throw new ApiClientError({ message: "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.", status: response.status, code: "http_error" });
+    throw await createApiClientError(response);
   }
 
   return (await response.json()) as T;
+}
+
+async function createApiClientError(response: Response): Promise<ApiClientError> {
+  const detail = await readApiErrorDetail(response);
+  if (detail) {
+    return new ApiClientError({
+      message: detail.message,
+      status: response.status,
+      code: detail.code,
+      kind: detail.kind,
+      retryable: detail.retryable
+    });
+  }
+
+  return new ApiClientError({
+    message: defaultMessageForStatus(response.status),
+    status: response.status,
+    code: `http_${response.status}`,
+    kind: defaultKindForStatus(response.status),
+    retryable: response.status === 408 || response.status === 429 || response.status >= 500
+  });
+}
+
+async function readApiErrorDetail(response: Response): Promise<ApiErrorDetail | undefined> {
+  try {
+    const body = (await response.json()) as { detail?: Partial<ApiErrorDetail> | string };
+    if (!body.detail || typeof body.detail === "string") {
+      return undefined;
+    }
+    const { code, message, retryable, kind } = body.detail;
+    if (typeof code !== "string" || typeof message !== "string" || typeof retryable !== "boolean" || typeof kind !== "string") {
+      return undefined;
+    }
+    if (!isApiErrorKind(kind)) {
+      return undefined;
+    }
+    return { code, message, retryable, kind };
+  } catch {
+    return undefined;
+  }
+}
+
+function isApiErrorKind(kind: string): kind is ApiErrorDetail["kind"] {
+  return API_ERROR_KINDS.includes(kind as ApiErrorDetail["kind"]);
+}
+
+function defaultKindForStatus(status: number): ClientErrorKind {
+  if (status === 404) {
+    return "not_found";
+  }
+  if (status === 408 || status === 429) {
+    return "timeout";
+  }
+  if (status >= 500) {
+    return "server";
+  }
+  return "http";
+}
+
+function defaultMessageForStatus(status: number): string {
+  if (status === 404) {
+    return "요청한 분석 결과를 찾을 수 없어요. 처음부터 다시 시도해 주세요.";
+  }
+  if (status === 422) {
+    return "요청 형식이 올바르지 않아요. 입력값을 확인해 주세요.";
+  }
+  if (status === 408 || status === 429 || status >= 500) {
+    return "요청을 처리하지 못했어요. 잠시 뒤 다시 시도해 주세요.";
+  }
+  return "요청을 처리하지 못했어요. 입력값을 확인한 뒤 다시 시도해 주세요.";
 }

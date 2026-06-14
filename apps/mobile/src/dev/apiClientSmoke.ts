@@ -7,7 +7,7 @@ async function expectNetworkError(): Promise<void> {
     await createCalAiApiClient("http://127.0.0.1:0").getTodayDashboard();
     throw new Error("expected network error");
   } catch (error) {
-    if (!(error instanceof ApiClientError) || error.code !== "network_error") {
+    if (!(error instanceof ApiClientError) || error.code !== "network_error" || error.kind !== "network" || !error.retryable) {
       throw error;
     }
   } finally {
@@ -21,13 +21,117 @@ async function expectHttpError(): Promise<void> {
     Promise.resolve({
       ok: false,
       status: 503,
-      json: () => Promise.resolve({ detail: { code: "analysis_provider_unavailable" } })
+      json: () =>
+        Promise.resolve({
+          detail: {
+            code: "analysis_provider_unavailable",
+            message: "분석 제공자를 사용할 수 없어요.",
+            retryable: true,
+            kind: "provider"
+          }
+        })
     } as Response)) as typeof fetch;
   try {
     await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
     throw new Error("expected http error");
   } catch (error) {
-    if (!(error instanceof ApiClientError) || error.code !== "http_error" || error.status !== 503) {
+    if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_unavailable" || error.status !== 503 || error.kind !== "provider" || !error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectValidationError(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 422,
+      json: () =>
+        Promise.resolve({
+          detail: {
+            code: "validation_error",
+            message: "요청 형식이 올바르지 않아요.",
+            retryable: false,
+            kind: "validation"
+          }
+        })
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected validation error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "validation_error" || error.kind !== "validation" || error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectMalformedErrorFallback(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 500,
+      json: () => Promise.reject(new SyntaxError("invalid json"))
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected fallback server error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "http_500" || error.kind !== "server" || !error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectInvalidKindFallsBackToStatus(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 503,
+      json: () =>
+        Promise.resolve({
+          detail: {
+            code: "bad_proxy_error",
+            message: "do not trust this message",
+            retryable: false,
+            kind: "bad_kind"
+          }
+        })
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected invalid-kind fallback error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "http_503" || error.kind !== "server" || !error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectTimeoutStatusFallback(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 408,
+      json: () => Promise.resolve({ detail: "Request Timeout" })
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected timeout fallback error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "http_408" || error.kind !== "timeout" || !error.retryable) {
       throw error;
     }
   } finally {
@@ -38,4 +142,8 @@ async function expectHttpError(): Promise<void> {
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
   await expectHttpError();
+  await expectValidationError();
+  await expectMalformedErrorFallback();
+  await expectInvalidKindFallsBackToStatus();
+  await expectTimeoutStatusFallback();
 }

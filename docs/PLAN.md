@@ -87,12 +87,17 @@ Goal: User can upload a food image and receive structured analysis.
 
 Tasks:
 
-- Add image picker/camera UI.
-- Add upload endpoint and object storage integration.
-- Create `analysis_jobs` table.
-- Implement queue/worker.
-- Implement first AI vision analysis call with schema validation.
-- Return analysis result with confidence and range.
+- [x] Connect mobile scan flow to FastAPI analysis job API using a deterministic local image reference.
+- [x] Add API client and shared snake_case to camelCase mappers for analysis jobs.
+- [x] Add OpenAI-ready backend analysis provider interface with deterministic mock default and dry-run OpenAI scaffold.
+- [x] Add malformed structured-output retry/fail-closed tests without real OpenAI calls.
+- [x] Standardize provider/validation API error details for mobile consumption.
+- [ ] Add image picker/camera UI.
+- [ ] Add upload endpoint and object storage integration.
+- [ ] Create `analysis_jobs` table.
+- [ ] Implement queue/worker.
+- [ ] Implement first AI vision analysis call with schema validation.
+- [ ] Return analysis result with confidence and range.
 
 Acceptance:
 
@@ -107,11 +112,13 @@ Goal: User can improve estimate with 1-2 lightweight corrections.
 
 Tasks:
 
-- Implement clarification planner.
-- Build clarification UI.
-- Add rice amount, eaten ratio, broth, and sauce/oil controls.
-- Apply corrections to analysis result.
-- Store correction events.
+- [x] Build first rice-amount clarification UI in the scan-to-save slice.
+- [x] Submit clarification answers through the FastAPI mock API.
+- [x] Apply clarification result and range narrowing in mobile state.
+- [x] Add loading/error/retry handling for clarification submission.
+- [ ] Implement clarification planner.
+- [ ] Add eaten ratio, broth, and sauce/oil controls.
+- [ ] Store correction events.
 
 Acceptance:
 
@@ -126,11 +133,14 @@ Goal: User can save corrected meal and see daily progress.
 
 Tasks:
 
-- Add meal log save API.
-- Add meal log item persistence.
-- Build Today dashboard.
-- Show calorie and macro progress.
-- Show meal list.
+- [x] Add mock meal log save API contract and mobile client call.
+- [x] Save meal through the scan-to-save flow and reflect saved impact.
+- [x] Show updated mock Today dashboard after save.
+- [x] Add loading/error/retry handling for meal save.
+- [ ] Add meal log item persistence.
+- [ ] Build production Today dashboard.
+- [ ] Show calorie and macro progress.
+- [ ] Show meal list.
 
 Acceptance:
 
@@ -256,15 +266,25 @@ Current scaffold status:
 
 ### Session 4: Food Analysis Slice
 
-- Implement image upload.
-- Implement analysis job.
-- Integrate first AI structured result.
+- [x] Implement analysis job API client integration for the mock vertical slice.
+- [x] Add backend analysis provider interface and deterministic mock provider.
+- [x] Add OpenAI-ready dry-run scaffold and structured-output validation tests.
+- [x] Add mobile loading/error/retry semantics for create/fetch/poll.
+- [ ] Implement image upload.
+- [ ] Integrate first real AI structured result after explicit API key/paid-call approval.
 
 ### Session 5: Clarification and Save
 
-- Build correction UI.
-- Apply correction logic.
-- Save meal and update dashboard.
+- [x] Build correction UI for rice amount.
+- [x] Apply correction logic through FastAPI mock API.
+- [x] Save meal and update dashboard through FastAPI mock API.
+- [x] Standardize API/mobile error semantics for provider, validation, network, timeout, and retryability.
+
+Session summary — 2026-06-14:
+
+- Implemented: mobile scan-to-save now runs through FastAPI mock APIs; backend has mock-first/OpenAI-ready provider boundaries; API/mobile error semantics now use structured `detail.code/message/retryable/kind` and mobile retry behavior distinguishes retryable vs non-retryable failures.
+- Verified: mobile smoke, shared/mobile typecheck, API tests, `git diff --check`, code-review lanes, and UltraQA-style verifier were run during the session.
+- Next: real image upload/object storage and persisted `analysis_jobs` remain deferred; real OpenAI calls require explicit API key and paid-call approval.
 
 ### Session 6: Personalization and Recommendation
 

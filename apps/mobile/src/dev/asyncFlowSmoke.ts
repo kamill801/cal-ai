@@ -26,10 +26,13 @@ export function runAsyncFlowSmoke(): void {
     type: "COMMAND_FAILED",
     command: created.pendingCommand!,
     message: "API 서버에 연결할 수 없어요.",
-    code: "network_error"
+    code: "network_error",
+    kind: "network",
+    retryable: true
   });
   assert(failedTransport.status === "error", "transport failure sets error status");
-  assert(failedTransport.error?.kind === "transport", "transport failure is distinct");
+  assert(failedTransport.error?.kind === "network", "network failure is distinct");
+  assert(failedTransport.error?.retryable === true, "network failure is retryable");
   const retried = scanToSaveReducer(failedTransport, { type: "RETRY_LAST" });
   assert(retried.status === "loading" && retried.pendingCommand?.type === "FETCH_ANALYSIS_JOB", "retry replays failed command");
 
@@ -60,12 +63,29 @@ export function runAsyncFlowSmoke(): void {
     type: "COMMAND_FAILED",
     command: saving.pendingCommand!,
     message: "저장을 완료하지 못했어요.",
-    code: "http_error"
+    code: "validation_error",
+    kind: "validation",
+    retryable: false,
+    status: 422
   });
   assert(failedSave.screen === "review" && failedSave.status === "error", "save failure stays on review");
+  assert(failedSave.error?.kind === "validation" && failedSave.error.retryable === false, "validation failure is non-retryable");
   assert(failedSave.lastFailedCommand?.type === "SAVE_MEAL", "save failure preserves retry command");
-  const retriedSave = scanToSaveReducer(failedSave, { type: "RETRY_LAST" });
-  assert(retriedSave.status === "loading" && retriedSave.pendingCommand?.type === "SAVE_MEAL", "save retry replays save command");
+  const blockedValidationRetry = scanToSaveReducer(failedSave, { type: "RETRY_LAST" });
+  assert(blockedValidationRetry === failedSave, "non-retryable save failure blocks retry command");
+  const blockedValidationResave = scanToSaveReducer(failedSave, { type: "SAVE_MEAL" });
+  assert(blockedValidationResave === failedSave, "non-retryable save failure blocks repeated save command");
+  const retryableSaveError = scanToSaveReducer(saving, {
+    type: "COMMAND_FAILED",
+    command: saving.pendingCommand!,
+    message: "저장을 완료하지 못했어요.",
+    code: "analysis_provider_unavailable",
+    kind: "provider",
+    retryable: true,
+    status: 503
+  });
+  const retriedSave = scanToSaveReducer(retryableSaveError, { type: "RETRY_LAST" });
+  assert(retriedSave.status === "loading" && retriedSave.pendingCommand?.type === "SAVE_MEAL", "retryable save failure replays save command");
   const impact: SavedImpactViewModel = createSavedImpact(saving.analysis as AnalysisResult, saving.dashboard);
   const saved = scanToSaveReducer(retriedSave, { type: "MEAL_SAVED", impact });
   assert(saved.screen === "saved" && saved.impact?.confirmation === "기록했어요", "save success reaches saved screen");

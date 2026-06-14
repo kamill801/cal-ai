@@ -51,6 +51,13 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class ApiErrorDetail(BaseModel):
+    code: str
+    message: str
+    retryable: bool
+    kind: Literal["provider", "validation", "not_found", "server", "unknown"]
+
+
 class DashboardMeal(BaseModel):
     id: str
     name: str

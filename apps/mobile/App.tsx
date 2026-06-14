@@ -72,9 +72,15 @@ export default function App() {
         if (!isCurrent) {
           return;
         }
-        const message = error instanceof ApiClientError ? error.userMessage : "요청 중 문제가 생겼어요. 다시 시도해 주세요.";
-        const code = error instanceof ApiClientError ? error.code : "unknown_error";
-        dispatch({ type: "COMMAND_FAILED", command: activeCommand, message, code });
+        dispatch({
+          type: "COMMAND_FAILED",
+          command: activeCommand,
+          message: error instanceof ApiClientError ? error.userMessage : "요청 중 문제가 생겼어요. 다시 시도해 주세요.",
+          code: error instanceof ApiClientError ? error.code : "unknown_error",
+          kind: error instanceof ApiClientError ? error.kind : "unknown",
+          retryable: error instanceof ApiClientError ? error.retryable : true,
+          status: error instanceof ApiClientError ? error.status : undefined
+        });
       }
     }
 

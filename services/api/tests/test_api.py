@@ -186,6 +186,12 @@ def test_save_contract_requires_clarification_value() -> None:
     )
 
     assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "code": "validation_error",
+        "message": "요청 형식이 올바르지 않아요. 입력값을 확인해 주세요.",
+        "retryable": False,
+        "kind": "validation",
+    }
 
 
 def test_malformed_provider_output_returns_safe_503(monkeypatch) -> None:
@@ -201,5 +207,10 @@ def test_malformed_provider_output_returns_safe_503(monkeypatch) -> None:
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "analysis_provider_unavailable"
+    assert response.json()["detail"] == {
+        "code": "analysis_provider_unavailable",
+        "message": "분석 제공자를 사용할 수 없어요. 로컬 mock 설정을 확인해 주세요.",
+        "retryable": True,
+        "kind": "provider",
+    }
     assert "openai_output_malformed" not in response.text

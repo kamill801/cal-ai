@@ -4,6 +4,8 @@ export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 export type ConfidenceLabel = "high" | "medium_high" | "medium" | "low" | "manual";
 export type ConfidenceGroup = "certain" | "estimated" | "needs_check" | "manual";
 export type AnalysisJobStatus = "queued" | "analyzing" | "needs_clarification" | "completed" | "failed";
+export type ApiErrorKind = "provider" | "validation" | "not_found" | "server" | "unknown";
+export type ClientErrorKind = ApiErrorKind | "network" | "http" | "timeout" | "job_failed";
 
 export interface NutritionTarget {
   caloriesKcal: number;
@@ -124,6 +126,13 @@ export interface SavedImpactViewModel {
 export interface AnalysisJobError {
   code: string;
   message: string;
+}
+
+export interface ApiErrorDetail {
+  code: string;
+  message: string;
+  retryable: boolean;
+  kind: ApiErrorKind;
 }
 
 export interface AnalysisJobViewModel {
