@@ -15,7 +15,7 @@ async function expectNetworkError(): Promise<void> {
   }
 }
 
-async function expectHttpError(): Promise<void> {
+async function expectProviderUnavailable(): Promise<void> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() =>
     Promise.resolve({
@@ -26,7 +26,7 @@ async function expectHttpError(): Promise<void> {
           detail: {
             code: "analysis_provider_unavailable",
             message: "분석 제공자를 사용할 수 없어요.",
-            retryable: true,
+            retryable: false,
             kind: "provider"
           }
         })
@@ -35,7 +35,63 @@ async function expectHttpError(): Promise<void> {
     await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
     throw new Error("expected http error");
   } catch (error) {
-    if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_unavailable" || error.status !== 503 || error.kind !== "provider" || !error.retryable) {
+    if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_unavailable" || error.status !== 503 || error.kind !== "provider" || error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectProviderDryRun(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 503,
+      json: () =>
+        Promise.resolve({
+          detail: {
+            code: "analysis_provider_dry_run",
+            message: "실제 AI 분석 호출은 아직 비활성화되어 있어요.",
+            retryable: false,
+            kind: "provider"
+          }
+        })
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected dry-run provider error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_dry_run" || error.kind !== "provider" || error.retryable) {
+      throw error;
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function expectMalformedOutput(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve({
+      ok: false,
+      status: 503,
+      json: () =>
+        Promise.resolve({
+          detail: {
+            code: "analysis_output_malformed",
+            message: "분석 결과 형식이 올바르지 않아 다시 시도해야 해요.",
+            retryable: true,
+            kind: "provider"
+          }
+        })
+    } as Response)) as typeof fetch;
+  try {
+    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    throw new Error("expected malformed-output provider error");
+  } catch (error) {
+    if (!(error instanceof ApiClientError) || error.code !== "analysis_output_malformed" || error.kind !== "provider" || !error.retryable) {
       throw error;
     }
   } finally {
@@ -141,7 +197,9 @@ async function expectTimeoutStatusFallback(): Promise<void> {
 
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
-  await expectHttpError();
+  await expectProviderUnavailable();
+  await expectProviderDryRun();
+  await expectMalformedOutput();
   await expectValidationError();
   await expectMalformedErrorFallback();
   await expectInvalidKindFallsBackToStatus();

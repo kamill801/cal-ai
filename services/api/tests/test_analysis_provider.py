@@ -6,7 +6,6 @@ import pytest
 
 from app.schemas import AnalysisJobRequest
 from app.services.analysis_provider import (
-    AnalysisProviderConfigurationError,
     AnalysisProviderDryRunError,
     MockAnalysisProvider,
     OpenAIAnalysisProvider,
@@ -25,11 +24,14 @@ def test_provider_defaults_to_mock_without_api_key() -> None:
     assert created.analysis_job_id == "mock-lunch-001"
 
 
-def test_openai_provider_requires_existing_ai_key_name() -> None:
-    with pytest.raises(AnalysisProviderConfigurationError) as exc_info:
-        get_analysis_provider({"AI_PROVIDER": "openai"})
+def test_openai_dry_run_provider_is_keyless_until_real_calls_are_enabled() -> None:
+    provider = get_analysis_provider({"AI_PROVIDER": "openai", "AI_MODEL_VISION": "gpt-5.5"})
 
-    assert str(exc_info.value) == "ai_provider_api_key_missing"
+    assert isinstance(provider, OpenAIAnalysisProvider)
+    with pytest.raises(AnalysisProviderDryRunError) as exc_info:
+        provider.create_job(AnalysisJobRequest(image_upload_id="local-demo-meal-preview", meal_type="lunch"))
+
+    assert str(exc_info.value) == "openai_provider_dry_run_only"
 
 
 def test_openai_provider_is_dry_run_and_makes_no_network_call(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,14 +39,14 @@ def test_openai_provider_is_dry_run_and_makes_no_network_call(monkeypatch: pytes
         raise AssertionError("network call attempted")
 
     monkeypatch.setattr(socket, "socket", fail_socket)
-    provider = get_analysis_provider({"AI_PROVIDER": "openai", "AI_PROVIDER_API_KEY": "test-key", "AI_MODEL_VISION": "gpt-5.5"})
+    provider = get_analysis_provider({"AI_PROVIDER": "openai", "AI_MODEL_VISION": "gpt-5.5"})
 
     with pytest.raises(AnalysisProviderDryRunError):
         provider.create_job(AnalysisJobRequest(image_upload_id="local-demo-meal-preview", meal_type="lunch"))
 
 
 def test_openai_request_payload_uses_responses_image_and_json_schema_shape() -> None:
-    provider = OpenAIAnalysisProvider(api_key="test-key", vision_model="gpt-5.5", text_model="gpt-5.5")
+    provider = OpenAIAnalysisProvider(api_key=None, vision_model="gpt-5.5", text_model="gpt-5.5")
 
     payload = provider.build_responses_payload(image_reference="data:image/jpeg;base64,abc", meal_type="lunch")
 
@@ -54,7 +56,7 @@ def test_openai_request_payload_uses_responses_image_and_json_schema_shape() -> 
 
 
 def test_malformed_structured_output_retries_then_fails_closed() -> None:
-    provider = OpenAIAnalysisProvider(api_key="test-key", vision_model="gpt-5.5", text_model="gpt-5.5")
+    provider = OpenAIAnalysisProvider(api_key=None, vision_model="gpt-5.5", text_model="gpt-5.5")
     calls = 0
 
     def supplier() -> str:
@@ -70,7 +72,7 @@ def test_malformed_structured_output_retries_then_fails_closed() -> None:
 
 
 def test_malformed_structured_output_parser_uses_safe_error_code() -> None:
-    provider = OpenAIAnalysisProvider(api_key="test-key", vision_model="gpt-5.5", text_model="gpt-5.5")
+    provider = OpenAIAnalysisProvider(api_key=None, vision_model="gpt-5.5", text_model="gpt-5.5")
 
     with pytest.raises(StructuredOutputMalformedError) as exc_info:
         provider.parse_structured_output("not-json")

@@ -67,8 +67,6 @@ class OpenAIAnalysisProvider:
     """
 
     def __init__(self, *, api_key: str | None, vision_model: str | None, text_model: str | None) -> None:
-        if not api_key:
-            raise AnalysisProviderConfigurationError("ai_provider_api_key_missing")
         self._vision_model = vision_model or "gpt-5.5"
         self._text_model = text_model or self._vision_model
 

@@ -50,9 +50,37 @@ def provider_unavailable_error() -> HTTPException:
         status_code=503,
         code="analysis_provider_unavailable",
         message="분석 제공자를 사용할 수 없어요. 로컬 mock 설정을 확인해 주세요.",
+        retryable=False,
+        kind="provider",
+    )
+
+
+def provider_dry_run_error() -> HTTPException:
+    return api_error(
+        status_code=503,
+        code="analysis_provider_dry_run",
+        message="실제 AI 분석 호출은 아직 비활성화되어 있어요. 로컬 mock 설정을 확인해 주세요.",
+        retryable=False,
+        kind="provider",
+    )
+
+
+def malformed_output_error() -> HTTPException:
+    return api_error(
+        status_code=503,
+        code="analysis_output_malformed",
+        message="분석 결과 형식이 올바르지 않아 다시 시도해야 해요.",
         retryable=True,
         kind="provider",
     )
+
+
+def provider_error_from_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, StructuredOutputMalformedError):
+        return malformed_output_error()
+    if isinstance(exc, AnalysisProviderDryRunError):
+        return provider_dry_run_error()
+    return provider_unavailable_error()
 
 
 @app.exception_handler(RequestValidationError)
@@ -87,7 +115,7 @@ def create_analysis_job(payload: AnalysisJobRequest) -> AnalysisJobCreateRespons
     try:
         return get_analysis_provider().create_job(payload)
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
-        raise provider_unavailable_error() from exc
+        raise provider_error_from_exception(exc) from exc
 
 
 @app.get("/v1/analysis-jobs/{job_id}", response_model=AnalysisJobResponse)
@@ -95,7 +123,7 @@ def analysis_job(job_id: str) -> AnalysisJobResponse:
     try:
         return get_analysis_provider().get_job(job_id)
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
-        raise provider_unavailable_error() from exc
+        raise provider_error_from_exception(exc) from exc
 
 
 @app.post("/v1/analysis-jobs/{job_id}/clarifications", response_model=ClarificationResponse)
@@ -103,7 +131,7 @@ def clarify_analysis_job(job_id: str, payload: ClarificationRequest) -> Clarific
     try:
         return get_analysis_provider().apply_clarification(job_id, payload)
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
-        raise provider_unavailable_error() from exc
+        raise provider_error_from_exception(exc) from exc
 
 
 @app.post("/v1/meal-logs", response_model=SavedImpactResponse)
@@ -111,4 +139,4 @@ def create_meal_log(payload: MealLogRequest) -> SavedImpactResponse:
     try:
         return get_analysis_provider().save_meal(payload)
     except (AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError) as exc:
-        raise provider_unavailable_error() from exc
+        raise provider_error_from_exception(exc) from exc

@@ -79,13 +79,25 @@ export function runAsyncFlowSmoke(): void {
     type: "COMMAND_FAILED",
     command: saving.pendingCommand!,
     message: "저장을 완료하지 못했어요.",
-    code: "analysis_provider_unavailable",
+    code: "analysis_output_malformed",
     kind: "provider",
     retryable: true,
     status: 503
   });
+  assert(retryableSaveError.error?.title === "분석 결과를 확인하지 못했어요", "malformed output has distinct provider title");
   const retriedSave = scanToSaveReducer(retryableSaveError, { type: "RETRY_LAST" });
   assert(retriedSave.status === "loading" && retriedSave.pendingCommand?.type === "SAVE_MEAL", "retryable save failure replays save command");
+  const dryRunSaveError = scanToSaveReducer(saving, {
+    type: "COMMAND_FAILED",
+    command: saving.pendingCommand!,
+    message: "실제 AI 분석 호출은 아직 비활성화되어 있어요.",
+    code: "analysis_provider_dry_run",
+    kind: "provider",
+    retryable: false,
+    status: 503
+  });
+  assert(dryRunSaveError.error?.title === "실제 AI 호출은 꺼져 있어요", "dry-run provider error has distinct title");
+  assert(scanToSaveReducer(dryRunSaveError, { type: "RETRY_LAST" }) === dryRunSaveError, "dry-run provider error blocks retry");
   const impact: SavedImpactViewModel = createSavedImpact(saving.analysis as AnalysisResult, saving.dashboard);
   const saved = scanToSaveReducer(retriedSave, { type: "MEAL_SAVED", impact });
   assert(saved.screen === "saved" && saved.impact?.confirmation === "기록했어요", "save success reaches saved screen");

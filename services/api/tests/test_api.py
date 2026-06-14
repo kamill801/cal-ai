@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from app import main as api_main
 from app.main import app
-from app.services.analysis_provider import StructuredOutputMalformedError
+from app.services.analysis_provider import AnalysisProviderConfigurationError, AnalysisProviderDryRunError, StructuredOutputMalformedError
 
 
 client = TestClient(app)
@@ -208,9 +208,53 @@ def test_malformed_provider_output_returns_safe_503(monkeypatch) -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == {
-        "code": "analysis_provider_unavailable",
-        "message": "분석 제공자를 사용할 수 없어요. 로컬 mock 설정을 확인해 주세요.",
+        "code": "analysis_output_malformed",
+        "message": "분석 결과 형식이 올바르지 않아 다시 시도해야 해요.",
         "retryable": True,
         "kind": "provider",
     }
     assert "openai_output_malformed" not in response.text
+
+
+def test_provider_dry_run_returns_distinct_safe_503(monkeypatch) -> None:
+    class DryRunProvider:
+        def create_job(self, payload):
+            raise AnalysisProviderDryRunError("openai_provider_dry_run_only")
+
+    monkeypatch.setattr(api_main, "get_analysis_provider", lambda: DryRunProvider())
+
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "analysis_provider_dry_run",
+        "message": "실제 AI 분석 호출은 아직 비활성화되어 있어요. 로컬 mock 설정을 확인해 주세요.",
+        "retryable": False,
+        "kind": "provider",
+    }
+    assert "openai_provider_dry_run_only" not in response.text
+
+
+def test_provider_configuration_returns_distinct_safe_503(monkeypatch) -> None:
+    class MisconfiguredProvider:
+        def create_job(self, payload):
+            raise AnalysisProviderConfigurationError("ai_provider_api_key_missing")
+
+    monkeypatch.setattr(api_main, "get_analysis_provider", lambda: MisconfiguredProvider())
+
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": "local-demo-image", "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "analysis_provider_unavailable",
+        "message": "분석 제공자를 사용할 수 없어요. 로컬 mock 설정을 확인해 주세요.",
+        "retryable": False,
+        "kind": "provider",
+    }
+    assert "ai_provider_api_key_missing" not in response.text

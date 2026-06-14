@@ -163,7 +163,7 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
         lastFailedCommand: action.command,
         error: {
           kind: action.kind ?? "unknown",
-          title: titleForApiError(action.kind ?? "unknown"),
+          title: titleForApiError(action.kind ?? "unknown", action.code),
           message: action.message,
           code: action.code,
           retryable: action.retryable ?? true,
@@ -248,12 +248,12 @@ function applyLoadedJob(state: ScanToSaveState, job: AnalysisJobViewModel): Scan
   return { ...state, screen: "analyzing", status: "success", analysisJobId: job.id, analysis: job.result, pollAttempt: 0, pendingCommand: undefined, error: undefined };
 }
 
-function titleForApiError(kind: ClientErrorKind): string {
+function titleForApiError(kind: ClientErrorKind, code?: string): string {
   switch (kind) {
     case "network":
       return "API 서버에 연결할 수 없어요";
     case "provider":
-      return "분석 제공자를 사용할 수 없어요";
+      return titleForProviderError(code);
     case "validation":
       return "요청 형식을 확인해 주세요";
     case "not_found":
@@ -267,6 +267,18 @@ function titleForApiError(kind: ClientErrorKind): string {
     case "http":
     case "unknown":
       return "요청을 처리하지 못했어요";
+  }
+}
+
+function titleForProviderError(code?: string): string {
+  switch (code) {
+    case "analysis_provider_dry_run":
+      return "실제 AI 호출은 꺼져 있어요";
+    case "analysis_output_malformed":
+      return "분석 결과를 확인하지 못했어요";
+    case "analysis_provider_unavailable":
+    default:
+      return "분석 제공자를 사용할 수 없어요";
   }
 }
 

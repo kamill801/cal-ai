@@ -92,6 +92,8 @@ Tasks:
 - [x] Add OpenAI-ready backend analysis provider interface with deterministic mock default and dry-run OpenAI scaffold.
 - [x] Add malformed structured-output retry/fail-closed tests without real OpenAI calls.
 - [x] Standardize provider/validation API error details for mobile consumption.
+- [x] Preserve distinct provider error codes for provider unavailable, dry-run scaffold, and malformed structured output.
+- [x] Keep the OpenAI dry-run scaffold keyless until real calls are explicitly approved.
 - [ ] Add image picker/camera UI.
 - [ ] Add upload endpoint and object storage integration.
 - [ ] Create `analysis_jobs` table.
@@ -137,6 +139,7 @@ Tasks:
 - [x] Save meal through the scan-to-save flow and reflect saved impact.
 - [x] Show updated mock Today dashboard after save.
 - [x] Add loading/error/retry handling for meal save.
+- [x] Preserve provider error codes through mobile `ApiClientError` and reducer state.
 - [ ] Add meal log item persistence.
 - [ ] Build production Today dashboard.
 - [ ] Show calorie and macro progress.
@@ -279,12 +282,19 @@ Current scaffold status:
 - [x] Apply correction logic through FastAPI mock API.
 - [x] Save meal and update dashboard through FastAPI mock API.
 - [x] Standardize API/mobile error semantics for provider, validation, network, timeout, and retryability.
+- [x] Refine provider errors so mobile distinguishes `analysis_provider_unavailable`, `analysis_provider_dry_run`, `analysis_output_malformed`, and `network_error`.
 
 Session summary — 2026-06-14:
 
 - Implemented: mobile scan-to-save now runs through FastAPI mock APIs; backend has mock-first/OpenAI-ready provider boundaries; API/mobile error semantics now use structured `detail.code/message/retryable/kind` and mobile retry behavior distinguishes retryable vs non-retryable failures.
 - Verified: mobile smoke, shared/mobile typecheck, API tests, `git diff --check`, code-review lanes, and UltraQA-style verifier were run during the session.
 - Next: real image upload/object storage and persisted `analysis_jobs` remain deferred; real OpenAI calls require explicit API key and paid-call approval.
+
+Follow-up summary — 2026-06-14:
+
+- Implemented: provider exception mapping now preserves distinct safe codes for unavailable provider config, dry-run OpenAI scaffold, and malformed structured output; mobile `ApiClientError` and reducer state preserve and display behavior by code without real OpenAI calls; OpenAI dry-run scaffold is keyless until real calls are explicitly approved.
+- Verified: mobile smoke, shared/mobile typecheck, API tests, and `git diff --check` pass; final review/QA evidence is attached to the Ultragoal ledger for this session.
+- Next: keep real OpenAI, storage, auth, DB, and payment work gated behind explicit product/security decisions.
 
 ### Session 6: Personalization and Recommendation
 
