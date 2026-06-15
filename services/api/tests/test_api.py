@@ -9,7 +9,8 @@ from app.services.analysis_provider import (
     AnalysisProviderDryRunError,
     StructuredOutputMalformedError,
 )
-from app.services.persistence import SQLitePersistenceRepository
+from app.services import persistence as persistence_module
+from app.services.persistence import PostgresPersistenceRepository, SQLitePersistenceRepository
 
 
 client = TestClient(app)
@@ -163,6 +164,54 @@ def test_scan_to_save_metadata_persists_across_repository_instances() -> None:
     assert clarifications[0].response.result.meal_type == "dinner"
     assert meal_logs[0].request.clarification_value == "large_bowl"
     assert meal_logs[0].response.confirmation == "기록했어요"
+
+
+def test_persistence_repository_falls_back_to_sqlite_without_database_url(tmp_path) -> None:
+    repository = persistence_module.get_persistence_repository(
+        {
+            "CAL_AI_API_DATA_PATH": str(tmp_path / "fallback.db"),
+        }
+    )
+
+    assert isinstance(repository, SQLitePersistenceRepository)
+
+
+def test_persistence_repository_uses_postgres_when_database_url_is_present(monkeypatch) -> None:
+    created_urls: list[str] = []
+
+    class FakePostgresRepository:
+        def __init__(self, database_url: str) -> None:
+            created_urls.append(database_url)
+
+    monkeypatch.setattr(persistence_module, "PostgresPersistenceRepository", FakePostgresRepository)
+
+    repository = persistence_module.get_persistence_repository(
+        {
+            "DATABASE_URL": "postgresql://example.invalid/neondb",
+            "CAL_AI_API_DATA_PATH": "/tmp/ignored.db",
+        }
+    )
+
+    assert isinstance(repository, FakePostgresRepository)
+    assert created_urls == ["postgresql://example.invalid/neondb"]
+
+
+def test_postgres_repository_wraps_missing_driver_as_persistence_error(monkeypatch) -> None:
+    real_import = __import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "psycopg":
+            raise ImportError("no module named psycopg")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr("builtins.__import__", fake_import)
+
+    try:
+        PostgresPersistenceRepository("postgresql://example.invalid/neondb")
+    except persistence_module.PersistenceError as exc:
+        assert str(exc) == "postgres_driver_unavailable"
+    else:
+        raise AssertionError("expected PersistenceError")
 
 
 def test_image_upload_rejects_too_large_image() -> None:
