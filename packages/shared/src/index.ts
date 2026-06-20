@@ -149,6 +149,18 @@ export interface ImageUploadViewModel {
   status: "ready";
 }
 
+export interface ImageUploadPresignViewModel {
+  imageUploadId: string;
+  objectKey: string;
+  uploadUrl: string;
+  headers: Record<string, string>;
+  expiresAt: string;
+  maxBytes: number;
+  softLimitBytes: number;
+  softLimitExceeded: boolean;
+  ttlDays: number;
+}
+
 export interface MockAnalysisJobResponse {
   id: string;
   status: AnalysisJobStatus;
@@ -264,6 +276,35 @@ export interface ApiImageUploadResponse {
   image_upload_id: string;
   image_reference: string;
   status: "ready";
+}
+
+export interface ApiImageUploadPresignRequest {
+  local_asset_id: string;
+  file_name: string;
+  content_type: ImageContentType;
+  byte_size: number;
+}
+
+export interface ApiImageUploadPresignResponse {
+  image_upload_id: string;
+  object_key: string;
+  upload_url: string;
+  headers: Record<string, string>;
+  expires_at: string;
+  max_bytes: number;
+  soft_limit_bytes: number;
+  soft_limit_exceeded: boolean;
+  ttl_days: number;
+}
+
+export interface ApiImageUploadCompleteRequest {
+  image_upload_id: string;
+  object_key: string;
+  local_asset_id?: string;
+  file_name: string;
+  content_type: ImageContentType;
+  byte_size: number;
+  etag?: string | null;
 }
 
 export interface ApiAnalysisJobResponse {
@@ -390,6 +431,20 @@ export function mapApiImageUpload(response: ApiImageUploadResponse): ImageUpload
     imageUploadId: response.image_upload_id,
     imageReference: response.image_reference,
     status: response.status
+  };
+}
+
+export function mapApiImageUploadPresign(response: ApiImageUploadPresignResponse): ImageUploadPresignViewModel {
+  return {
+    imageUploadId: response.image_upload_id,
+    objectKey: response.object_key,
+    uploadUrl: response.upload_url,
+    headers: response.headers,
+    expiresAt: response.expires_at,
+    maxBytes: response.max_bytes,
+    softLimitBytes: response.soft_limit_bytes,
+    softLimitExceeded: response.soft_limit_exceeded,
+    ttlDays: response.ttl_days
   };
 }
 

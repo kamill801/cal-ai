@@ -75,6 +75,74 @@ async function expectImageUploadMapsResponse(): Promise<void> {
   }
 }
 
+async function expectPresignedUploadContract(): Promise<void> {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url, init) => {
+    calls.push(String(url));
+    if (String(url).endsWith("/image-uploads/presign") && init?.method === "POST") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            image_upload_id: "image-upload-1",
+            object_key: "uploads/image-upload-1/meal-preview.png",
+            upload_url: "https://r2.example/uploads/image-upload-1/meal-preview.png?X-Amz-Signature=abc",
+            headers: { "Content-Type": "image/png" },
+            expires_at: "2026-06-20T00:15:00+00:00",
+            max_bytes: 8000000,
+            soft_limit_bytes: 4000000,
+            soft_limit_exceeded: false,
+            ttl_days: 30
+          })
+      } as Response);
+    }
+    if (String(url).endsWith("/image-uploads/complete") && init?.method === "POST") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            image_upload_id: "image-upload-1",
+            image_reference: "r2://cal-ai-meal-images/uploads/image-upload-1/meal-preview.png",
+            status: "ready"
+          })
+      } as Response);
+    }
+    return Promise.reject(new Error("unexpected request"));
+  }) as typeof fetch;
+  try {
+    const client = createCalAiApiClient("http://127.0.0.1:8015");
+    const presigned = await client.presignImageUpload({
+      localAssetId: "local-demo-meal-preview",
+      fileName: "meal-preview.png",
+      contentType: "image/png",
+      byteSize: 420000
+    });
+    if (presigned.objectKey !== "uploads/image-upload-1/meal-preview.png" || presigned.headers["Content-Type"] !== "image/png") {
+      throw new Error("presign response did not map");
+    }
+
+    const completed = await client.completeImageUpload({
+      imageUploadId: presigned.imageUploadId,
+      objectKey: presigned.objectKey,
+      localAssetId: "local-demo-meal-preview",
+      fileName: "meal-preview.png",
+      contentType: "image/png",
+      byteSize: 420000
+    });
+    if (completed.imageUploadId !== "image-upload-1" || completed.imageReference !== "r2://cal-ai-meal-images/uploads/image-upload-1/meal-preview.png") {
+      throw new Error("complete response did not map");
+    }
+    if (calls.length !== 2) {
+      throw new Error("presigned upload contract should call presign and complete");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function expectProviderDryRun(): Promise<void> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() =>
@@ -230,6 +298,7 @@ async function expectTimeoutStatusFallback(): Promise<void> {
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
   await expectImageUploadMapsResponse();
+  await expectPresignedUploadContract();
   await expectProviderUnavailable();
   await expectProviderDryRun();
   await expectMalformedOutput();

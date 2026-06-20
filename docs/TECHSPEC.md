@@ -264,7 +264,7 @@ Flow:
 
 Small target calculations and dashboard reads are synchronous.
 
-The MVP upload seam is mock/local only. `image_reference` is a server-owned placeholder that later maps to object storage or a model-readable image URL/data URL; clients should pass only `image_upload_id` into analysis job creation. Local development persists upload metadata, analysis job requests/results, clarification events, and meal log records through a repository boundary backed by `CAL_AI_API_DATA_PATH` sqlite storage. This keeps restart behavior deterministic without adding production DB, object storage, auth, or OpenAI calls.
+The MVP upload seam supports private-bucket object storage through a presigned upload flow. Clients request a presigned URL, upload image bytes directly to R2, then complete the upload metadata with the API before creating an analysis job. `image_reference` remains server-owned; clients should pass only `image_upload_id` into analysis job creation. Local development still supports the mock/local metadata endpoint and sqlite fallback through `CAL_AI_API_DATA_PATH`. This keeps restart behavior deterministic without adding auth, billing, or real OpenAI calls.
 
 ## 8. Functional Requirements
 
@@ -732,14 +732,14 @@ Adjustment should be suggested, not silently applied.
 
 ### Local persistence foundation
 
-Before production DB/object storage is approved, the FastAPI service uses a repository boundary with local sqlite storage (`CAL_AI_API_DATA_PATH`, default `.local/cal-ai-api.db`). It stores restart-stable metadata for:
+The FastAPI service uses a repository boundary backed by Neon Postgres when `DATABASE_URL` is set and local sqlite otherwise (`CAL_AI_API_DATA_PATH`, default `.local/cal-ai-api.db`). It stores restart-stable metadata for:
 
-- `image_uploads`: upload id, local asset metadata, server-owned `image_reference`; no image bytes.
+- `image_uploads`: upload id, local asset metadata, storage provider, object key, server-owned `image_reference`, cleanup readiness metadata; no image bytes in API bodies.
 - `analysis_jobs`: create request, returned job id/status, latest job response JSON.
 - `clarifications`: submitted answers and resulting narrowed analysis response.
 - `meal_logs`: save request and saved-impact response.
 
-This foundation is intentionally local-only and has no auth/user scoping, cloud storage, external paid API calls, or OpenAI SDK import. Production tables below remain the target schema once DB/security decisions are approved.
+This foundation still has no auth/user scoping, external paid API calls, or OpenAI SDK import. Production tables below remain the target schema once auth/security decisions are approved.
 
 ### analysis_jobs
 
@@ -908,11 +908,73 @@ Response:
 }
 ```
 
+### POST /image-uploads/presign
+
+Purpose: request a direct-to-R2 upload URL for a private bucket object.
+
+Request:
+
+```json
+{
+  "local_asset_id": "camera-roll-asset",
+  "file_name": "meal-preview.png",
+  "content_type": "image/png",
+  "byte_size": 420000
+}
+```
+
+Response:
+
+```json
+{
+  "image_upload_id": "image-upload-uuid",
+  "object_key": "uploads/image-upload-uuid/meal-preview.png",
+  "upload_url": "https://...",
+  "headers": { "Content-Type": "image/png" },
+  "expires_at": "2026-06-20T00:15:00+00:00",
+  "max_bytes": 8000000,
+  "soft_limit_bytes": 8000000000,
+  "soft_limit_exceeded": false,
+  "ttl_days": 30
+}
+```
+
+### POST /image-uploads/complete
+
+Purpose: confirm a completed direct R2 upload and persist metadata for analysis job creation.
+
+Request:
+
+```json
+{
+  "image_upload_id": "image-upload-uuid",
+  "object_key": "uploads/image-upload-uuid/meal-preview.png",
+  "local_asset_id": "camera-roll-asset",
+  "file_name": "meal-preview.png",
+  "content_type": "image/png",
+  "byte_size": 420000,
+  "etag": "optional-storage-etag"
+}
+```
+
+Response:
+
+```json
+{
+  "image_upload_id": "image-upload-uuid",
+  "image_reference": "r2://cal-ai-meal-images/uploads/image-upload-uuid/meal-preview.png",
+  "status": "ready"
+}
+```
+
 MVP constraints:
 
-- The mock upload stores metadata only; image bytes remain local/client-owned until production object storage is explicitly approved.
-- Local development persistence uses sqlite via `CAL_AI_API_DATA_PATH` and must remain replaceable by production DB/storage repositories later.
-- Production object storage remains deferred.
+- Image bytes must not be uploaded through the Vercel API body.
+- R2 remains private; clients upload directly with presigned PUT URLs.
+- `IMAGE_UPLOAD_MAX_BYTES` is the per-image hard limit.
+- `UPLOAD_SOFT_LIMIT_BYTES` is the aggregate image storage soft limit; presign is rejected when current pending/ready upload bytes plus the requested upload would exceed it.
+- `complete` must match a previously persisted pending presign record by `image_upload_id`, `object_key`, `file_name`, `content_type`, and `byte_size`.
+- Local development persistence uses sqlite via `CAL_AI_API_DATA_PATH`; production uses `DATABASE_URL`.
 - Unknown `image_upload_id` values must fail before provider/model payload construction.
 - Supported content types are JPG, PNG, and WebP.
 - Images above 8MB are rejected.
@@ -1123,10 +1185,16 @@ Expected:
 ```text
 DATABASE_URL=
 REDIS_URL=
-OBJECT_STORAGE_ENDPOINT=
-OBJECT_STORAGE_BUCKET=
-OBJECT_STORAGE_ACCESS_KEY_ID=
-OBJECT_STORAGE_SECRET_ACCESS_KEY=
+STORAGE_PROVIDER=local
+R2_BUCKET_NAME=
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_ENDPOINT=
+R2_REGION=auto
+IMAGE_UPLOAD_MAX_BYTES=8000000
+IMAGE_TTL_DAYS=30
+UPLOAD_SOFT_LIMIT_BYTES=8000000000
 AI_PROVIDER_API_KEY=
 AI_MODEL_VISION=
 AI_MODEL_TEXT=

@@ -48,6 +48,12 @@ class ImageUploadRecord:
     content_type: str
     byte_size: int
     created_at: str
+    storage_provider: str = "local"
+    object_key: str | None = None
+    upload_status: str = "ready"
+    cleanup_after: str | None = None
+    soft_limit_exceeded: bool = False
+    upload_expires_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -96,9 +102,19 @@ class PersistenceRepository(Protocol):
         payload: ImageUploadRequest,
         image_upload_id: str,
         image_reference: str,
+        storage_provider: str = "local",
+        object_key: str | None = None,
+        upload_status: str = "ready",
+        cleanup_after: str | None = None,
+        soft_limit_exceeded: bool = False,
+        upload_expires_at: str | None = None,
     ) -> ImageUploadRecord: ...
 
     def get_image_upload(self, image_upload_id: str) -> ImageUploadRecord | None: ...
+
+    def sum_image_upload_bytes(self) -> int: ...
+
+    def check_ready(self) -> None: ...
 
     def save_analysis_job(
         self,
@@ -142,20 +158,33 @@ class SQLitePersistenceRepository:
         payload: ImageUploadRequest,
         image_upload_id: str,
         image_reference: str,
+        storage_provider: str = "local",
+        object_key: str | None = None,
+        upload_status: str = "ready",
+        cleanup_after: str | None = None,
+        soft_limit_exceeded: bool = False,
+        upload_expires_at: str | None = None,
     ) -> ImageUploadRecord:
         created_at = _now_iso()
         with self._connection() as conn:
             conn.execute(
                 """
                 insert into image_uploads (
-                    image_upload_id, image_reference, local_asset_id, file_name, content_type, byte_size, created_at
-                ) values (?, ?, ?, ?, ?, ?, ?)
+                    image_upload_id, image_reference, local_asset_id, file_name, content_type, byte_size, created_at,
+                    storage_provider, object_key, upload_status, cleanup_after, soft_limit_exceeded, upload_expires_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(image_upload_id) do update set
                     image_reference = excluded.image_reference,
                     local_asset_id = excluded.local_asset_id,
                     file_name = excluded.file_name,
                     content_type = excluded.content_type,
-                    byte_size = excluded.byte_size
+                    byte_size = excluded.byte_size,
+                    storage_provider = excluded.storage_provider,
+                    object_key = excluded.object_key,
+                    upload_status = excluded.upload_status,
+                    cleanup_after = excluded.cleanup_after,
+                    soft_limit_exceeded = excluded.soft_limit_exceeded,
+                    upload_expires_at = excluded.upload_expires_at
                 """,
                 (
                     image_upload_id,
@@ -165,6 +194,12 @@ class SQLitePersistenceRepository:
                     payload.content_type,
                     payload.byte_size,
                     created_at,
+                    storage_provider,
+                    object_key,
+                    upload_status,
+                    cleanup_after,
+                    int(soft_limit_exceeded),
+                    upload_expires_at,
                 ),
             )
         return ImageUploadRecord(
@@ -175,12 +210,39 @@ class SQLitePersistenceRepository:
             content_type=payload.content_type,
             byte_size=payload.byte_size,
             created_at=created_at,
+            storage_provider=storage_provider,
+            object_key=object_key,
+            upload_status=upload_status,
+            cleanup_after=cleanup_after,
+            soft_limit_exceeded=soft_limit_exceeded,
+            upload_expires_at=upload_expires_at,
         )
 
     def get_image_upload(self, image_upload_id: str) -> ImageUploadRecord | None:
         with self._connection() as conn:
             row = conn.execute("select * from image_uploads where image_upload_id = ?", (image_upload_id,)).fetchone()
         return self._image_upload_from_row(row) if row else None
+
+    def sum_image_upload_bytes(self) -> int:
+        now = _now_iso()
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                select coalesce(sum(byte_size), 0) as total_bytes
+                  from image_uploads
+                 where upload_status = 'ready'
+                    or (
+                        upload_status = 'pending'
+                        and (upload_expires_at is null or upload_expires_at >= ?)
+                    )
+                """,
+                (now,),
+            ).fetchone()
+        return int(row["total_bytes"]) if row else 0
+
+    def check_ready(self) -> None:
+        with self._connection() as conn:
+            conn.execute("select 1").fetchone()
 
     def save_analysis_job(
         self,
@@ -368,7 +430,13 @@ class SQLitePersistenceRepository:
                     file_name text not null,
                     content_type text not null,
                     byte_size integer not null,
-                    created_at text not null
+                    created_at text not null,
+                    storage_provider text not null default 'local',
+                    object_key text,
+                    upload_status text not null default 'ready',
+                    cleanup_after text,
+                    soft_limit_exceeded integer not null default 0,
+                    upload_expires_at text
                 );
 
                 create table if not exists analysis_jobs (
@@ -404,6 +472,7 @@ class SQLitePersistenceRepository:
                 );
                 """
             )
+            self._ensure_sqlite_image_upload_columns(conn)
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
@@ -424,7 +493,28 @@ class SQLitePersistenceRepository:
             content_type=row["content_type"],
             byte_size=row["byte_size"],
             created_at=row["created_at"],
+            storage_provider=row["storage_provider"],
+            object_key=row["object_key"],
+            upload_status=row["upload_status"],
+            cleanup_after=row["cleanup_after"],
+            soft_limit_exceeded=bool(row["soft_limit_exceeded"]),
+            upload_expires_at=row["upload_expires_at"],
         )
+
+    @staticmethod
+    def _ensure_sqlite_image_upload_columns(conn: sqlite3.Connection) -> None:
+        existing_columns = {row["name"] for row in conn.execute("pragma table_info(image_uploads)").fetchall()}
+        column_statements = {
+            "storage_provider": "alter table image_uploads add column storage_provider text not null default 'local'",
+            "object_key": "alter table image_uploads add column object_key text",
+            "upload_status": "alter table image_uploads add column upload_status text not null default 'ready'",
+            "cleanup_after": "alter table image_uploads add column cleanup_after text",
+            "soft_limit_exceeded": "alter table image_uploads add column soft_limit_exceeded integer not null default 0",
+            "upload_expires_at": "alter table image_uploads add column upload_expires_at text",
+        }
+        for column_name, statement in column_statements.items():
+            if column_name not in existing_columns:
+                conn.execute(statement)
 
     @staticmethod
     def _analysis_job_from_row(row: sqlite3.Row) -> AnalysisJobRecord:
@@ -477,20 +567,33 @@ class PostgresPersistenceRepository:
         payload: ImageUploadRequest,
         image_upload_id: str,
         image_reference: str,
+        storage_provider: str = "local",
+        object_key: str | None = None,
+        upload_status: str = "ready",
+        cleanup_after: str | None = None,
+        soft_limit_exceeded: bool = False,
+        upload_expires_at: str | None = None,
     ) -> ImageUploadRecord:
         created_at = _now_iso()
         with self._connection() as conn:
             conn.execute(
                 """
                 insert into image_uploads (
-                    image_upload_id, image_reference, local_asset_id, file_name, content_type, byte_size, created_at
-                ) values (%s, %s, %s, %s, %s, %s, %s)
+                    image_upload_id, image_reference, local_asset_id, file_name, content_type, byte_size, created_at,
+                    storage_provider, object_key, upload_status, cleanup_after, soft_limit_exceeded, upload_expires_at
+                ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 on conflict(image_upload_id) do update set
                     image_reference = excluded.image_reference,
                     local_asset_id = excluded.local_asset_id,
                     file_name = excluded.file_name,
                     content_type = excluded.content_type,
-                    byte_size = excluded.byte_size
+                    byte_size = excluded.byte_size,
+                    storage_provider = excluded.storage_provider,
+                    object_key = excluded.object_key,
+                    upload_status = excluded.upload_status,
+                    cleanup_after = excluded.cleanup_after,
+                    soft_limit_exceeded = excluded.soft_limit_exceeded,
+                    upload_expires_at = excluded.upload_expires_at
                 """,
                 (
                     image_upload_id,
@@ -500,6 +603,12 @@ class PostgresPersistenceRepository:
                     payload.content_type,
                     payload.byte_size,
                     created_at,
+                    storage_provider,
+                    object_key,
+                    upload_status,
+                    cleanup_after,
+                    soft_limit_exceeded,
+                    upload_expires_at,
                 ),
             )
         return ImageUploadRecord(
@@ -510,6 +619,12 @@ class PostgresPersistenceRepository:
             content_type=payload.content_type,
             byte_size=payload.byte_size,
             created_at=created_at,
+            storage_provider=storage_provider,
+            object_key=object_key,
+            upload_status=upload_status,
+            cleanup_after=cleanup_after,
+            soft_limit_exceeded=soft_limit_exceeded,
+            upload_expires_at=upload_expires_at,
         )
 
     def get_image_upload(self, image_upload_id: str) -> ImageUploadRecord | None:
@@ -519,6 +634,27 @@ class PostgresPersistenceRepository:
                 (image_upload_id,),
             ).fetchone()
         return SQLitePersistenceRepository._image_upload_from_row(row) if row else None
+
+    def sum_image_upload_bytes(self) -> int:
+        now = _now_iso()
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                select coalesce(sum(byte_size), 0) as total_bytes
+                  from image_uploads
+                 where upload_status = 'ready'
+                    or (
+                        upload_status = 'pending'
+                        and (upload_expires_at is null or upload_expires_at >= %s)
+                    )
+                """,
+                (now,),
+            ).fetchone()
+        return int(row["total_bytes"]) if row else 0
+
+    def check_ready(self) -> None:
+        with self._connection() as conn:
+            conn.execute("select 1").fetchone()
 
     def save_analysis_job(
         self,
@@ -703,7 +839,13 @@ class PostgresPersistenceRepository:
                 file_name text not null,
                 content_type text not null,
                 byte_size integer not null,
-                created_at text not null
+                created_at text not null,
+                storage_provider text not null default 'local',
+                object_key text,
+                upload_status text not null default 'ready',
+                cleanup_after text,
+                soft_limit_exceeded boolean not null default false,
+                upload_expires_at text
             )
             """,
             """
@@ -745,6 +887,19 @@ class PostgresPersistenceRepository:
         with self._connection() as conn:
             for statement in statements:
                 conn.execute(statement)
+            for statement in self._postgres_image_upload_column_migrations():
+                conn.execute(statement)
+
+    @staticmethod
+    def _postgres_image_upload_column_migrations() -> tuple[str, ...]:
+        return (
+            "alter table image_uploads add column if not exists storage_provider text not null default 'local'",
+            "alter table image_uploads add column if not exists object_key text",
+            "alter table image_uploads add column if not exists upload_status text not null default 'ready'",
+            "alter table image_uploads add column if not exists cleanup_after text",
+            "alter table image_uploads add column if not exists soft_limit_exceeded boolean not null default false",
+            "alter table image_uploads add column if not exists upload_expires_at text",
+        )
 
     @contextmanager
     def _connection(self) -> Iterator[object]:

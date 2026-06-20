@@ -16,11 +16,16 @@ from app.schemas import (
     ClarificationResponse,
     DashboardTodayResponse,
     HealthResponse,
+    ImageUploadCompleteRequest,
+    ImageUploadPresignRequest,
+    ImageUploadPresignResponse,
     ImageUploadRequest,
     ImageUploadResponse,
     MealLogRequest,
     OnboardingRequest,
     OnboardingResponse,
+    ReadyDependencyResponse,
+    ReadyResponse,
     SavedImpactResponse,
 )
 from app.services.analysis_provider import (
@@ -29,9 +34,10 @@ from app.services.analysis_provider import (
     StructuredOutputMalformedError,
     get_analysis_provider,
 )
-from app.services.image_uploads import ImageUploadError, create_mock_image_upload, resolve_image_reference
+from app.services.image_uploads import ImageUploadError, complete_presigned_image_upload, create_mock_image_upload, create_presigned_image_upload, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
+from app.services.storage import get_storage_readiness
 from app.services.targets import calculate_initial_target
 
 ApiErrorKind = Literal["provider", "validation", "not_found", "server", "unknown"]
@@ -132,6 +138,24 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok", service="cal-ai-api")
 
 
+@app.get("/ready", response_model=ReadyResponse)
+def ready() -> ReadyResponse:
+    database_status = ReadyDependencyResponse(status="ok", provider="sqlite-or-postgres")
+    try:
+        get_persistence_repository().check_ready()
+    except PersistenceError:
+        database_status = ReadyDependencyResponse(status="degraded", provider="sqlite-or-postgres", message="database unavailable")
+
+    storage_readiness = get_storage_readiness()
+    storage_status = ReadyDependencyResponse(
+        status=storage_readiness.status,
+        provider=storage_readiness.provider,
+        message=storage_readiness.message,
+    )
+    overall_status = "ok" if database_status.status == "ok" and storage_status.status == "ok" else "degraded"
+    return ReadyResponse(status=overall_status, service="cal-ai-api", database=database_status, storage=storage_status)
+
+
 @app.post("/v1/onboarding", response_model=OnboardingResponse)
 def create_onboarding(payload: OnboardingRequest) -> OnboardingResponse:
     target, warnings = calculate_initial_target(payload)
@@ -150,6 +174,29 @@ def create_image_upload(
 ) -> ImageUploadResponse:
     try:
         return create_mock_image_upload(payload, repository=repository)
+    except ImageUploadError as exc:
+        raise image_upload_error(exc) from exc
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
+
+
+@app.post("/image-uploads/presign", response_model=ImageUploadPresignResponse)
+def presign_image_upload(payload: ImageUploadPresignRequest) -> ImageUploadPresignResponse:
+    try:
+        return create_presigned_image_upload(payload)
+    except ImageUploadError as exc:
+        raise image_upload_error(exc) from exc
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
+
+
+@app.post("/image-uploads/complete", response_model=ImageUploadResponse)
+def complete_image_upload(
+    payload: ImageUploadCompleteRequest,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> ImageUploadResponse:
+    try:
+        return complete_presigned_image_upload(payload, repository=repository)
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
     except PersistenceError as exc:

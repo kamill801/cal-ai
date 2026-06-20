@@ -5,6 +5,7 @@ import type {
   ApiAnalysisJobResponse,
   ApiClarificationResponse,
   ApiDashboardTodayResponse,
+  ApiImageUploadPresignResponse,
   ApiImageUploadResponse,
   ApiSavedImpactResponse,
   ImageContentType,
@@ -14,10 +15,12 @@ import {
   mapApiAnalysisJob,
   mapApiClarificationResponse,
   mapApiDashboardToday,
+  mapApiImageUploadPresign,
   mapApiImageUpload,
   mapApiSavedImpactResponse,
   type AnalysisJobViewModel,
   type DashboardTodayResponse,
+  type ImageUploadPresignViewModel,
   type ImageUploadViewModel,
   type RangeNarrowingResult,
   type SavedImpactViewModel,
@@ -60,6 +63,16 @@ export class ApiClientError extends Error {
 export interface CalAiApiClient {
   getTodayDashboard(): Promise<DashboardTodayResponse>;
   uploadImage(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number; simulateFailure?: boolean }): Promise<ImageUploadViewModel>;
+  presignImageUpload(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number }): Promise<ImageUploadPresignViewModel>;
+  completeImageUpload(input: {
+    imageUploadId: string;
+    objectKey: string;
+    localAssetId?: string;
+    fileName: string;
+    contentType: ImageContentType;
+    byteSize: number;
+    etag?: string;
+  }): Promise<ImageUploadViewModel>;
   createAnalysisJob(input: { imageUploadId: string; mealType?: MealType; optionalNote?: string }): Promise<{ analysisJobId: string; status: "queued" }>;
   getAnalysisJob(jobId: string): Promise<AnalysisJobViewModel>;
   submitClarification(input: { jobId: string; questionKey: string; value: string }): Promise<{ result: AnalysisResult; rangeNarrowing?: RangeNarrowingResult }>;
@@ -83,6 +96,35 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl()): CalAiApiClient 
             content_type: input.contentType,
             byte_size: input.byteSize,
             simulate_failure: input.simulateFailure ?? false
+          }
+        })
+      );
+    },
+    async presignImageUpload(input) {
+      return mapApiImageUploadPresign(
+        await request<ApiImageUploadPresignResponse>(root, "/image-uploads/presign", {
+          method: "POST",
+          body: {
+            local_asset_id: input.localAssetId,
+            file_name: input.fileName,
+            content_type: input.contentType,
+            byte_size: input.byteSize
+          }
+        })
+      );
+    },
+    async completeImageUpload(input) {
+      return mapApiImageUpload(
+        await request<ApiImageUploadResponse>(root, "/image-uploads/complete", {
+          method: "POST",
+          body: {
+            image_upload_id: input.imageUploadId,
+            object_key: input.objectKey,
+            local_asset_id: input.localAssetId ?? "mobile-upload",
+            file_name: input.fileName,
+            content_type: input.contentType,
+            byte_size: input.byteSize,
+            etag: input.etag ?? null
           }
         })
       );

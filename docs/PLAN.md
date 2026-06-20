@@ -96,8 +96,9 @@ Tasks:
 - [x] Keep the OpenAI dry-run scaffold keyless until real calls are explicitly approved.
 - [ ] Add image picker/camera UI.
 - [x] Add mock/local upload endpoint and upload-ready mobile analysis flow.
-- [ ] Add production object storage integration.
+- [x] Add private R2 presigned upload API flow with local fallback.
 - [x] Add local persistence repository boundary for analysis jobs and image upload metadata.
+- [x] Add Neon Postgres persistence for upload metadata and analysis job references.
 - [ ] Create production `analysis_jobs` table.
 - [ ] Implement queue/worker.
 - [ ] Implement first AI vision analysis call with schema validation.

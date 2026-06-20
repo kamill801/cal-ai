@@ -51,6 +51,19 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class ReadyDependencyResponse(BaseModel):
+    status: Literal["ok", "degraded", "disabled", "misconfigured"]
+    provider: str
+    message: str | None = None
+
+
+class ReadyResponse(BaseModel):
+    status: Literal["ok", "degraded"]
+    service: str
+    database: ReadyDependencyResponse
+    storage: ReadyDependencyResponse
+
+
 class ApiErrorDetail(BaseModel):
     code: str
     message: str
@@ -70,6 +83,35 @@ class ImageUploadResponse(BaseModel):
     image_upload_id: str
     image_reference: str
     status: Literal["ready"]
+
+
+class ImageUploadPresignRequest(BaseModel):
+    local_asset_id: str = Field(min_length=1, max_length=120)
+    file_name: str = Field(min_length=1, max_length=180)
+    content_type: str = Field(min_length=1, max_length=64)
+    byte_size: int = Field(gt=0)
+
+
+class ImageUploadPresignResponse(BaseModel):
+    image_upload_id: str
+    object_key: str
+    upload_url: str
+    headers: dict[str, str]
+    expires_at: str
+    max_bytes: int
+    soft_limit_bytes: int
+    soft_limit_exceeded: bool
+    ttl_days: int
+
+
+class ImageUploadCompleteRequest(BaseModel):
+    image_upload_id: str = Field(min_length=1, max_length=180)
+    object_key: str = Field(min_length=1, max_length=512)
+    local_asset_id: str = Field(default="mobile-upload", min_length=1, max_length=120)
+    file_name: str = Field(min_length=1, max_length=180)
+    content_type: str = Field(min_length=1, max_length=64)
+    byte_size: int = Field(gt=0)
+    etag: str | None = Field(default=None, max_length=180)
 
 
 class DashboardMeal(BaseModel):

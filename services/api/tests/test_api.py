@@ -88,6 +88,239 @@ def test_image_upload_returns_local_reference_for_analysis() -> None:
     }
 
 
+def test_image_upload_presign_returns_local_fallback_contract() -> None:
+    response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "local-demo-meal-preview",
+            "file_name": "meal-preview.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["image_upload_id"].startswith("image-upload-")
+    assert body["object_key"] == f"uploads/{body['image_upload_id']}/meal-preview.png"
+    assert body["upload_url"] == f"local-upload://{body['object_key']}"
+    assert body["headers"] == {"Content-Type": "image/png"}
+    assert body["max_bytes"] == 8_000_000
+    assert body["soft_limit_bytes"] == 8_000_000_000
+    assert body["soft_limit_exceeded"] is False
+    assert body["ttl_days"] == 30
+
+
+def test_r2_image_upload_presign_does_not_expose_secret(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_BUCKET_NAME", "cal-ai-meal-images")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "example-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_REGION", "auto")
+
+    response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "camera-roll-demo",
+            "file_name": "meal photo.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["object_key"] == f"uploads/{body['image_upload_id']}/meal-photo.png"
+    assert body["upload_url"].startswith("https://example-account.r2.cloudflarestorage.com/cal-ai-meal-images/uploads/")
+    assert "X-Amz-Signature=" in body["upload_url"]
+    assert "test-access-key" in body["upload_url"]
+    assert "test-secret-key" not in body["upload_url"]
+    assert body["headers"] == {"Content-Type": "image/png"}
+    assert body["soft_limit_exceeded"] is False
+
+
+def test_image_upload_presign_blocks_when_total_soft_limit_would_be_exceeded(monkeypatch) -> None:
+    monkeypatch.setenv("UPLOAD_SOFT_LIMIT_BYTES", "500000")
+
+    first_response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "first-soft-limit-demo",
+            "file_name": "first.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "second-soft-limit-demo",
+            "file_name": "second.png",
+            "content_type": "image/png",
+            "byte_size": 100000,
+        },
+    )
+
+    assert second_response.status_code == 400
+    assert second_response.json()["detail"] == {
+        "code": "upload_soft_limit_exceeded",
+        "message": "이미지 저장소 사용량이 설정된 한도에 가까워졌어요. 오래된 이미지를 정리한 뒤 다시 시도해 주세요.",
+        "retryable": False,
+        "kind": "validation",
+    }
+
+
+def test_r2_image_upload_complete_persists_ready_metadata(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_BUCKET_NAME", "cal-ai-meal-images")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "example-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_REGION", "auto")
+    monkeypatch.setenv("IMAGE_TTL_DAYS", "7")
+
+    presign_response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "camera-roll-demo",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+    assert presign_response.status_code == 200
+    presign_body = presign_response.json()
+    pending_upload = SQLitePersistenceRepository(os.environ["CAL_AI_API_DATA_PATH"]).get_image_upload(presign_body["image_upload_id"])
+    assert pending_upload is not None
+    assert pending_upload.upload_status == "pending"
+    assert pending_upload.upload_expires_at == presign_body["expires_at"]
+
+    complete_response = client.post(
+        "/image-uploads/complete",
+        json={
+            "image_upload_id": presign_body["image_upload_id"],
+            "object_key": presign_body["object_key"],
+            "local_asset_id": "camera-roll-demo",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+            "etag": "fake-etag",
+        },
+    )
+
+    assert complete_response.status_code == 200
+    complete_body = complete_response.json()
+    assert complete_body == {
+        "image_upload_id": presign_body["image_upload_id"],
+        "image_reference": f"r2://cal-ai-meal-images/{presign_body['object_key']}",
+        "status": "ready",
+    }
+
+    repository = SQLitePersistenceRepository(os.environ["CAL_AI_API_DATA_PATH"])
+    upload = repository.get_image_upload(presign_body["image_upload_id"])
+    assert upload is not None
+    assert upload.storage_provider == "r2"
+    assert upload.object_key == presign_body["object_key"]
+    assert upload.upload_status == "ready"
+    assert upload.cleanup_after is not None
+    assert upload.soft_limit_exceeded is False
+
+
+def test_r2_upload_complete_rejects_key_mismatch(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_BUCKET_NAME", "cal-ai-meal-images")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "example-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_REGION", "auto")
+
+    response = client.post(
+        "/image-uploads/complete",
+        json={
+            "image_upload_id": "image-upload-123",
+            "object_key": "uploads/image-upload-other/meal.png",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "image_upload_key_mismatch"
+
+
+def test_upload_complete_rejects_unpresigned_object_key(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_BUCKET_NAME", "cal-ai-meal-images")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "example-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_REGION", "auto")
+
+    response = client.post(
+        "/image-uploads/complete",
+        json={
+            "image_upload_id": "image-upload-never-presigned",
+            "object_key": "uploads/image-upload-never-presigned/meal.png",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "image_upload_not_found"
+
+
+def test_analysis_job_rejects_pending_presigned_upload() -> None:
+    presign_response = client.post(
+        "/image-uploads/presign",
+        json={
+            "local_asset_id": "pending-analysis-demo",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+    assert presign_response.status_code == 200
+
+    response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": presign_response.json()["image_upload_id"], "meal_type": "lunch"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "image_upload_not_ready"
+
+
+def test_ready_reports_database_and_local_storage() -> None:
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["database"]["status"] == "ok"
+    assert response.json()["storage"]["status"] == "ok"
+
+
+def test_ready_reports_misconfigured_r2(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.delenv("R2_SECRET_ACCESS_KEY", raising=False)
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["storage"]["status"] == "misconfigured"
+    assert "R2_SECRET_ACCESS_KEY" in response.json()["storage"]["message"]
+
+
 def test_recreating_deterministic_mock_job_clears_stale_persisted_response() -> None:
     first_upload_id = upload_demo_image("first-dinner-demo")
     first_create = client.post(
