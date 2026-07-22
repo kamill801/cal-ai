@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 from typing import Literal
 from uuid import UUID
@@ -31,6 +32,9 @@ class OnboardingRequest(BaseModel):
     goal_type: GoalType
     activity_level: ActivityLevel
     training_frequency: Literal["none", "1-2", "3-4", "5+"] | None = None
+    experience_level: Literal["beginner", "intermediate", "advanced"] = "beginner"
+    available_equipment: list[Literal["bodyweight", "dumbbells", "gym"]] = Field(default_factory=lambda: ["gym"], min_length=1)
+    session_minutes: int = Field(default=60, ge=20, le=120)
 
 
 class NutritionTarget(BaseModel):
@@ -62,6 +66,7 @@ class ReadyResponse(BaseModel):
     service: str
     database: ReadyDependencyResponse
     storage: ReadyDependencyResponse
+    ai: ReadyDependencyResponse
 
 
 class ApiErrorDetail(BaseModel):
@@ -241,6 +246,8 @@ class MealLogRequest(BaseModel):
     analysis_job_id: str
     result_id: str
     clarification_value: Literal["half_bowl", "one_bowl", "large_bowl", "unknown"]
+    profile_id: str | None = Field(default=None, min_length=1, max_length=180)
+    logged_on: date | None = None
 
 
 class SavedImpactResponse(BaseModel):

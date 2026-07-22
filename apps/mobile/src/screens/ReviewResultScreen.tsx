@@ -1,4 +1,5 @@
 import type { AnalysisResult, RangeNarrowingResult } from "@cal-ai/shared";
+import type { ImageSourcePropType } from "react-native";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { CalorieRange } from "../components/CalorieRange";
 import { FlowStatusCard } from "../components/FlowStatusCard";
@@ -6,12 +7,14 @@ import { ConfidencePill } from "../components/ConfidencePill";
 import { MacroSummary } from "../components/MacroSummary";
 import { MealPhotoFrame } from "../components/MealPhotoFrame";
 import { RangeNarrowing } from "../components/RangeNarrowing";
+import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { scanPhotoSource } from "../mockData";
-import { colors, radii, spacing, typography } from "../theme";
+import { colors, radii, shadows, spacing, typography } from "../theme";
 
 export function ReviewResultScreen({
   analysis,
+  photoSource,
   narrowing,
   status,
   error,
@@ -20,6 +23,7 @@ export function ReviewResultScreen({
   onRetry
 }: {
   analysis: AnalysisResult;
+  photoSource?: ImageSourcePropType;
   narrowing?: RangeNarrowingResult;
   status: RequestStatus;
   error?: FlowError;
@@ -31,30 +35,38 @@ export function ReviewResultScreen({
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>결과 확인</Text>
-        <Text style={styles.title}>{isSaving ? "식사 기록으로 저장하고 있어요" : "저장해도 괜찮은 추정이에요"}</Text>
+        <Text style={styles.title}>분석 결과</Text>
+        <Text style={styles.subtitle}>{isSaving ? "식사 기록으로 저장하고 있어요" : "사진 한 장으로 믿을 수 있는 범위를 만들었어요"}</Text>
       </View>
 
-      <MealPhotoFrame
-        source={scanPhotoSource}
-        stageText={analysis.mealName}
-        confidenceLabel={analysis.summary.confidenceLabel}
-        confidenceGroup={analysis.summary.confidenceGroup}
-      />
+      <View style={styles.photoStage}>
+        <MealPhotoFrame
+          source={photoSource ?? scanPhotoSource}
+          stageText={analysis.mealName}
+          confidenceLabel={analysis.summary.confidenceLabel}
+          confidenceGroup={analysis.summary.confidenceGroup}
+        />
+        <View style={styles.buddyOverlay}>
+          <TrustBuddy size={72} accessory="magnifier" />
+        </View>
+      </View>
 
       <View style={styles.resultCard}>
         <View style={styles.confidenceRow}>
-          <Text style={styles.cardLabel}>신뢰도</Text>
+          <Text style={styles.cardLabel}>AI가 분석한 예상 칼로리</Text>
           <ConfidencePill label={analysis.summary.confidenceLabel} group={analysis.summary.confidenceGroup} />
         </View>
-        <CalorieRange range={analysis.summary.calorieRange} />
+        <CalorieRange range={analysis.summary.calorieRange} label="예상" />
         <MacroSummary macros={analysis.summary} />
         {narrowing ? <RangeNarrowing narrowing={narrowing} /> : null}
         <Text style={styles.explanation}>{analysis.primaryExplanation}</Text>
       </View>
 
       <View style={styles.foodCard}>
-        <Text style={styles.sectionTitle}>사진상 확인한 음식</Text>
+        <View style={styles.foodHeader}>
+          <Text style={styles.sectionTitle}>사진상 확인한 음식</Text>
+          <Text style={styles.foodHeaderMeta}>분석 근거 보기</Text>
+        </View>
         {analysis.detectedFoods.map((food) => (
           <View key={food.id} style={styles.foodRow}>
             <Text style={styles.foodName}>{food.name}</Text>
@@ -80,28 +92,43 @@ export function ReviewResultScreen({
 
 const styles = StyleSheet.create({
   container: {
-    gap: spacing.lg,
+    gap: spacing.md,
     padding: spacing.lg,
     paddingBottom: spacing.xxl
   },
   header: {
-    gap: spacing.xs
-  },
-  eyebrow: {
-    color: colors.leaf,
-    ...typography.caption
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingTop: spacing.sm
   },
   title: {
     color: colors.ink,
-    ...typography.screenTitle
+    ...typography.sectionTitle
+  },
+  subtitle: {
+    color: colors.body,
+    textAlign: "center",
+    ...typography.body
+  },
+  photoStage: {
+    position: "relative",
+    marginTop: spacing.sm
+  },
+  buddyOverlay: {
+    position: "absolute",
+    right: spacing.md,
+    bottom: 62,
+    zIndex: 4
   },
   resultCard: {
     gap: spacing.md,
     borderColor: colors.hairline,
-    borderRadius: radii.card,
+    borderRadius: radii.photo,
     borderWidth: 1,
     backgroundColor: colors.surface,
-    padding: spacing.lg
+    marginTop: -spacing.sm,
+    padding: spacing.lg,
+    ...shadows.card
   },
   confidenceRow: {
     alignItems: "center",
@@ -124,11 +151,23 @@ const styles = StyleSheet.create({
     borderRadius: radii.card,
     borderWidth: 1,
     backgroundColor: colors.surface,
-    padding: spacing.lg
+    padding: spacing.lg,
+    ...shadows.card
+  },
+  foodHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: spacing.sm
   },
   sectionTitle: {
     color: colors.ink,
     ...typography.sectionTitle
+  },
+  foodHeaderMeta: {
+    color: colors.muted,
+    ...typography.caption
   },
   foodRow: {
     flexDirection: "row",
@@ -155,9 +194,9 @@ const styles = StyleSheet.create({
     flex: 2,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 52,
+    minHeight: 58,
     borderRadius: radii.control,
-    backgroundColor: colors.black,
+    backgroundColor: colors.leaf,
     padding: spacing.md
   },
   buttonDisabled: {
@@ -174,7 +213,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 52,
+    minHeight: 58,
     borderColor: colors.hairline,
     borderRadius: radii.control,
     borderWidth: 1,

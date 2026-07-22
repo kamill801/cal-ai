@@ -1,4 +1,5 @@
 import type { AnalysisResult, RangeNarrowingResult } from "@cal-ai/shared";
+import type { ImageSourcePropType } from "react-native";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { CalorieRange } from "../components/CalorieRange";
 import { ClarificationSheet } from "../components/ClarificationSheet";
@@ -10,6 +11,7 @@ import { colors, spacing, typography } from "../theme";
 
 export function ClarificationScreen({
   analysis,
+  photoSource,
   narrowing,
   selectedValue,
   status,
@@ -19,6 +21,7 @@ export function ClarificationScreen({
   onRetry
 }: {
   analysis: AnalysisResult;
+  photoSource?: ImageSourcePropType;
   narrowing?: RangeNarrowingResult;
   selectedValue?: string;
   status: RequestStatus;
@@ -39,7 +42,7 @@ export function ClarificationScreen({
         <Text style={styles.eyebrow}>원탭 보정</Text>
         <Text style={styles.title}>{isLoading ? "답변을 반영하고 있어요" : "이 질문 하나만 확인해요"}</Text>
       </View>
-      <MealPhotoFrame source={scanPhotoSource} stageText={isLoading ? "범위 다시 계산 중" : "밥 양 확인 대기"} confidenceLabel={analysis.summary.confidenceLabel} confidenceGroup={analysis.summary.confidenceGroup} />
+      <MealPhotoFrame source={photoSource ?? scanPhotoSource} stageText={isLoading ? "범위 다시 계산 중" : "밥 양 확인 대기"} confidenceLabel={analysis.summary.confidenceLabel} confidenceGroup={analysis.summary.confidenceGroup} />
       <CalorieRange range={analysis.summary.calorieRange} compact />
       {isLoading ? <FlowStatusCard title="범위 조정 중" message="선택한 답변을 반영해 칼로리 범위를 다시 좁히고 있어요." /> : null}
       {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}

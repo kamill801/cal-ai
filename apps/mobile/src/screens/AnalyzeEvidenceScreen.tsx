@@ -1,24 +1,30 @@
 import type { AnalysisResult } from "@cal-ai/shared";
+import { ArrowLeft } from "lucide-react-native";
+import type { ImageSourcePropType } from "react-native";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { CalorieRange } from "../components/CalorieRange";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { MealPhotoFrame } from "../components/MealPhotoFrame";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { scanPhotoSource } from "../mockData";
-import { colors, radii, spacing, typography } from "../theme";
+import { colors, radii, shadows, spacing, typography } from "../theme";
 
 export function AnalyzeEvidenceScreen({
   analysis,
+  photoSource,
   status,
   error,
   onClarify,
-  onRetry
+  onRetry,
+  onCancel
 }: {
   analysis?: AnalysisResult;
+  photoSource?: ImageSourcePropType;
   status: RequestStatus;
   error?: FlowError;
   onClarify: () => void;
   onRetry: () => void;
+  onCancel: () => void;
 }) {
   const isLoading = status === "loading";
   const canClarify = Boolean(analysis?.clarificationQuestion) && !isLoading && !error;
@@ -27,19 +33,31 @@ export function AnalyzeEvidenceScreen({
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>사진 분석</Text>
-        <Text style={styles.title}>{isLoading ? "사진을 분석하고 있어요" : "꼼꼼히 확인하고 있어요"}</Text>
+        <View style={styles.headerTop}>
+          <TouchableOpacity style={styles.backButton} onPress={onCancel} accessibilityRole="button" accessibilityLabel="분석 닫기">
+            <ArrowLeft color={colors.ink} size={22} strokeWidth={2.4} />
+          </TouchableOpacity>
+          <Text style={styles.eyebrow}>식사 사진 촬영</Text>
+        </View>
+        <Text style={styles.title}>{isLoading ? "사진을 분석하고 있어요" : "사진 한 장으로 간편 기록"}</Text>
+        <Text style={styles.subtitle}>밝은 곳에서 음식이 잘 보이게 찍으면 범위가 더 좋아져요.</Text>
       </View>
 
       {analysis ? (
         <MealPhotoFrame
-          source={scanPhotoSource}
+          source={photoSource ?? scanPhotoSource}
           stageText={analysis.stageText}
           confidenceLabel={analysis.summary.confidenceLabel}
           confidenceGroup={analysis.summary.confidenceGroup}
         />
+      ) : photoSource ? (
+        <MealPhotoFrame source={photoSource} stageText={isLoading ? "사진 업로드 중" : "식사 사진 준비 완료"} />
       ) : (
         <View style={styles.photoPlaceholder}>
+          <View style={[styles.scanCorner, styles.scanCornerTopLeft]} />
+          <View style={[styles.scanCorner, styles.scanCornerTopRight]} />
+          <View style={[styles.scanCorner, styles.scanCornerBottomLeft]} />
+          <View style={[styles.scanCorner, styles.scanCornerBottomRight]} />
           <Text style={styles.placeholderTitle}>식사 사진 준비 완료</Text>
           <Text style={styles.placeholderBody}>FastAPI 분석 작업을 만들고 결과를 불러오는 중이에요.</Text>
         </View>
@@ -86,6 +104,21 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.xs
   },
+  headerTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderColor: colors.hairline,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    backgroundColor: colors.surface
+  },
   eyebrow: {
     color: colors.leaf,
     ...typography.caption
@@ -94,23 +127,63 @@ const styles = StyleSheet.create({
     color: colors.ink,
     ...typography.screenTitle
   },
+  subtitle: {
+    color: colors.body,
+    ...typography.body
+  },
   photoPlaceholder: {
+    position: "relative",
     gap: spacing.sm,
-    minHeight: 180,
+    minHeight: 300,
     justifyContent: "center",
-    borderColor: colors.hairline,
+    borderColor: "#4b4b4b",
     borderRadius: radii.photo,
     borderWidth: 1,
-    backgroundColor: colors.surfaceSoft,
-    padding: spacing.lg
+    backgroundColor: "#252525",
+    padding: spacing.lg,
+    ...shadows.floating
   },
   placeholderTitle: {
-    color: colors.ink,
+    color: colors.surface,
     ...typography.sectionTitle
   },
   placeholderBody: {
-    color: colors.body,
+    color: "rgba(255, 255, 255, 0.72)",
     ...typography.body
+  },
+  scanCorner: {
+    position: "absolute",
+    width: 44,
+    height: 44,
+    borderColor: colors.surface
+  },
+  scanCornerTopLeft: {
+    top: spacing.lg,
+    left: spacing.lg,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderTopLeftRadius: radii.control
+  },
+  scanCornerTopRight: {
+    top: spacing.lg,
+    right: spacing.lg,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderTopRightRadius: radii.control
+  },
+  scanCornerBottomLeft: {
+    bottom: spacing.lg,
+    left: spacing.lg,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderBottomLeftRadius: radii.control
+  },
+  scanCornerBottomRight: {
+    right: spacing.lg,
+    bottom: spacing.lg,
+    borderRightWidth: 5,
+    borderBottomWidth: 5,
+    borderBottomRightRadius: radii.control
   },
   panel: {
     gap: spacing.md,
@@ -118,7 +191,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.card,
     borderWidth: 1,
     backgroundColor: colors.surface,
-    padding: spacing.lg
+    padding: spacing.lg,
+    ...shadows.card
   },
   explanation: {
     color: colors.body,
@@ -147,7 +221,7 @@ const styles = StyleSheet.create({
   primaryButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 52,
+    minHeight: 58,
     borderRadius: radii.control,
     backgroundColor: colors.leaf,
     paddingHorizontal: spacing.lg,

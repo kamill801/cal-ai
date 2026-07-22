@@ -21,7 +21,7 @@ export function ClarificationSheet({
   return (
     <View style={styles.sheet} accessibilityLabel="한 번만 확인하는 보정 질문">
       <View style={styles.handle} />
-      <Text style={styles.eyebrow}>한 번만 확인할게요</Text>
+      <Text style={styles.eyebrow}>밥 양만 확인하면 더 정확해져요</Text>
       <Text style={styles.question}>{question.question}</Text>
       <Text style={styles.helper}>{question.helperText}</Text>
       <View style={styles.chipWrap}>
@@ -54,8 +54,7 @@ export function ClarificationSheet({
 const styles = StyleSheet.create({
   sheet: {
     gap: spacing.md,
-    borderTopLeftRadius: radii.sheet,
-    borderTopRightRadius: radii.sheet,
+    borderRadius: radii.photo,
     borderColor: colors.hairline,
     borderWidth: 1,
     backgroundColor: colors.surface,
@@ -75,7 +74,7 @@ const styles = StyleSheet.create({
   },
   question: {
     color: colors.ink,
-    ...typography.screenTitle
+    ...typography.sectionTitle
   },
   helper: {
     color: colors.body,
@@ -87,18 +86,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   chip: {
-    minWidth: 112,
+    minWidth: 96,
     flexGrow: 1,
-    flexBasis: "46%",
+    flexBasis: "30%",
     borderColor: colors.hairline,
     borderRadius: radii.control,
     borderWidth: 1,
-    backgroundColor: colors.paper,
+    backgroundColor: colors.surface,
     padding: spacing.md
   },
   chipSelected: {
     borderColor: colors.leaf,
-    backgroundColor: colors.leafSoft
+    backgroundColor: colors.leafTint
   },
   chipText: {
     color: colors.ink,

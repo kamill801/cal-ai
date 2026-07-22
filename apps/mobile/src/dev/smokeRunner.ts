@@ -7,7 +7,9 @@ async function main() {
   require.extensions[".png"] = () => undefined;
   const { runAsyncFlowSmoke } = require("./asyncFlowSmoke") as { runAsyncFlowSmoke: () => void };
   const { runApiClientSmoke } = require("./apiClientSmoke") as { runApiClientSmoke: () => Promise<void> };
+  const { runSessionRestoreSmoke } = require("./sessionRestoreSmoke") as { runSessionRestoreSmoke: () => void };
   runAsyncFlowSmoke();
+  runSessionRestoreSmoke();
   await runApiClientSmoke();
   console.log("mobile async/API smoke passed");
 }

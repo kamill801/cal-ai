@@ -7,7 +7,17 @@ import type {
   ApiDashboardTodayResponse,
   ApiImageUploadPresignResponse,
   ApiImageUploadResponse,
+  ApiOnboardingResponse,
+  OnboardingRequest,
   ApiSavedImpactResponse,
+  ApiBodyCheckIn,
+  ApiCoachDashboard,
+  ApiProgressSummary,
+  ApiWeightLog,
+  ApiWeeklyCoachReport,
+  ApiWellnessCheckIn,
+  ApiWorkoutPlan,
+  ApiWorkoutSession,
   ImageContentType,
   MealType
 } from "@cal-ai/shared";
@@ -17,14 +27,32 @@ import {
   mapApiDashboardToday,
   mapApiImageUploadPresign,
   mapApiImageUpload,
+  mapApiOnboardingResponse,
   mapApiSavedImpactResponse,
+  mapApiBodyCheckIn,
+  mapApiCoachDashboard,
+  mapApiProgress,
+  mapApiWeightLog,
+  mapApiWeeklyCoach,
+  mapApiWellness,
+  mapApiWorkoutPlan,
+  mapApiWorkoutSession,
   type AnalysisJobViewModel,
   type DashboardTodayResponse,
   type ImageUploadPresignViewModel,
   type ImageUploadViewModel,
+  type OnboardingResponse,
   type RangeNarrowingResult,
   type SavedImpactViewModel,
-  type AnalysisResult
+  type AnalysisResult,
+  type BodyCheckIn,
+  type CoachDashboard,
+  type ProgressSummary,
+  type WeightLog,
+  type WeeklyCoachReport,
+  type WellnessCheckIn,
+  type WorkoutPlan,
+  type WorkoutSession
 } from "@cal-ai/shared";
 import { getApiBaseUrl } from "./config";
 
@@ -62,6 +90,7 @@ export class ApiClientError extends Error {
 
 export interface CalAiApiClient {
   getTodayDashboard(): Promise<DashboardTodayResponse>;
+  createOnboarding(input: OnboardingRequest): Promise<OnboardingResponse>;
   uploadImage(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number; simulateFailure?: boolean }): Promise<ImageUploadViewModel>;
   presignImageUpload(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number }): Promise<ImageUploadPresignViewModel>;
   completeImageUpload(input: {
@@ -76,7 +105,16 @@ export interface CalAiApiClient {
   createAnalysisJob(input: { imageUploadId: string; mealType?: MealType; optionalNote?: string }): Promise<{ analysisJobId: string; status: "queued" }>;
   getAnalysisJob(jobId: string): Promise<AnalysisJobViewModel>;
   submitClarification(input: { jobId: string; questionKey: string; value: string }): Promise<{ result: AnalysisResult; rangeNarrowing?: RangeNarrowingResult }>;
-  saveMealLog(input: { analysisJobId: string; resultId: string; clarificationValue: string }): Promise<SavedImpactViewModel>;
+  saveMealLog(input: { analysisJobId: string; resultId: string; clarificationValue: string; profileId?: string; loggedOn?: string }): Promise<SavedImpactViewModel>;
+  getCoachDashboard(profileId: string, loggedOn?: string): Promise<CoachDashboard>;
+  logWeight(profileId: string, input: { loggedOn: string; weightKg: number }): Promise<WeightLog>;
+  logWellness(profileId: string, input: { loggedOn: string; energy: number; sleepQuality: number; soreness: number; note?: string }): Promise<WellnessCheckIn>;
+  createBodyCheckIn(profileId: string, input: { capturedOn: string; imageUploadId: string; view: "front" | "side" | "back" }): Promise<BodyCheckIn>;
+  generateWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
+  getWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
+  logWorkoutSession(profileId: string, input: { planId: string; workoutDayId: string; performedOn: string; durationMinutes: number; completedExerciseIds: string[]; sessionRpe: number }): Promise<WorkoutSession>;
+  getProgress(profileId: string): Promise<ProgressSummary>;
+  getWeeklyCoach(profileId: string): Promise<WeeklyCoachReport>;
 }
 
 export function createCalAiApiClient(baseUrl = getApiBaseUrl()): CalAiApiClient {
@@ -85,6 +123,26 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl()): CalAiApiClient 
   return {
     async getTodayDashboard() {
       return mapApiDashboardToday(await request<ApiDashboardTodayResponse>(root, "/v1/dashboard/today"));
+    },
+    async createOnboarding(input) {
+      return mapApiOnboardingResponse(
+        await request<ApiOnboardingResponse>(root, "/v1/onboarding", {
+          method: "POST",
+          body: {
+            age: input.age,
+            sex: input.sex,
+            height_cm: input.heightCm,
+            current_weight_kg: input.currentWeightKg,
+            target_weight_kg: input.targetWeightKg ?? null,
+            goal_type: input.goalType,
+            activity_level: input.activityLevel,
+            training_frequency: input.trainingFrequency ?? null,
+            experience_level: input.experienceLevel ?? "beginner",
+            available_equipment: input.availableEquipment ?? ["gym"],
+            session_minutes: input.sessionMinutes ?? 60
+          }
+        })
+      );
     },
     async uploadImage(input) {
       return mapApiImageUpload(
@@ -158,10 +216,69 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl()): CalAiApiClient 
           body: {
             analysis_job_id: input.analysisJobId,
             result_id: input.resultId,
-            clarification_value: input.clarificationValue
+            clarification_value: input.clarificationValue,
+            profile_id: input.profileId ?? null,
+            logged_on: input.loggedOn ?? null
           }
         })
       );
+    },
+    async getCoachDashboard(profileId, loggedOn) {
+      const query = loggedOn ? `?logged_on=${encodeURIComponent(loggedOn)}` : "";
+      return mapApiCoachDashboard(await request<ApiCoachDashboard>(root, `/v1/profiles/${encodeURIComponent(profileId)}/dashboard/today${query}`));
+    },
+    async logWeight(profileId, input) {
+      return mapApiWeightLog(
+        await request<ApiWeightLog>(root, `/v1/profiles/${encodeURIComponent(profileId)}/weight-logs`, {
+          method: "POST",
+          body: { logged_on: input.loggedOn, weight_kg: input.weightKg }
+        })
+      );
+    },
+    async logWellness(profileId, input) {
+      return mapApiWellness(
+        await request<ApiWellnessCheckIn>(root, `/v1/profiles/${encodeURIComponent(profileId)}/wellness-check-ins`, {
+          method: "POST",
+          body: { logged_on: input.loggedOn, energy: input.energy, sleep_quality: input.sleepQuality, soreness: input.soreness, note: input.note ?? null }
+        })
+      );
+    },
+    async createBodyCheckIn(profileId, input) {
+      return mapApiBodyCheckIn(
+        await request<ApiBodyCheckIn>(root, `/v1/profiles/${encodeURIComponent(profileId)}/body-check-ins`, {
+          method: "POST",
+          body: { captured_on: input.capturedOn, image_upload_id: input.imageUploadId, view: input.view }
+        })
+      );
+    },
+    async generateWorkoutPlan(profileId) {
+      return mapApiWorkoutPlan(
+        await request<ApiWorkoutPlan>(root, `/v1/profiles/${encodeURIComponent(profileId)}/workout-plans/generate`, { method: "POST" })
+      );
+    },
+    async getWorkoutPlan(profileId) {
+      return mapApiWorkoutPlan(await request<ApiWorkoutPlan>(root, `/v1/profiles/${encodeURIComponent(profileId)}/workout-plan`));
+    },
+    async logWorkoutSession(profileId, input) {
+      return mapApiWorkoutSession(
+        await request<ApiWorkoutSession>(root, `/v1/profiles/${encodeURIComponent(profileId)}/workout-sessions`, {
+          method: "POST",
+          body: {
+            plan_id: input.planId,
+            workout_day_id: input.workoutDayId,
+            performed_on: input.performedOn,
+            duration_minutes: input.durationMinutes,
+            completed_exercise_ids: input.completedExerciseIds,
+            session_rpe: input.sessionRpe
+          }
+        })
+      );
+    },
+    async getProgress(profileId) {
+      return mapApiProgress(await request<ApiProgressSummary>(root, `/v1/profiles/${encodeURIComponent(profileId)}/progress`));
+    },
+    async getWeeklyCoach(profileId) {
+      return mapApiWeeklyCoach(await request<ApiWeeklyCoachReport>(root, `/v1/profiles/${encodeURIComponent(profileId)}/weekly-coach`));
     }
   };
 }

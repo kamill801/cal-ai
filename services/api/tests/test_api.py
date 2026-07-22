@@ -7,10 +7,12 @@ from app.main import app
 from app.services.analysis_provider import (
     AnalysisProviderConfigurationError,
     AnalysisProviderDryRunError,
+    OpenAIAnalysisProvider,
     StructuredOutputMalformedError,
 )
 from app.services import persistence as persistence_module
 from app.services.persistence import PostgresPersistenceRepository, SQLitePersistenceRepository
+from app.services.storage import R2StorageAdapter, StorageObjectMetadata
 
 
 client = TestClient(app)
@@ -57,6 +59,20 @@ def test_onboarding_returns_initial_target() -> None:
     assert body["profile_id"]
     assert body["target"]["calories_kcal"] > 0
     assert body["target"]["protein_g"] > 0
+
+
+def test_cors_allows_expo_web_preview_origin() -> None:
+    response = client.options(
+        "/v1/onboarding",
+        headers={
+            "Origin": "http://localhost:8081",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:8081"
+    assert "POST" in response.headers["access-control-allow-methods"]
 
 
 def test_dashboard_today_mock_contract() -> None:
@@ -141,6 +157,24 @@ def test_r2_image_upload_presign_does_not_expose_secret(monkeypatch) -> None:
     assert body["soft_limit_exceeded"] is False
 
 
+def test_r2_analysis_read_url_is_short_lived_and_does_not_expose_secret() -> None:
+    adapter = R2StorageAdapter(
+        bucket_name="cal-ai-meal-images",
+        account_id="example-account",
+        access_key_id="test-access-key",
+        secret_access_key="test-secret-key",
+        endpoint="https://example-account.r2.cloudflarestorage.com",
+        region="auto",
+    )
+
+    read_url = adapter.presign_get(object_key="uploads/image-upload-1/meal.png", expires_seconds=300)
+
+    assert read_url.startswith("https://example-account.r2.cloudflarestorage.com/cal-ai-meal-images/uploads/")
+    assert "X-Amz-Expires=300" in read_url
+    assert "X-Amz-Signature=" in read_url
+    assert "test-secret-key" not in read_url
+
+
 def test_image_upload_presign_blocks_when_total_soft_limit_would_be_exceeded(monkeypatch) -> None:
     monkeypatch.setenv("UPLOAD_SOFT_LIMIT_BYTES", "500000")
 
@@ -183,6 +217,11 @@ def test_r2_image_upload_complete_persists_ready_metadata(monkeypatch) -> None:
     monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
     monkeypatch.setenv("R2_REGION", "auto")
     monkeypatch.setenv("IMAGE_TTL_DAYS", "7")
+    monkeypatch.setattr(
+        R2StorageAdapter,
+        "stat_object",
+        lambda self, *, object_key: StorageObjectMetadata(byte_size=420000, content_type="image/png", etag='"fake-etag"'),
+    )
 
     presign_response = client.post(
         "/image-uploads/presign",
@@ -229,6 +268,69 @@ def test_r2_image_upload_complete_persists_ready_metadata(monkeypatch) -> None:
     assert upload.upload_status == "ready"
     assert upload.cleanup_after is not None
     assert upload.soft_limit_exceeded is False
+
+
+def test_r2_upload_complete_rejects_missing_storage_object(monkeypatch) -> None:
+    _configure_test_r2(monkeypatch)
+    monkeypatch.setattr(R2StorageAdapter, "stat_object", lambda self, *, object_key: None)
+    presign = client.post(
+        "/image-uploads/presign",
+        json={"local_asset_id": "missing-object", "file_name": "meal.png", "content_type": "image/png", "byte_size": 420000},
+    ).json()
+
+    response = client.post(
+        "/image-uploads/complete",
+        json={
+            "image_upload_id": presign["image_upload_id"],
+            "object_key": presign["object_key"],
+            "local_asset_id": "missing-object",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "image_upload_object_missing"
+    assert response.json()["detail"]["retryable"] is True
+
+
+def test_r2_upload_complete_rejects_actual_object_metadata_mismatch(monkeypatch) -> None:
+    _configure_test_r2(monkeypatch)
+    monkeypatch.setattr(
+        R2StorageAdapter,
+        "stat_object",
+        lambda self, *, object_key: StorageObjectMetadata(byte_size=9_000_000, content_type="image/png"),
+    )
+    presign = client.post(
+        "/image-uploads/presign",
+        json={"local_asset_id": "oversized-object", "file_name": "meal.png", "content_type": "image/png", "byte_size": 420000},
+    ).json()
+
+    response = client.post(
+        "/image-uploads/complete",
+        json={
+            "image_upload_id": presign["image_upload_id"],
+            "object_key": presign["object_key"],
+            "local_asset_id": "oversized-object",
+            "file_name": "meal.png",
+            "content_type": "image/png",
+            "byte_size": 420000,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "image_upload_object_mismatch"
+
+
+def _configure_test_r2(monkeypatch) -> None:
+    monkeypatch.setenv("STORAGE_PROVIDER", "r2")
+    monkeypatch.setenv("R2_BUCKET_NAME", "cal-ai-meal-images")
+    monkeypatch.setenv("R2_ACCOUNT_ID", "example-account")
+    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("R2_ENDPOINT", "https://example-account.r2.cloudflarestorage.com")
+    monkeypatch.setenv("R2_REGION", "auto")
 
 
 def test_r2_upload_complete_rejects_key_mismatch(monkeypatch) -> None:
@@ -307,6 +409,8 @@ def test_ready_reports_database_and_local_storage() -> None:
     assert response.json()["status"] == "ok"
     assert response.json()["database"]["status"] == "ok"
     assert response.json()["storage"]["status"] == "ok"
+    assert response.json()["ai"]["provider"] == "mock"
+    assert response.json()["ai"]["status"] == "ok"
 
 
 def test_ready_reports_misconfigured_r2(monkeypatch) -> None:
@@ -319,6 +423,23 @@ def test_ready_reports_misconfigured_r2(monkeypatch) -> None:
     assert response.json()["status"] == "degraded"
     assert response.json()["storage"]["status"] == "misconfigured"
     assert "R2_SECRET_ACCESS_KEY" in response.json()["storage"]["message"]
+
+
+def test_ready_reports_openai_configuration_without_exposing_secret(monkeypatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("AI_MODEL_VISION", "gpt-5.5")
+    monkeypatch.delenv("AI_PROVIDER_API_KEY", raising=False)
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "degraded"
+    assert response.json()["ai"] == {
+        "status": "misconfigured",
+        "provider": "openai",
+        "message": "OpenAI API key is missing",
+    }
+    assert "test-key" not in response.text
 
 
 def test_recreating_deterministic_mock_job_clears_stale_persisted_response() -> None:
@@ -569,6 +690,105 @@ def test_analysis_job_serialized_contract_shape() -> None:
     assert set(body["result"]["summary"]["calorie_range"]) == {"low", "midpoint", "high"}
     assert body["result"]["clarification_question"]["question_key"] == "rice_amount"
     assert body["result"]["clarification_question"]["options"][0]["helper_text"]
+
+
+def test_openai_analysis_result_is_persisted_for_poll_clarify_and_save(monkeypatch) -> None:
+    raw_result = """{
+      "id": "provider-result",
+      "meal_name": "두부 비빔밥",
+      "meal_type": "lunch",
+      "stage_text": "사진 근거로 추정했어요",
+      "summary": {
+        "calories_kcal": 610,
+        "calorie_range": {"low": 530, "midpoint": 610, "high": 690},
+        "protein_g": 27,
+        "carbs_g": 82,
+        "fat_g": 19,
+        "confidence": 0.71,
+        "confidence_label": "medium",
+        "confidence_group": "estimated"
+      },
+      "detected_foods": [
+        {"id": "food-1", "name": "두부", "assumption_label": "약 100g으로 추정", "confidence_label": "medium"}
+      ],
+      "uncertainty_reasons": ["밥 양이 열량 범위에 가장 큰 영향을 줘요."],
+      "primary_explanation": "보이는 구성과 일반적인 조리량을 함께 반영했어요.",
+      "clarification_question": {
+        "question_key": "portion_amount",
+        "question": "전체 양은 어느 정도였나요?",
+        "helper_text": "한 번만 확인하면 범위를 줄일 수 있어요.",
+        "type": "single_choice",
+        "options": [
+          {"label": "적게", "value": "half_bowl", "helper_text": "평소의 절반 정도"},
+          {"label": "보통", "value": "one_bowl", "helper_text": "일반적인 1인분"},
+          {"label": "많게", "value": "large_bowl", "helper_text": "1.5인분 정도"},
+          {"label": "모르겠어요", "value": "unknown", "helper_text": null}
+        ]
+      }
+    }"""
+    provider = OpenAIAnalysisProvider(
+        api_key="test-key",
+        vision_model="gpt-5.5",
+        text_model="gpt-5.5",
+        responses_call=lambda payload, api_key: raw_result,
+    )
+    monkeypatch.setattr(api_main, "get_analysis_provider", lambda: provider)
+    upload_id = upload_demo_image("live-analysis-demo")
+
+    create_response = client.post(
+        "/v1/analysis-jobs",
+        json={"image_upload_id": upload_id, "meal_type": "lunch"},
+    )
+
+    assert create_response.status_code == 200
+    job_id = create_response.json()["analysis_job_id"]
+    poll_response = client.get(f"/v1/analysis-jobs/{job_id}")
+    assert poll_response.status_code == 200
+    assert poll_response.json()["result"]["meal_name"] == "두부 비빔밥"
+
+    clarify_response = client.post(
+        f"/v1/analysis-jobs/{job_id}/clarifications",
+        json={"answers": [{"question_key": "portion_amount", "value": "one_bowl"}]},
+    )
+    assert clarify_response.status_code == 200
+    assert clarify_response.json()["result"]["clarification_question"] is None
+
+    mismatch_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "analysis_job_id": job_id,
+            "result_id": "different-result",
+            "clarification_value": "one_bowl",
+        },
+    )
+    assert mismatch_response.status_code == 409
+    assert mismatch_response.json()["detail"]["code"] == "analysis_result_mismatch"
+
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "analysis_job_id": job_id,
+            "result_id": f"analysis-{job_id}",
+            "clarification_value": "one_bowl",
+        },
+    )
+    assert save_response.status_code == 200
+    assert save_response.json()["dashboard"]["meals"][0]["name"] == "두부 비빔밥"
+
+
+def test_openai_provider_rejects_unknown_persisted_job(monkeypatch) -> None:
+    provider = OpenAIAnalysisProvider(
+        api_key="test-key",
+        vision_model="gpt-5.5",
+        text_model="gpt-5.5",
+        responses_call=lambda payload, api_key: "{}",
+    )
+    monkeypatch.setattr(api_main, "get_analysis_provider", lambda: provider)
+
+    response = client.get("/v1/analysis-jobs/openai-missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "analysis_job_not_found"
 
 
 def test_mock_jobs_preserve_requested_meal_type() -> None:

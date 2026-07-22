@@ -16,6 +16,7 @@
   - `/Users/dd/Downloads/DESIGN-clay.md`
   - Figma MVP screen board: https://www.figma.com/design/Sr0MXFZ5U6kOk69lcqu5Je
   - Cal AI App Store page, FatSecret App Store/site, DoingLab FoodLens product page for product-pattern benchmarking only.
+  - Approved implementation benchmark: `docs/design-concepts/cal-ai-cute-trust-v1.png`
 - Important boundary:
   - Competitor references inform common user expectations, not visual cloning. Do not copy Cal AI, FatSecret, FoodLens, Clay, or any other product's trade dress, exact layout, screenshots, logo, wording, or distinctive brand assets.
 - Figma status:
@@ -36,6 +37,7 @@
 - Personality:
   - Calm, precise, body-aware, warm, practical.
   - Professional but not stiff: the app should feel like a careful coach who notices details, not a clinical dashboard.
+  - Cute Trust is approved for MVP implementation: soft, friendly, Korean consumer-app warmth with small original mascot/sticker accents.
   - More like a careful nutrition assistant than a loud diet challenge app.
   - Friendly enough for daily use, but restrained enough to make calorie estimates feel trustworthy.
 - Trust signals:
@@ -139,7 +141,7 @@
 - Principle 6: Warm professionalism.
   - Keep the analysis expert-level, but make the surface feel human, appetizing, and easy to return to every day.
   - Avoid sterile report-card layouts, heavy tables, and overly clinical confidence language on the main path.
-  - Use warmth through food photography, soft contrast, optimistic microcopy, and small completion moments rather than mascots or decorative clutter.
+  - Use warmth through food photography, soft contrast, optimistic microcopy, small completion moments, and sparse original mascot accents.
 - Tradeoffs:
   - Use fewer decorative elements inside the app than Clay-style marketing pages.
   - Prefer dense, scannable controls over oversized editorial sections.
@@ -148,9 +150,9 @@
 ## Visual language
 
 - Target visual position:
-  - `Warm Trust Nutrition`: trustworthy enough for nutrition decisions, warm enough for daily consumer use.
-  - The strongest axis is trust plus cleanliness. The missing axis to strengthen before implementation is visual warmth.
-  - Do not chase cuteness as the main identity. Add lightness through rounded food thumbnails, friendly Korean copy, saved-state delight, and generous breathing room.
+  - `Cute Trust Nutrition`: trustworthy enough for nutrition decisions, cute and warm enough for daily Korean consumer use.
+  - The strongest axis is trust plus approachable warmth. Cuteness is allowed when it supports repeat daily use, but food evidence and nutrition clarity remain primary.
+  - Use a small original rice/spoon-buddy character as an accent for analysis, coach, empty, and saved states. Do not let the mascot replace the food photo or analysis result as the main content.
   - The app should not feel like a medical report, spreadsheet, or generic AI assistant.
 - Color:
   - The palette borrows warmth from the Clay reference but shifts toward a food/nutrition product.
@@ -196,11 +198,11 @@
   - Major screen blocks: 24-32px.
   - Marketing or presentation screens may use larger 48-96px rhythm, but the app should not.
 - Shape/radius/elevation:
-  - Product UI card radius: 8px by default.
-  - Buttons/inputs: 8px by default.
-  - Photo/camera frame: 8-12px.
+  - Product UI card radius: 14-18px by default for the approved Cute Trust mobile direction.
+  - Buttons/inputs: 14px by default.
+  - Photo/camera frame: 18px.
   - Device mockups or marketing illustrations may use larger radii, but in-app cards should stay compact.
-  - Elevation should be minimal: hairline borders first, soft shadows only for modals/sheets/device mockups.
+  - Elevation should be soft and warm: hairline borders plus subtle dimensional shadows on photo cards, dashboard cards, and sheets.
 - Motion:
   - Use motion to explain analysis progress, confidence narrowing, and saved-state confirmation.
   - Keep motion short, interruptible, and reduced-motion friendly.
@@ -216,7 +218,7 @@
   - Add a small positive saved confirmation, such as `기록했어요` plus the updated remaining calories, rather than a large celebratory screen.
   - Use one friendly sentence per decision point. Example: `밥 양만 확인하면 범위가 꽤 줄어요.`
   - Keep animation functional: range narrowing, selected chip response, saved confirmation. Avoid decorative loops.
-  - Avoid cartoon mascots, emoji-heavy UI, confetti, and childish copy unless a later brand decision explicitly chooses a cute identity.
+  - Mascot/sticker accents are allowed for the approved Cute Trust direction, but use them sparingly. Avoid emoji-heavy UI, confetti, childish copy, or mascot-first screens.
 
 ## Components
 

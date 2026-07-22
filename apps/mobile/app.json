@@ -6,10 +6,28 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "식사 사진을 촬영해 영양 분석에 사용할 수 있도록 카메라 접근 권한이 필요합니다.",
+          "photosPermission": "앨범에서 식사 사진을 선택해 영양 분석에 사용할 수 있도록 사진 접근 권한이 필요합니다."
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": false
     },
     "android": {
+      "allowBackup": false,
+      "package": "com.trustfirstnutrition.app",
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#fbfaf6"
       }

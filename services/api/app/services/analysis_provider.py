@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import Protocol
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from uuid import uuid4
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.schemas import (
     AnalysisJobCreateResponse,
@@ -18,7 +21,6 @@ from app.schemas import (
     SavedImpactResponse,
 )
 from app.services.mock_analysis import apply_mock_clarification, get_mock_analysis_job, save_mock_meal
-from app.services.image_uploads import resolve_image_reference
 
 SAFE_PROVIDER_ERROR_MESSAGE = "분석 제공자를 설정할 수 없어요. 로컬 mock 분석으로 개발을 계속할 수 있어요."
 
@@ -35,8 +37,41 @@ class StructuredOutputMalformedError(RuntimeError):
     """Raised when a structured provider payload cannot be parsed into the schema."""
 
 
+class AnalysisProviderUnavailableError(RuntimeError):
+    pass
+
+
+class _OpenAIResponseContent(BaseModel):
+    type: str
+    text: str | None = None
+    refusal: str | None = None
+
+
+class _OpenAIResponseOutput(BaseModel):
+    type: str
+    content: list[_OpenAIResponseContent] = Field(default_factory=list)
+
+
+class _OpenAIResponseEnvelope(BaseModel):
+    output: list[_OpenAIResponseOutput]
+
+
+ResponsesCall = Callable[[dict[str, object], str], str]
+
+
 class AnalysisProvider(Protocol):
+    processes_jobs_synchronously: bool
+    uses_persisted_result_operations: bool
+
     def create_job(self, payload: AnalysisJobRequest) -> AnalysisJobCreateResponse: ...
+
+    def analyze(
+        self,
+        *,
+        job_id: str,
+        payload: AnalysisJobRequest,
+        image_reference: str,
+    ) -> AnalysisJobResponse: ...
 
     def get_job(self, job_id: str) -> AnalysisJobResponse: ...
 
@@ -46,10 +81,23 @@ class AnalysisProvider(Protocol):
 
 
 class MockAnalysisProvider:
+    processes_jobs_synchronously = False
+    uses_persisted_result_operations = False
+
     def create_job(self, payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
         return AnalysisJobCreateResponse(analysis_job_id=f"mock-{payload.meal_type}-001", status="queued")
 
     def get_job(self, job_id: str) -> AnalysisJobResponse:
+        return get_mock_analysis_job(job_id)
+
+    def analyze(
+        self,
+        *,
+        job_id: str,
+        payload: AnalysisJobRequest,
+        image_reference: str,
+    ) -> AnalysisJobResponse:
+        del payload, image_reference
         return get_mock_analysis_job(job_id)
 
     def apply_clarification(self, job_id: str, payload: ClarificationRequest) -> ClarificationResponse:
@@ -61,19 +109,47 @@ class MockAnalysisProvider:
 
 
 class OpenAIAnalysisProvider:
-    """Dry-run OpenAI provider scaffold.
+    processes_jobs_synchronously = True
+    uses_persisted_result_operations = True
 
-    This class intentionally does not import the OpenAI SDK and does not perform HTTP calls.
-    A later credential-approved integration can reuse the request builder and parser below.
-    """
-
-    def __init__(self, *, api_key: str | None, vision_model: str | None, text_model: str | None) -> None:
-        self._vision_model = vision_model or "gpt-5.5"
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        vision_model: str | None,
+        text_model: str | None,
+        responses_call: ResponsesCall | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._vision_model = vision_model or "gpt-5.4-mini"
         self._text_model = text_model or self._vision_model
+        self._responses_call = responses_call or call_openai_responses
 
     def create_job(self, payload: AnalysisJobRequest) -> AnalysisJobCreateResponse:
-        _ = self.build_responses_payload(image_reference=resolve_image_reference(payload.image_upload_id), meal_type=payload.meal_type, optional_note=payload.optional_note)
-        raise AnalysisProviderDryRunError("openai_provider_dry_run_only")
+        del payload
+        return AnalysisJobCreateResponse(analysis_job_id=f"openai-{uuid4()}", status="queued")
+
+    def analyze(
+        self,
+        *,
+        job_id: str,
+        payload: AnalysisJobRequest,
+        image_reference: str,
+    ) -> AnalysisJobResponse:
+        request_payload = self.build_responses_payload(
+            image_reference=image_reference,
+            meal_type=payload.meal_type,
+            optional_note=payload.optional_note,
+        )
+        result = parse_with_retry(
+            lambda: self._responses_call(request_payload, self._api_key),
+            parser=self.parse_structured_output,
+            attempts=2,
+        ).model_copy(
+            update={"id": f"analysis-{job_id}", "meal_type": payload.meal_type}
+        )
+        status = "needs_clarification" if result.clarification_question else "completed"
+        return AnalysisJobResponse(id=job_id, status=status, result=result)
 
     def get_job(self, job_id: str) -> AnalysisJobResponse:
         raise AnalysisProviderDryRunError("openai_provider_dry_run_only")
@@ -84,9 +160,17 @@ class OpenAIAnalysisProvider:
     def save_meal(self, payload: MealLogRequest) -> SavedImpactResponse:
         raise AnalysisProviderDryRunError("openai_provider_dry_run_only")
 
-    def build_responses_payload(self, *, image_reference: str, meal_type: str, optional_note: str | None = None) -> dict[str, Any]:
+    def build_responses_payload(
+        self,
+        *,
+        image_reference: str,
+        meal_type: str,
+        optional_note: str | None = None,
+    ) -> dict[str, object]:
         return {
             "model": self._vision_model,
+            "store": False,
+            "max_output_tokens": 1800,
             "input": [
                 {
                     "role": "user",
@@ -94,14 +178,20 @@ class OpenAIAnalysisProvider:
                         {
                             "type": "input_text",
                             "text": (
-                                "Analyze this meal image for a trust-first nutrition log. "
-                                f"Meal type: {meal_type}. "
-                                f"Optional user note: {optional_note or 'none'}."
+                                "Analyze the meal photo for a Korean trust-first nutrition log. "
+                                "Estimate calories and macros as ranges, never claim visual estimates are exact, "
+                                "and name the assumptions that most affect the result. If one portion answer would "
+                                "materially improve accuracy, ask one single-choice question using only the option "
+                                "values half_bowl, one_bowl, large_bowl, and unknown. Otherwise return null for the "
+                                "question. If the image is not food, return an empty detected_foods list, very low "
+                                "confidence, and explain that a meal photo is needed. All user-facing text must be Korean. "
+                                f"Meal type: {meal_type}. Optional user note: {optional_note or 'none'}."
                             ),
                         },
                         {
                             "type": "input_image",
                             "image_url": image_reference,
+                            "detail": "high",
                         },
                     ],
                 }
@@ -130,8 +220,11 @@ def get_analysis_provider(environ: dict[str, str] | None = None) -> AnalysisProv
     if provider_name == "mock":
         return MockAnalysisProvider()
     if provider_name == "openai":
+        api_key = env.get("AI_PROVIDER_API_KEY")
+        if not api_key:
+            raise AnalysisProviderConfigurationError("openai_api_key_missing")
         return OpenAIAnalysisProvider(
-            api_key=env.get("AI_PROVIDER_API_KEY"),
+            api_key=api_key,
             vision_model=env.get("AI_MODEL_VISION"),
             text_model=env.get("AI_MODEL_TEXT"),
         )
@@ -158,7 +251,38 @@ def parse_with_retry(
     raise StructuredOutputMalformedError("openai_output_malformed") from last_error
 
 
-def analysis_result_json_schema() -> dict[str, Any]:
+def call_openai_responses(payload: dict[str, object], api_key: str) -> str:
+    request = Request(
+        "https://api.openai.com/v1/responses",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=45) as response:
+            envelope = _OpenAIResponseEnvelope.model_validate_json(response.read())
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise AnalysisProviderConfigurationError("openai_api_key_rejected") from exc
+        raise AnalysisProviderUnavailableError(f"openai_http_{exc.code}") from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise AnalysisProviderUnavailableError("openai_transport_failed") from exc
+    except ValidationError as exc:
+        raise StructuredOutputMalformedError("openai_response_malformed") from exc
+
+    for output in envelope.output:
+        for content in output.content:
+            if content.type == "refusal":
+                raise AnalysisProviderUnavailableError("openai_response_refused")
+            if content.type == "output_text" and content.text:
+                return content.text
+    raise StructuredOutputMalformedError("openai_output_missing")
+
+
+def analysis_result_json_schema() -> dict[str, object]:
     return {
         "type": "object",
         "additionalProperties": False,
@@ -198,9 +322,58 @@ def analysis_result_json_schema() -> dict[str, Any]:
                     "confidence_group": {"type": "string", "enum": ["certain", "estimated", "needs_check", "manual"]},
                 },
             },
-            "detected_foods": {"type": "array", "items": {"type": "object"}},
+            "detected_foods": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["id", "name", "assumption_label", "confidence_label"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "name": {"type": "string"},
+                        "assumption_label": {"type": "string"},
+                        "confidence_label": {
+                            "type": "string",
+                            "enum": ["high", "medium_high", "medium", "low", "manual"],
+                        },
+                    },
+                },
+            },
             "uncertainty_reasons": {"type": "array", "items": {"type": "string"}},
             "primary_explanation": {"type": "string"},
-            "clarification_question": {"type": ["object", "null"]},
+            "clarification_question": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["question_key", "question", "helper_text", "type", "options"],
+                        "properties": {
+                            "question_key": {"type": "string"},
+                            "question": {"type": "string"},
+                            "helper_text": {"type": "string"},
+                            "type": {"type": "string", "enum": ["single_choice"]},
+                            "options": {
+                                "type": "array",
+                                "minItems": 4,
+                                "maxItems": 4,
+                                "items": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["label", "value", "helper_text"],
+                                    "properties": {
+                                        "label": {"type": "string"},
+                                        "value": {
+                                            "type": "string",
+                                            "enum": ["half_bowl", "one_bowl", "large_bowl", "unknown"],
+                                        },
+                                        "helper_text": {"type": ["string", "null"]},
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    {"type": "null"},
+                ]
+            },
         },
     }

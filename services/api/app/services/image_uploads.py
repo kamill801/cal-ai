@@ -16,6 +16,7 @@ from app.services.storage import (
 )
 
 SUPPORTED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
+ANALYSIS_READ_EXPIRES_SECONDS = 300
 
 
 class ImageUploadError(RuntimeError):
@@ -111,8 +112,29 @@ def complete_presigned_image_upload(
         if not existing:
             raise ImageUploadError("image_upload_not_found", "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.", retryable=False)
         _validate_presigned_upload_record(existing, payload)
+        if existing.upload_status == "ready":
+            return ImageUploadResponse(
+                image_upload_id=existing.image_upload_id,
+                image_reference=existing.image_reference,
+                status="ready",
+            )
 
         adapter = get_storage_adapter()
+        if adapter.provider == "r2":
+            stored_object = adapter.stat_object(object_key=payload.object_key)
+            if stored_object is None:
+                raise ImageUploadError(
+                    "image_upload_object_missing",
+                    "이미지 전송이 아직 완료되지 않았어요. 다시 업로드해 주세요.",
+                    retryable=True,
+                )
+            if stored_object.byte_size != existing.byte_size or stored_object.content_type != existing.content_type:
+                raise ImageUploadError(
+                    "image_upload_object_mismatch",
+                    "저장된 이미지 정보가 업로드 요청과 일치하지 않아요. 새로 업로드해 주세요.",
+                    retryable=False,
+                )
+            _validate_image_metadata(content_type=stored_object.content_type, byte_size=stored_object.byte_size)
         image_reference = adapter.image_reference(object_key=payload.object_key)
         cleanup_after = _cleanup_after_iso(get_image_ttl_days())
         record = persistence.save_image_upload(
@@ -145,6 +167,29 @@ def resolve_image_reference(
     if upload.upload_status != "ready":
         raise ImageUploadError("image_upload_not_ready", "이미지 업로드가 아직 완료되지 않았어요.", retryable=False)
     return upload.image_reference
+
+
+def resolve_analysis_image_reference(
+    image_upload_id: str,
+    repository: PersistenceRepository | None = None,
+) -> str:
+    persistence = repository or get_persistence_repository()
+    upload = persistence.get_image_upload(image_upload_id)
+    if not upload:
+        raise ImageUploadError("image_upload_not_found", "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.", retryable=False)
+    if upload.upload_status != "ready":
+        raise ImageUploadError("image_upload_not_ready", "이미지 업로드가 아직 완료되지 않았어요.", retryable=False)
+    if upload.storage_provider != "r2":
+        return upload.image_reference
+    if not upload.object_key:
+        raise ImageUploadError("image_upload_key_missing", "이미지 저장 정보를 확인할 수 없어요.", retryable=False)
+    try:
+        return get_storage_adapter().presign_get(
+            object_key=upload.object_key,
+            expires_seconds=ANALYSIS_READ_EXPIRES_SECONDS,
+        )
+    except StorageConfigurationError as exc:
+        raise ImageUploadError("storage_unavailable", "이미지 저장소 설정을 확인해 주세요.", retryable=True) from exc
 
 
 def create_image_object_key(*, image_upload_id: str, file_name: str) -> str:

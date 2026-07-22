@@ -30,6 +30,9 @@ export interface OnboardingRequest {
   goalType: GoalType;
   activityLevel: ActivityLevel;
   trainingFrequency?: "none" | "1-2" | "3-4" | "5+";
+  experienceLevel?: "beginner" | "intermediate" | "advanced";
+  availableEquipment?: ("bodyweight" | "dumbbells" | "gym")[];
+  sessionMinutes?: number;
 }
 
 export interface OnboardingResponse {
@@ -173,6 +176,26 @@ export interface ApiNutritionTarget {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
+}
+
+export interface ApiOnboardingRequest {
+  age: number;
+  sex: "male" | "female" | "other";
+  height_cm: number;
+  current_weight_kg: number;
+  target_weight_kg?: number | null;
+  goal_type: GoalType;
+  activity_level: ActivityLevel;
+  training_frequency?: "none" | "1-2" | "3-4" | "5+" | null;
+  experience_level?: "beginner" | "intermediate" | "advanced";
+  available_equipment?: ("bodyweight" | "dumbbells" | "gym")[];
+  session_minutes?: number;
+}
+
+export interface ApiOnboardingResponse {
+  profile_id: string;
+  target: ApiNutritionTarget;
+  warnings: string[];
 }
 
 export interface ApiNutrientGap {
@@ -331,6 +354,8 @@ export interface ApiMealLogRequest {
   analysis_job_id: string;
   result_id: string;
   clarification_value: string;
+  profile_id?: string | null;
+  logged_on?: string | null;
 }
 
 export interface ApiSavedImpact {
@@ -349,6 +374,14 @@ export function mapApiNutritionTarget(target: ApiNutritionTarget): NutritionTarg
     proteinG: target.protein_g,
     carbsG: target.carbs_g,
     fatG: target.fat_g
+  };
+}
+
+export function mapApiOnboardingResponse(response: ApiOnboardingResponse): OnboardingResponse {
+  return {
+    profileId: response.profile_id,
+    target: mapApiNutritionTarget(response.target),
+    warnings: response.warnings
   };
 }
 
@@ -479,4 +512,375 @@ export function mapApiSavedImpact(impact: ApiSavedImpact, dashboard: DashboardTo
 
 export function mapApiSavedImpactResponse(response: ApiSavedImpactResponse): SavedImpactViewModel {
   return mapApiSavedImpact(response, mapApiDashboardToday(response.dashboard));
+}
+
+export interface CoachNutritionSnapshot {
+  target: NutritionTarget;
+  consumed: NutritionTarget;
+  remaining: NutritionTarget;
+  proteinProgress: number;
+  guidance: string;
+}
+
+export interface CoachTrainingSnapshot {
+  plannedSessions: number;
+  completedSessions: number;
+  nextWorkoutTitle?: string;
+  recoveryMessage: string;
+}
+
+export interface CoachDashboard {
+  profileId: string;
+  date: string;
+  nutrition: CoachNutritionSnapshot;
+  training: CoachTrainingSnapshot;
+  nextAction: { type: "log_meal" | "start_workout" | "check_in" | "recover"; title: string; detail: string };
+}
+
+export interface WeightLog {
+  id: string;
+  profileId: string;
+  loggedOn: string;
+  weightKg: number;
+  createdAt: string;
+}
+
+export interface WellnessCheckIn {
+  id: string;
+  profileId: string;
+  loggedOn: string;
+  energy: number;
+  sleepQuality: number;
+  soreness: number;
+  note?: string;
+  createdAt: string;
+}
+
+export interface BodyCheckIn {
+  id: string;
+  profileId: string;
+  capturedOn: string;
+  imageUploadId: string;
+  view: "front" | "side" | "back";
+  analysis: {
+    provider: "mock" | "openai_dry_run";
+    confidence: "limited";
+    captureQuality: "good" | "retake_recommended";
+    observations: { title: string; detail: string }[];
+    trainingFocus: string[];
+    comparisonNote: string;
+    safetyNote: string;
+  };
+  createdAt: string;
+}
+
+export interface WorkoutExercise {
+  id: string;
+  name: string;
+  sets: number;
+  reps: string;
+  targetRir: number;
+  restSeconds: number;
+  rationale: string;
+}
+
+export interface WorkoutDay {
+  id: string;
+  title: string;
+  focus: string;
+  exercises: WorkoutExercise[];
+}
+
+export interface WorkoutPlan {
+  id: string;
+  profileId: string;
+  goalType: GoalType;
+  daysPerWeek: number;
+  sessionMinutes: number;
+  days: WorkoutDay[];
+  personalizationBasis: string[];
+  progressionRule: string;
+  safetyNote: string;
+  generatedAt: string;
+}
+
+export interface WorkoutSession {
+  id: string;
+  profileId: string;
+  planId: string;
+  workoutDayId: string;
+  performedOn: string;
+  durationMinutes: number;
+  completedExerciseIds: string[];
+  sessionRpe: number;
+  completed: boolean;
+  feedback: string;
+  createdAt: string;
+}
+
+export interface ProgressSummary {
+  profileId: string;
+  latestWeightKg?: number;
+  weightChangeKg?: number;
+  latestWellness?: WellnessCheckIn;
+  bodyCheckIns: BodyCheckIn[];
+  workoutsCompleted: number;
+  targetAdjustment: TargetAdjustmentSuggestion;
+}
+
+export interface TargetAdjustmentSuggestion {
+  status: "insufficient_data" | "no_change" | "suggested";
+  calorieDelta: number;
+  proposedCaloriesKcal?: number;
+  reason: string;
+  requiresConfirmation: boolean;
+}
+
+export interface WeeklyCoachReport {
+  profileId: string;
+  score: number;
+  headline: string;
+  wins: string[];
+  focusItems: string[];
+  nextWeekActions: string[];
+  evidence: { mealsLogged: number; workoutsCompleted: number; weightLogs: number; wellnessCheckIns: number; bodyCheckIns: number };
+  safetyNote: string;
+}
+
+export interface ApiCoachDashboard {
+  profile_id: string;
+  date: string;
+  nutrition: { target: ApiNutritionTarget; consumed: ApiNutritionTarget; remaining: ApiNutritionTarget; protein_progress: number; guidance: string };
+  training: { planned_sessions: number; completed_sessions: number; next_workout_title?: string | null; recovery_message: string };
+  next_action: { type: CoachDashboard["nextAction"]["type"]; title: string; detail: string };
+}
+
+export interface ApiWeightLog {
+  id: string;
+  profile_id: string;
+  logged_on: string;
+  weight_kg: number;
+  created_at: string;
+}
+
+export interface ApiWellnessCheckIn {
+  id: string;
+  profile_id: string;
+  logged_on: string;
+  energy: number;
+  sleep_quality: number;
+  soreness: number;
+  note?: string | null;
+  created_at: string;
+}
+
+export interface ApiBodyCheckIn {
+  id: string;
+  profile_id: string;
+  captured_on: string;
+  image_upload_id: string;
+  view: BodyCheckIn["view"];
+  analysis: {
+    provider: BodyCheckIn["analysis"]["provider"];
+    confidence: "limited";
+    capture_quality: BodyCheckIn["analysis"]["captureQuality"];
+    observations: { title: string; detail: string }[];
+    training_focus: string[];
+    comparison_note: string;
+    safety_note: string;
+  };
+  created_at: string;
+}
+
+export interface ApiWorkoutPlan {
+  id: string;
+  profile_id: string;
+  goal_type: GoalType;
+  days_per_week: number;
+  session_minutes: number;
+  days: { id: string; title: string; focus: string; exercises: { id: string; name: string; sets: number; reps: string; target_rir: number; rest_seconds: number; rationale: string }[] }[];
+  personalization_basis: string[];
+  progression_rule: string;
+  safety_note: string;
+  generated_at: string;
+}
+
+export interface ApiWorkoutSession {
+  id: string;
+  profile_id: string;
+  plan_id: string;
+  workout_day_id: string;
+  performed_on: string;
+  duration_minutes: number;
+  completed_exercise_ids: string[];
+  session_rpe: number;
+  completed: boolean;
+  feedback: string;
+  created_at: string;
+}
+
+export interface ApiProgressSummary {
+  profile_id: string;
+  latest_weight_kg?: number | null;
+  weight_change_kg?: number | null;
+  latest_wellness?: ApiWellnessCheckIn | null;
+  body_check_ins: ApiBodyCheckIn[];
+  workouts_completed: number;
+  target_adjustment: {
+    status: TargetAdjustmentSuggestion["status"];
+    calorie_delta: number;
+    proposed_calories_kcal?: number | null;
+    reason: string;
+    requires_confirmation: boolean;
+  };
+}
+
+export interface ApiWeeklyCoachReport {
+  profile_id: string;
+  score: number;
+  headline: string;
+  wins: string[];
+  focus_items: string[];
+  next_week_actions: string[];
+  evidence: { meals_logged: number; workouts_completed: number; weight_logs: number; wellness_check_ins: number; body_check_ins: number };
+  safety_note: string;
+}
+
+export function mapApiCoachDashboard(value: ApiCoachDashboard): CoachDashboard {
+  return {
+    profileId: value.profile_id,
+    date: value.date,
+    nutrition: {
+      target: mapApiNutritionTarget(value.nutrition.target),
+      consumed: mapApiNutritionTarget(value.nutrition.consumed),
+      remaining: mapApiNutritionTarget(value.nutrition.remaining),
+      proteinProgress: value.nutrition.protein_progress,
+      guidance: value.nutrition.guidance
+    },
+    training: {
+      plannedSessions: value.training.planned_sessions,
+      completedSessions: value.training.completed_sessions,
+      nextWorkoutTitle: value.training.next_workout_title ?? undefined,
+      recoveryMessage: value.training.recovery_message
+    },
+    nextAction: value.next_action
+  };
+}
+
+export function mapApiWeightLog(value: ApiWeightLog): WeightLog {
+  return { id: value.id, profileId: value.profile_id, loggedOn: value.logged_on, weightKg: value.weight_kg, createdAt: value.created_at };
+}
+
+export function mapApiWellness(value: ApiWellnessCheckIn): WellnessCheckIn {
+  return {
+    id: value.id,
+    profileId: value.profile_id,
+    loggedOn: value.logged_on,
+    energy: value.energy,
+    sleepQuality: value.sleep_quality,
+    soreness: value.soreness,
+    note: value.note ?? undefined,
+    createdAt: value.created_at
+  };
+}
+
+export function mapApiBodyCheckIn(value: ApiBodyCheckIn): BodyCheckIn {
+  return {
+    id: value.id,
+    profileId: value.profile_id,
+    capturedOn: value.captured_on,
+    imageUploadId: value.image_upload_id,
+    view: value.view,
+    analysis: {
+      provider: value.analysis.provider,
+      confidence: value.analysis.confidence,
+      captureQuality: value.analysis.capture_quality,
+      observations: value.analysis.observations,
+      trainingFocus: value.analysis.training_focus,
+      comparisonNote: value.analysis.comparison_note,
+      safetyNote: value.analysis.safety_note
+    },
+    createdAt: value.created_at
+  };
+}
+
+export function mapApiWorkoutPlan(value: ApiWorkoutPlan): WorkoutPlan {
+  return {
+    id: value.id,
+    profileId: value.profile_id,
+    goalType: value.goal_type,
+    daysPerWeek: value.days_per_week,
+    sessionMinutes: value.session_minutes,
+    days: value.days.map((day) => ({
+      id: day.id,
+      title: day.title,
+      focus: day.focus,
+      exercises: day.exercises.map((exercise) => ({
+        id: exercise.id,
+        name: exercise.name,
+        sets: exercise.sets,
+        reps: exercise.reps,
+        targetRir: exercise.target_rir,
+        restSeconds: exercise.rest_seconds,
+        rationale: exercise.rationale
+      }))
+    })),
+    personalizationBasis: value.personalization_basis,
+    progressionRule: value.progression_rule,
+    safetyNote: value.safety_note,
+    generatedAt: value.generated_at
+  };
+}
+
+export function mapApiWorkoutSession(value: ApiWorkoutSession): WorkoutSession {
+  return {
+    id: value.id,
+    profileId: value.profile_id,
+    planId: value.plan_id,
+    workoutDayId: value.workout_day_id,
+    performedOn: value.performed_on,
+    durationMinutes: value.duration_minutes,
+    completedExerciseIds: value.completed_exercise_ids,
+    sessionRpe: value.session_rpe,
+    completed: value.completed,
+    feedback: value.feedback,
+    createdAt: value.created_at
+  };
+}
+
+export function mapApiProgress(value: ApiProgressSummary): ProgressSummary {
+  return {
+    profileId: value.profile_id,
+    latestWeightKg: value.latest_weight_kg ?? undefined,
+    weightChangeKg: value.weight_change_kg ?? undefined,
+    latestWellness: value.latest_wellness ? mapApiWellness(value.latest_wellness) : undefined,
+    bodyCheckIns: value.body_check_ins.map(mapApiBodyCheckIn),
+    workoutsCompleted: value.workouts_completed,
+    targetAdjustment: {
+      status: value.target_adjustment.status,
+      calorieDelta: value.target_adjustment.calorie_delta,
+      proposedCaloriesKcal: value.target_adjustment.proposed_calories_kcal ?? undefined,
+      reason: value.target_adjustment.reason,
+      requiresConfirmation: value.target_adjustment.requires_confirmation
+    }
+  };
+}
+
+export function mapApiWeeklyCoach(value: ApiWeeklyCoachReport): WeeklyCoachReport {
+  return {
+    profileId: value.profile_id,
+    score: value.score,
+    headline: value.headline,
+    wins: value.wins,
+    focusItems: value.focus_items,
+    nextWeekActions: value.next_week_actions,
+    evidence: {
+      mealsLogged: value.evidence.meals_logged,
+      workoutsCompleted: value.evidence.workouts_completed,
+      weightLogs: value.evidence.weight_logs,
+      wellnessCheckIns: value.evidence.wellness_check_ins,
+      bodyCheckIns: value.evidence.body_check_ins
+    },
+    safetyNote: value.safety_note
+  };
 }

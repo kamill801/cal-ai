@@ -1,5 +1,5 @@
 import type { AnalysisJobViewModel, AnalysisResult, RangeNarrowingResult, SavedImpactViewModel } from "@cal-ai/shared";
-import { createInitialScanToSaveState, scanToSaveReducer, type ScanToSaveState } from "../flow/scanToSaveFlow";
+import { createInitialScanToSaveState, scanToSaveReducer, type ScanToSaveState, type SelectedMealImage } from "../flow/scanToSaveFlow";
 import { createSavedImpact, getClarifiedAnalysisForValue, getRangeNarrowingForValue, initialAnalysis } from "../mockData";
 
 function loadedInitial(state: ScanToSaveState): ScanToSaveState {
@@ -9,7 +9,7 @@ function loadedInitial(state: ScanToSaveState): ScanToSaveState {
 }
 
 function completeSave(value: string, baseState: ScanToSaveState = createInitialScanToSaveState()): ScanToSaveState {
-  const started = scanToSaveReducer(baseState, { type: "START_SCAN" });
+  const started = scanToSaveReducer(baseState, { type: "START_SCAN", image: sampleImage });
   const analyzing = loadedInitial(started);
   const clarifying = scanToSaveReducer(analyzing, { type: "OPEN_CLARIFICATION" });
   const choosing = scanToSaveReducer(clarifying, { type: "CHOOSE_CLARIFICATION", value });
@@ -62,3 +62,11 @@ export const flowAudit = {
     secondSaveTopMealIds: "meal-4,meal-3"
   }
 } as const;
+
+const sampleImage: SelectedMealImage = {
+  localAssetId: "sample-local-asset",
+  uri: "file:///tmp/sample-meal.png",
+  fileName: "sample-meal.png",
+  contentType: "image/png",
+  byteSize: 420_000
+};

@@ -1,5 +1,5 @@
 import type { AnalysisJobViewModel, AnalysisResult, SavedImpactViewModel } from "@cal-ai/shared";
-import { createInitialScanToSaveState, scanToSaveReducer, type ScanToSaveState } from "../flow/scanToSaveFlow";
+import { createInitialScanToSaveState, scanToSaveReducer, type ScanToSaveState, type SelectedMealImage } from "../flow/scanToSaveFlow";
 import { createSavedImpact, initialAnalysis } from "../mockData";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -9,9 +9,10 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 function startAndCreateJob(): ScanToSaveState {
-  const started = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN" });
+  const started = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN", image: sampleImage });
   assert(started.pendingCommand?.type === "UPLOAD_IMAGE", "start creates image upload command");
-  const uploaded = scanToSaveReducer(started, { type: "IMAGE_UPLOADED", imageUploadId: "local-upload-local-demo-meal-preview" });
+  assert(started.pendingCommand.uri === sampleImage.uri, "upload command preserves selected image uri");
+  const uploaded = scanToSaveReducer(started, { type: "IMAGE_UPLOADED", imageUploadId: "image-upload-sample" });
   assert(uploaded.pendingCommand?.type === "CREATE_ANALYSIS_JOB", "uploaded image schedules analysis job command");
   const created = scanToSaveReducer(uploaded, { type: "ANALYSIS_JOB_CREATED", analysisJobId: "mock-lunch-001" });
   assert(created.pendingCommand?.type === "FETCH_ANALYSIS_JOB", "created job schedules fetch");
@@ -23,7 +24,8 @@ function queuedJob(): AnalysisJobViewModel {
 }
 
 export function runAsyncFlowSmoke(): void {
-  const uploading = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN" });
+  const uploading = scanToSaveReducer(createInitialScanToSaveState(), { type: "START_SCAN", image: sampleImage });
+  assert(uploading.selectedImageUri === sampleImage.uri, "selected image uri is stored for preview");
   const failedUpload = scanToSaveReducer(uploading, {
     type: "COMMAND_FAILED",
     command: uploading.pendingCommand!,
@@ -36,6 +38,7 @@ export function runAsyncFlowSmoke(): void {
   assert(failedUpload.error?.code === "image_upload_failed", "upload failure preserves code");
   const retriedUpload = scanToSaveReducer(failedUpload, { type: "RETRY_LAST" });
   assert(retriedUpload.status === "loading" && retriedUpload.pendingCommand?.type === "UPLOAD_IMAGE", "upload retry replays upload command");
+  assert(retriedUpload.pendingCommand.uri === sampleImage.uri, "upload retry preserves selected image uri");
 
   const created = startAndCreateJob();
   const failedTransport = scanToSaveReducer(created, {
@@ -58,6 +61,7 @@ export function runAsyncFlowSmoke(): void {
   });
   assert(failedJob.status === "error", "failed job sets error status");
   assert(failedJob.error?.kind === "job_failed", "failed job is distinct from transport");
+  assert(failedJob.lastFailedCommand?.type === "UPLOAD_IMAGE" && failedJob.lastFailedCommand.uri === sampleImage.uri, "failed job retry restarts upload with selected image");
 
   let polling = created;
   for (let attempt = 1; attempt <= 5; attempt += 1) {
@@ -118,3 +122,11 @@ export function runAsyncFlowSmoke(): void {
   const saved = scanToSaveReducer(retriedSave, { type: "MEAL_SAVED", impact });
   assert(saved.screen === "saved" && saved.impact?.confirmation === "기록했어요", "save success reaches saved screen");
 }
+
+const sampleImage: SelectedMealImage = {
+  localAssetId: "sample-local-asset",
+  uri: "file:///tmp/sample-meal.png",
+  fileName: "sample-meal.png",
+  contentType: "image/png",
+  byteSize: 420_000
+};

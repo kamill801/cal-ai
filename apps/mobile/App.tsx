@@ -1,18 +1,91 @@
+import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, ProgressSummary, WeeklyCoachReport, WorkoutPlan } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useReducer } from "react";
-import { SafeAreaView, StyleSheet } from "react-native";
+import { useEffect, useMemo, useReducer, useState } from "react";
+import { ActivityIndicator, Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ApiClientError, createCalAiApiClient } from "./src/api";
-import { createInitialScanToSaveState, scanToSaveReducer, type ScanToSaveCommand } from "./src/flow/scanToSaveFlow";
+import { onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
+import { uploadImageToStorage } from "./src/api/imageUpload";
+import { AppBottomNav, type MainTab } from "./src/components/AppBottomNav";
+import { createInitialScanToSaveState, scanToSaveReducer, type FlowError, type RequestStatus, type ScanToSaveCommand } from "./src/flow/scanToSaveFlow";
+import { delay } from "./src/flow/scanToSavePolling";
+import { captureMealImageWithCamera, pickMealImageFromLibrary, type MealImagePickerResult } from "./src/media/mealImagePicker";
 import { AnalyzeEvidenceScreen } from "./src/screens/AnalyzeEvidenceScreen";
 import { ClarificationScreen } from "./src/screens/ClarificationScreen";
+import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { ReviewResultScreen } from "./src/screens/ReviewResultScreen";
+import { SafetyPrivacyScreen } from "./src/screens/SafetyPrivacyScreen";
 import { SavedImpactScreen } from "./src/screens/SavedImpactScreen";
 import { TodayDashboardScreen } from "./src/screens/TodayDashboardScreen";
+import { TrainingScreen } from "./src/screens/TrainingScreen";
+import { ProgressScreen } from "./src/screens/ProgressScreen";
+import { WeeklyCoachScreen } from "./src/screens/WeeklyCoachScreen";
+import { clearProfileId, loadProfileId, saveProfileId } from "./src/session/profileSession";
+import { profileRestoreAction, type ProfileRefreshResult } from "./src/session/profileRestore";
 import { colors } from "./src/theme";
+
+type AppScreen = "onboarding" | "safety" | MainTab;
 
 export default function App() {
   const [state, dispatch] = useReducer(scanToSaveReducer, undefined, createInitialScanToSaveState);
+  const [appScreen, setAppScreen] = useState<AppScreen>("onboarding");
+  const [onboardingStatus, setOnboardingStatus] = useState<RequestStatus>("idle");
+  const [onboardingError, setOnboardingError] = useState<FlowError | undefined>(undefined);
+  const [onboardingResult, setOnboardingResult] = useState<OnboardingResponse | undefined>(undefined);
+  const [profileId, setProfileId] = useState<string | undefined>(undefined);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | undefined>(undefined);
+  const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | undefined>(undefined);
+  const [progress, setProgress] = useState<ProgressSummary | undefined>(undefined);
+  const [weeklyCoach, setWeeklyCoach] = useState<WeeklyCoachReport | undefined>(undefined);
+  const [latestBodyCheckIn, setLatestBodyCheckIn] = useState<BodyCheckIn | undefined>(undefined);
+  const [coachStatus, setCoachStatus] = useState<RequestStatus>("idle");
+  const [coachError, setCoachError] = useState<FlowError | undefined>(undefined);
   const apiClient = useMemo(() => createCalAiApiClient(), []);
+  const photoSource = state.selectedImageUri ? { uri: state.selectedImageUri } : undefined;
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    async function restoreSession(): Promise<void> {
+      try {
+        const storedProfileId = await loadProfileId();
+        if (!storedProfileId || !isCurrent) {
+          return;
+        }
+        setProfileId(storedProfileId);
+        const restored = await refreshCoachData(storedProfileId);
+        if (!isCurrent) {
+          return;
+        }
+        const action = profileRestoreAction(restored);
+        if (action === "open") {
+          setAppScreen("today");
+        } else if (action === "clear") {
+          await clearProfileId();
+          setProfileId(undefined);
+        } else {
+          setAppScreen("today");
+        }
+      } catch {
+        setAppScreen("onboarding");
+      } finally {
+        if (isCurrent) {
+          setSessionReady(true);
+        }
+      }
+    }
+
+    void restoreSession();
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (profileId) {
+      void saveProfileId(profileId);
+    }
+  }, [profileId]);
 
   useEffect(() => {
     const command = state.pendingCommand;
@@ -32,12 +105,7 @@ export default function App() {
         }
         switch (activeCommand.type) {
           case "UPLOAD_IMAGE": {
-            const uploaded = await apiClient.uploadImage({
-              localAssetId: activeCommand.localAssetId,
-              fileName: activeCommand.fileName,
-              contentType: activeCommand.contentType,
-              byteSize: activeCommand.byteSize
-            });
+            const uploaded = await uploadImageToStorage(activeCommand, apiClient);
             if (isCurrent) {
               dispatch({ type: "IMAGE_UPLOADED", imageUploadId: uploaded.imageUploadId });
             }
@@ -72,7 +140,9 @@ export default function App() {
             const impact = await apiClient.saveMealLog({
               analysisJobId: activeCommand.analysisJobId,
               resultId: activeCommand.resultId,
-              clarificationValue: activeCommand.clarificationValue
+              clarificationValue: activeCommand.clarificationValue,
+              profileId,
+              loggedOn: todayIso()
             });
             if (isCurrent) {
               dispatch({ type: "MEAL_SAVED", impact });
@@ -101,24 +171,324 @@ export default function App() {
     return () => {
       isCurrent = false;
     };
-  }, [apiClient, state.pendingCommand]);
+  }, [apiClient, profileId, state.pendingCommand]);
+
+  useEffect(() => {
+    if (state.screen === "saved" && profileId) {
+      void refreshCoachData(profileId);
+    }
+  }, [profileId, state.screen]);
+
+  async function submitOnboarding(input: OnboardingRequest): Promise<void> {
+    setOnboardingStatus("loading");
+    setOnboardingError(undefined);
+    try {
+      const created = await apiClient.createOnboarding(input);
+      setOnboardingResult(created);
+      setOnboardingStatus("success");
+    } catch (error) {
+      setOnboardingStatus("error");
+      setOnboardingError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  function continueFromOnboarding(target: NutritionTarget): void {
+    dispatch({ type: "APPLY_NUTRITION_TARGET", target });
+    if (onboardingResult) {
+      setProfileId(onboardingResult.profileId);
+      void refreshCoachData(onboardingResult.profileId);
+    }
+    setAppScreen("today");
+  }
+
+  async function refreshCoachData(activeProfileId: string): Promise<ProfileRefreshResult> {
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      const [dashboard, progressSummary, report, existingPlan] = await Promise.all([
+        apiClient.getCoachDashboard(activeProfileId, todayIso()),
+        apiClient.getProgress(activeProfileId),
+        apiClient.getWeeklyCoach(activeProfileId),
+        apiClient.getWorkoutPlan(activeProfileId).catch((error: unknown) => {
+          if (error instanceof ApiClientError && error.status === 404) {
+            return undefined;
+          }
+          throw error;
+        })
+      ]);
+      setCoachDashboard(dashboard);
+      setProgress(progressSummary);
+      setLatestBodyCheckIn(progressSummary.bodyCheckIns.at(-1));
+      setWeeklyCoach(report);
+      setWorkoutPlan(existingPlan);
+      setCoachStatus("success");
+      return "ok";
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+      if (error instanceof ApiClientError && error.status === 404 && error.code === "profile_not_found") {
+        return "not_found";
+      }
+      return "failed";
+    }
+  }
+
+  async function retrySessionRestore(): Promise<void> {
+    if (!profileId) {
+      return;
+    }
+    const restored = await refreshCoachData(profileId);
+    if (restored === "not_found") {
+      await clearProfileId();
+      setProfileId(undefined);
+      setAppScreen("onboarding");
+    }
+  }
+
+  async function generatePlan(activeProfileId = profileId): Promise<void> {
+    if (!activeProfileId) {
+      return;
+    }
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      const created = await apiClient.generateWorkoutPlan(activeProfileId);
+      setWorkoutPlan(created);
+      setCoachStatus("success");
+      await refreshCoachData(activeProfileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  async function completeWorkout(plan: WorkoutPlan): Promise<void> {
+    if (!profileId || !coachDashboard) {
+      return;
+    }
+    const workoutDay = plan.days[coachDashboard.training.completedSessions % plan.days.length];
+    if (!workoutDay) {
+      return;
+    }
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      await apiClient.logWorkoutSession(profileId, {
+        planId: plan.id,
+        workoutDayId: workoutDay.id,
+        performedOn: todayIso(),
+        durationMinutes: plan.sessionMinutes,
+        completedExerciseIds: workoutDay.exercises.map((exercise) => exercise.id),
+        sessionRpe: 7
+      });
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  async function logWeight(weightKg: number): Promise<void> {
+    if (!profileId) {
+      return;
+    }
+    setCoachStatus("loading");
+    try {
+      await apiClient.logWeight(profileId, { loggedOn: todayIso(), weightKg });
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  async function logWellness(input: { energy: number; sleepQuality: number; soreness: number }): Promise<void> {
+    if (!profileId) {
+      return;
+    }
+    setCoachStatus("loading");
+    try {
+      await apiClient.logWellness(profileId, { loggedOn: todayIso(), ...input });
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  async function startScanFromCamera(): Promise<void> {
+    try {
+      handleMealImageResult(await captureMealImageWithCamera());
+    } catch (error) {
+      showImagePickerError(error);
+    }
+  }
+
+  async function startScanFromLibrary(): Promise<void> {
+    try {
+      handleMealImageResult(await pickMealImageFromLibrary());
+    } catch (error) {
+      showImagePickerError(error);
+    }
+  }
+
+  async function startBodyCheckInFromCamera(): Promise<void> {
+    try {
+      await handleBodyImageResult(await captureMealImageWithCamera());
+    } catch (error) {
+      showImagePickerError(error);
+    }
+  }
+
+  async function startBodyCheckInFromLibrary(): Promise<void> {
+    try {
+      await handleBodyImageResult(await pickMealImageFromLibrary());
+    } catch (error) {
+      showImagePickerError(error);
+    }
+  }
+
+  async function handleBodyImageResult(result: MealImagePickerResult): Promise<void> {
+    if (result.status !== "selected") {
+      if (result.status !== "cancelled") {
+        handleMealImageResult(result);
+      }
+      return;
+    }
+    if (!profileId) {
+      return;
+    }
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      const uploaded = await uploadImageToStorage({ type: "UPLOAD_IMAGE", requestId: 1, ...result.image }, apiClient);
+      const checkIn = await apiClient.createBodyCheckIn(profileId, {
+        capturedOn: todayIso(),
+        imageUploadId: uploaded.imageUploadId,
+        view: "front"
+      });
+      setLatestBodyCheckIn(checkIn);
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  function handleMealImageResult(result: MealImagePickerResult): void {
+    switch (result.status) {
+      case "selected":
+        dispatch({ type: "START_SCAN", image: result.image });
+        return;
+      case "permission_denied":
+        Alert.alert("사진 권한이 필요해요", "식사 사진을 촬영하거나 선택하려면 권한을 허용해 주세요.");
+        return;
+      case "camera_unavailable":
+        Alert.alert("카메라를 사용할 수 없어요", "시뮬레이터나 브라우저에서는 사진첩 선택으로 테스트해 주세요.");
+        return;
+      case "unsupported_type":
+        Alert.alert("지원하지 않는 이미지예요", "JPG, PNG, WebP 형식의 음식 사진을 선택해 주세요.");
+        return;
+      case "read_failed":
+        Alert.alert("사진을 불러오지 못했어요", "다른 사진으로 다시 시도해 주세요.");
+        return;
+      case "cancelled":
+        return;
+    }
+  }
+
+  if (!sessionReady) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.sessionLoading} accessibilityLabel="프로필 불러오는 중">
+          <ActivityIndicator color={colors.leaf} />
+          <Text style={styles.sessionLoadingText}>오늘의 기록을 불러오고 있어요</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (profileId && !coachDashboard && coachStatus === "error") {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.sessionLoading} accessibilityLabel="프로필 연결 재시도">
+          <Text style={styles.sessionErrorTitle}>기록을 잠시 불러오지 못했어요</Text>
+          <Text style={styles.sessionLoadingText}>프로필은 기기에 안전하게 남아 있어요. 연결을 확인하고 다시 시도해 주세요.</Text>
+          <TouchableOpacity style={styles.sessionRetryButton} onPress={() => void retrySessionRestore()} accessibilityRole="button">
+            <Text style={styles.sessionRetryText}>다시 불러오기</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="dark" />
-      {state.screen === "today" ? <TodayDashboardScreen dashboard={state.dashboard} onStartScan={() => dispatch({ type: "START_SCAN" })} /> : null}
+      <View style={styles.content}>
+      {state.screen === "today" && appScreen === "onboarding" ? (
+        <OnboardingScreen
+          status={onboardingStatus}
+          error={onboardingError}
+          target={onboardingResult?.target}
+          warnings={onboardingResult?.warnings ?? []}
+          onSubmit={(input) => {
+            void submitOnboarding(input);
+          }}
+          onContinue={() => {
+            if (onboardingResult) {
+              continueFromOnboarding(onboardingResult.target);
+            }
+          }}
+        />
+      ) : null}
+      {state.screen === "today" && appScreen === "safety" ? <SafetyPrivacyScreen onBack={() => setAppScreen("today")} /> : null}
+      {state.screen === "today" && appScreen === "today" ? (
+        <TodayDashboardScreen
+          dashboard={state.dashboard}
+          coachDashboard={coachDashboard}
+          onCaptureMeal={() => {
+            void startScanFromCamera();
+          }}
+          onPickMeal={() => {
+            void startScanFromLibrary();
+          }}
+          onOpenSafety={() => setAppScreen("safety")}
+        />
+      ) : null}
+      {state.screen === "today" && appScreen === "training" ? (
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onComplete={(plan) => void completeWorkout(plan)} />
+      ) : null}
+      {state.screen === "today" && appScreen === "progress" ? (
+        <ProgressScreen
+          progress={progress}
+          latestBodyCheckIn={latestBodyCheckIn}
+          status={coachStatus}
+          error={coachError}
+          onLogWeight={(weightKg) => void logWeight(weightKg)}
+          onLogWellness={(input) => void logWellness(input)}
+          onCaptureBody={() => void startBodyCheckInFromCamera()}
+          onPickBody={() => void startBodyCheckInFromLibrary()}
+        />
+      ) : null}
+      {state.screen === "today" && appScreen === "coach" ? <WeeklyCoachScreen report={weeklyCoach} status={coachStatus} error={coachError} /> : null}
       {state.screen === "analyzing" ? (
         <AnalyzeEvidenceScreen
           analysis={state.analysis}
+          photoSource={photoSource}
           status={state.status}
           error={state.error}
           onClarify={() => dispatch({ type: "OPEN_CLARIFICATION" })}
           onRetry={() => dispatch({ type: "RETRY_LAST" })}
+          onCancel={() => dispatch({ type: "RETURN_DASHBOARD" })}
         />
       ) : null}
       {state.screen === "clarifying" && state.analysis ? (
         <ClarificationScreen
           analysis={state.analysis}
+          photoSource={photoSource}
           narrowing={state.rangeNarrowing}
           selectedValue={state.selectedValue}
           status={state.status}
@@ -131,6 +501,7 @@ export default function App() {
       {state.screen === "review" && state.analysis ? (
         <ReviewResultScreen
           analysis={state.analysis}
+          photoSource={photoSource}
           narrowing={state.rangeNarrowing}
           status={state.status}
           error={state.error}
@@ -140,21 +511,72 @@ export default function App() {
         />
       ) : null}
       {state.screen === "saved" && state.analysis && state.impact ? (
-        <SavedImpactScreen analysis={state.analysis} impact={state.impact} onDone={() => dispatch({ type: "RETURN_DASHBOARD" })} />
+        <SavedImpactScreen analysis={state.analysis} photoSource={photoSource} impact={state.impact} onDone={() => dispatch({ type: "RETURN_DASHBOARD" })} />
+      ) : null}
+      </View>
+      {state.screen === "today" && (appScreen === "today" || appScreen === "training" || appScreen === "progress" || appScreen === "coach") ? (
+        <AppBottomNav
+          activeTab={appScreen}
+          onSelect={(tab) => setAppScreen(tab)}
+          onScan={() => {
+            void startScanFromCamera();
+          }}
+        />
       ) : null}
     </SafeAreaView>
   );
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+function todayIso(): string {
+  const now = new Date();
+  const localTime = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localTime.toISOString().slice(0, 10);
+}
+
+function showImagePickerError(error: unknown): void {
+  if (error instanceof ApiClientError) {
+    Alert.alert("사진을 불러오지 못했어요", error.userMessage);
+    return;
+  }
+  Alert.alert("사진을 불러오지 못했어요", "다른 사진으로 다시 시도해 주세요.");
 }
 
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.paper
+    backgroundColor: colors.canvasWarm
+  },
+  content: { flex: 1 },
+  sessionLoading: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12
+  },
+  sessionLoadingText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "600",
+    lineHeight: 21,
+    maxWidth: 280,
+    textAlign: "center"
+  },
+  sessionErrorTitle: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "800"
+  },
+  sessionRetryButton: {
+    minHeight: 48,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: colors.leaf
+  },
+  sessionRetryText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "800"
   }
 });

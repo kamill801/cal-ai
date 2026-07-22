@@ -11,8 +11,8 @@ const labelToGroup: Record<ConfidenceLabel, ConfidenceGroup> = {
 };
 
 const groupCopy: Record<ConfidenceGroup, string> = {
-  certain: "확실",
-  estimated: "추정",
+  certain: "신뢰도 높음",
+  estimated: "근거 기반",
   needs_check: "확인 필요",
   manual: "직접 입력"
 };

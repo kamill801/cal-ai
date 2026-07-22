@@ -1,4 +1,4 @@
-# TECHSPEC: Trust-First AI Nutrition Logger
+# TECHSPEC: Trust-First Body Transformation Coach
 
 ## 0. Document Purpose
 
@@ -9,11 +9,23 @@
 ## 1. Product Overview
 
 - Product name: TBD
-- Working name: Trust-First AI Nutrition Logger
-- One-line definition: 음식 사진을 AI로 분석하고, 짧은 보정 질문/슬라이더를 통해 신뢰 가능한 식단 기록과 개인화된 다음 식사 방향을 제공하는 앱.
+- Working name: Trust-First Body Transformation Coach
+- One-line definition: 음식 사진, 체중, 회복, 운동 수행, 선택적 신체 사진 기록을 함께 사용해 영양과 훈련의 다음 행동을 제안하는 몸 변화 코치 앱.
 - Primary users: 감량 다이어터, 헬스/근육 증가 사용자, 몸 상태에 맞춰 식단을 조정하려는 사용자.
-- MVP goal: 음식 사진 기록의 귀찮음과 AI 분석 불신을 동시에 줄이는 첫 경험을 만든다.
-- Core promise: 사용자는 30초 안팎의 짧은 확인만으로 더 믿을 수 있는 식사 기록과 다음 식사 방향을 얻는다.
+- MVP goal: 음식 사진 기록의 귀찮음과 AI 분석 불신을 줄이면서, 사용자가 오늘 먹고 운동하고 회복할 다음 행동을 한 앱에서 결정하게 한다.
+- Core promise: 사용자는 짧은 기록만으로 오늘 남은 단백질, 다음 운동, 회복 신호, 주간 개선점을 이해한다.
+
+### Implemented Coach Loop
+
+1. 온보딩에서 목표, 운동 빈도, 경험, 장비, 세션 시간을 받는다.
+2. 음식 사진 분석과 확인 질문 후 식사를 저장하고 칼로리·단백질 누적량을 계산한다.
+3. 체중과 에너지·수면·근육통을 기록한다.
+4. 선택적으로 신체 사진을 private storage에 올리고 제한된 시각 관찰과 운동 초점을 받는다.
+5. 프로필과 신체 체크인 근거를 포함한 세트·반복·RIR 기반 운동 계획을 만든다.
+6. 운동 완료를 기록하고 Today, Progress, Weekly Coach 화면을 갱신한다.
+7. 식사 5회와 체중 2회 이후에는 목표를 자동 변경하지 않고 칼로리 조정안을 제안한다.
+
+OpenAI 음식 이미지 분석은 provider seam 뒤에 구현되어 있다. 서버에서 `AI_PROVIDER=openai`와 API key를 설정한 경우 private R2 이미지를 짧은 수명의 presigned GET URL로 읽고, Responses API strict JSON schema 결과를 영속화한다. 결정론적 mock은 로컬 개발 fallback으로 유지한다. 신체 이미지 분석은 여전히 안전한 mock 관찰만 제공하며 별도의 개인정보·동의 검토 전에는 실서비스 AI 결과로 표시하지 않는다.
 
 ## 2. Recommended Technical Direction
 
@@ -22,7 +34,7 @@
 - Mobile app: React Native Expo
 - API server: FastAPI
 - Database: PostgreSQL
-- Queue: Redis + RQ or equivalent background worker
+- Analysis execution: bounded synchronous Vercel Function for the internal MVP; Redis/RQ or equivalent worker is a later scale-up path
 - Object storage: S3/R2/Supabase Storage compatible bucket
 - AI provider: Vision-capable LLM with structured JSON output
 - Nutrition data: public nutrition DBs plus normalized Korean food mapping
@@ -264,7 +276,7 @@ Flow:
 
 Small target calculations and dashboard reads are synchronous.
 
-The MVP upload seam supports private-bucket object storage through a presigned upload flow. Clients request a presigned URL, upload image bytes directly to R2, then complete the upload metadata with the API before creating an analysis job. `image_reference` remains server-owned; clients should pass only `image_upload_id` into analysis job creation. Local development still supports the mock/local metadata endpoint and sqlite fallback through `CAL_AI_API_DATA_PATH`. This keeps restart behavior deterministic without adding auth, billing, or real OpenAI calls.
+The MVP upload seam supports private-bucket object storage through a presigned upload flow. Clients request a presigned URL, upload image bytes directly to R2, then complete the upload metadata with the API before creating an analysis job. `image_reference` remains server-owned; clients pass only `image_upload_id` into analysis job creation. Local development still supports the mock/local metadata endpoint and sqlite fallback through `CAL_AI_API_DATA_PATH`. In OpenAI mode, the API creates a short-lived presigned GET URL only for the provider request; that URL is never persisted or returned to the mobile client.
 
 ## 8. Functional Requirements
 
@@ -352,6 +364,34 @@ The MVP upload seam supports private-bucket object storage through a presigned u
   - delete image
   - image retention policy
   - training opt-in flag
+- Priority: MVP
+
+### FR-9: Training Plan and Session Tracking
+
+- Purpose: 목표, 운동 빈도, 가용 시간, 신체 체크인 초점을 실행 가능한 운동으로 바꾼다.
+- Outputs: 운동일, 운동 종목, 세트, 반복 범위, RIR, 휴식 시간, 근거, 점진적 과부하 규칙.
+- Business rules:
+  - 통증이나 질환을 진단하지 않는다.
+  - 사진 관찰을 확정적 약점 판정으로 표현하지 않는다.
+  - 완료한 종목과 세션 RPE를 기록한다.
+- Priority: MVP
+
+### FR-10: Body and Recovery Check-in
+
+- Purpose: 체중, 수면, 에너지, 근육통, 선택적 신체 사진을 주간 추세 맥락으로 사용한다.
+- Business rules:
+  - 신체 사진은 private bucket의 기존 direct-upload 흐름을 재사용한다.
+  - 사진만으로 체지방률, 질환, 통증 원인을 추정하지 않는다.
+  - 조명·거리·자세 차이를 고지하고 단일 사진보다 반복 기록을 우선한다.
+- Priority: MVP
+
+### FR-11: Weekly Coach and Target Adjustment
+
+- Purpose: 식사, 운동, 체중, 회복, 신체 체크인을 합쳐 다음 주 행동을 정한다.
+- Business rules:
+  - 리포트의 근거 건수를 함께 표시한다.
+  - 목표 조정은 식사 5회와 체중 2회 전에는 잠긴다.
+  - 칼로리 목표는 자동 변경하지 않고 사용자의 명시적 확인을 요구한다.
 - Priority: MVP
 
 ## 9. AI / Analysis Pipeline
@@ -739,7 +779,7 @@ The FastAPI service uses a repository boundary backed by Neon Postgres when `DAT
 - `clarifications`: submitted answers and resulting narrowed analysis response.
 - `meal_logs`: save request and saved-impact response.
 
-This foundation still has no auth/user scoping, external paid API calls, or OpenAI SDK import. Production tables below remain the target schema once auth/security decisions are approved.
+This foundation still has no authentication or server-enforced user scoping. Food analysis can call OpenAI directly through the Responses HTTP API when server-side env configuration enables it; local development remains mock-first. Production tables below remain the target normalized schema as auth/security work proceeds.
 
 ### analysis_jobs
 
@@ -974,6 +1014,7 @@ MVP constraints:
 - `IMAGE_UPLOAD_MAX_BYTES` is the per-image hard limit.
 - `UPLOAD_SOFT_LIMIT_BYTES` is the aggregate image storage soft limit; presign is rejected when current pending/ready upload bytes plus the requested upload would exceed it.
 - `complete` must match a previously persisted pending presign record by `image_upload_id`, `object_key`, `file_name`, `content_type`, and `byte_size`.
+- For R2, `complete` performs a server-side presigned HEAD request and verifies that the object exists and its actual content length and content type match the pending record before setting `upload_status=ready`.
 - Local development persistence uses sqlite via `CAL_AI_API_DATA_PATH`; production uses `DATABASE_URL`.
 - Unknown `image_upload_id` values must fail before provider/model payload construction.
 - Supported content types are JPG, PNG, and WebP.
@@ -1185,6 +1226,7 @@ Expected:
 ```text
 DATABASE_URL=
 REDIS_URL=
+CORS_ALLOWED_ORIGINS=http://localhost:8081,http://127.0.0.1:8081
 STORAGE_PROVIDER=local
 R2_BUCKET_NAME=
 R2_ACCOUNT_ID=
@@ -1196,6 +1238,7 @@ IMAGE_UPLOAD_MAX_BYTES=8000000
 IMAGE_TTL_DAYS=30
 UPLOAD_SOFT_LIMIT_BYTES=8000000000
 AI_PROVIDER_API_KEY=
+AI_PROVIDER=mock
 AI_MODEL_VISION=
 AI_MODEL_TEXT=
 POSTHOG_KEY=

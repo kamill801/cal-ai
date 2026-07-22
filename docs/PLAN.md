@@ -2,7 +2,7 @@
 
 ## Current Goal
 
-Create developer-ready product, technical, and execution documents, then build an MVP that proves the trust-first food logging loop: photo scan, AI analysis, lightweight clarification, corrected meal save, dashboard update, and next-meal nutrient guidance.
+Build a trust-first body transformation MVP that connects food-photo logging, protein tracking, recovery and weight check-ins, optional body-photo observations, workout prescription, progress, and weekly coaching. Keep real AI providers, authentication, and production privacy operations behind explicit approval gates.
 
 ## Development Principles
 
@@ -89,20 +89,20 @@ Tasks:
 
 - [x] Connect mobile scan flow to FastAPI analysis job API using a deterministic local image reference.
 - [x] Add API client and shared snake_case to camelCase mappers for analysis jobs.
-- [x] Add OpenAI-ready backend analysis provider interface with deterministic mock default and dry-run OpenAI scaffold.
-- [x] Add malformed structured-output retry/fail-closed tests without real OpenAI calls.
+- [x] Add OpenAI backend analysis provider interface with deterministic mock default.
+- [x] Add malformed structured-output retry/fail-closed tests.
 - [x] Standardize provider/validation API error details for mobile consumption.
 - [x] Preserve distinct provider error codes for provider unavailable, dry-run scaffold, and malformed structured output.
-- [x] Keep the OpenAI dry-run scaffold keyless until real calls are explicitly approved.
-- [ ] Add image picker/camera UI.
+- [x] Keep OpenAI disabled unless `AI_PROVIDER=openai` and a server-side API key are configured.
+- [x] Add image picker/camera UI.
 - [x] Add mock/local upload endpoint and upload-ready mobile analysis flow.
 - [x] Add private R2 presigned upload API flow with local fallback.
 - [x] Add local persistence repository boundary for analysis jobs and image upload metadata.
 - [x] Add Neon Postgres persistence for upload metadata and analysis job references.
-- [ ] Create production `analysis_jobs` table.
-- [ ] Implement queue/worker.
-- [ ] Implement first AI vision analysis call with schema validation.
-- [ ] Return analysis result with confidence and range.
+- [x] Create persistence-backed production `analysis_jobs` storage through Neon/Postgres.
+- [ ] Add a queue/worker if production latency or traffic outgrows the synchronous Vercel MVP path.
+- [x] Implement the first OpenAI Responses API vision call with strict schema validation.
+- [x] Return analysis result with confidence and range.
 
 Acceptance:
 
@@ -163,8 +163,8 @@ Goal: App begins to feel body-adaptive.
 
 Tasks:
 
-- Add weight log UI/API.
-- Implement basic target adjustment suggestion.
+- [x] Add weight log UI/API.
+- [x] Implement basic target adjustment suggestion.
 - Implement correction history summary.
 - Use recent logs to improve defaults.
 
@@ -181,8 +181,8 @@ Goal: App recommends nutrient/menu-type direction for the next meal.
 
 Tasks:
 
-- Implement nutrient gap calculation.
-- Implement menu-type recommendation rules.
+- [x] Implement nutrient gap calculation.
+- [x] Implement menu-type recommendation rules.
 - Add controlled AI phrasing if needed.
 - Build dashboard recommendation card.
 - Add feedback event.
@@ -193,6 +193,42 @@ Acceptance:
 - App recommends menu types, not full recipes.
 - Recommendation is goal-aware.
 - User can mark recommendation helpful/not helpful.
+
+### Milestone 9: Training and Recovery Coach
+
+Goal: Turn profile and recovery context into an actionable training week.
+
+Tasks:
+
+- [x] Add training frequency, experience, equipment, and session time context.
+- [x] Generate persisted workout days with exercises, sets, reps, RIR, rest, and rationale.
+- [x] Record completed exercises, session duration, and RPE.
+- [x] Add energy, sleep, and soreness check-ins.
+- [x] Reduce training emphasis when recovery signals are low.
+
+### Milestone 10: Body Progress Check-in
+
+Goal: Support optional body-photo progress without unsafe visual claims.
+
+Tasks:
+
+- [x] Reuse private direct upload for body check-in images.
+- [x] Persist front/side/back check-ins and limited observations.
+- [x] Feed training-focus observations into workout-plan rationale.
+- [x] Explicitly exclude body-fat estimation, diagnosis, and pain-cause inference.
+- [ ] Replace mock body observation provider after separate privacy and paid-call approval.
+
+### Milestone 11: Integrated Weekly Coach
+
+Goal: Combine nutrition, training, weight, recovery, and body-check-in evidence.
+
+Tasks:
+
+- [x] Add Today, Training, Progress, and Weekly Coach navigation.
+- [x] Show protein target, consumed amount, remaining amount, and next action.
+- [x] Generate evidence-counted weekly wins, focus items, and next-week actions.
+- [x] Gate calorie adjustment suggestions behind minimum evidence.
+- [x] Require confirmation instead of automatically changing nutrition targets.
 
 ### Milestone 8: Privacy, Safety, and QA Hardening
 
@@ -247,10 +283,18 @@ Acceptance:
 Current scaffold status:
 
 - Root npm workspace exists.
-- Expo mobile scaffold exists with provisional `DESIGN.md` tokens and mock Today screen.
+- Expo mobile app includes onboarding, scan-to-save, Today, Training, Progress, Weekly Coach, and safety/privacy screens using the Cute Trust visual system.
 - FastAPI scaffold exists with health, onboarding target calculation, and mock dashboard endpoints.
-- Shared TypeScript API contract package exists.
+- Shared TypeScript contracts cover nutrition, uploads, coach dashboard, body check-ins, workout plans, progress, and weekly reports.
 - API tests and mobile/shared typechecks pass.
+
+Body transformation loop summary — 2026-07-20:
+
+- Implemented: persisted coach profiles/events/workout plans; local profile session restore; profile/day-scoped meal accumulation; protein remaining guidance; weight and recovery logs; private-upload body check-ins with safe mock observations; personalized workout basis; workout completion; progress and weekly coach; evidence-gated target-adjustment suggestions.
+- Storage hardening: R2 completion now checks the private object with server-side HEAD and verifies existence, content length, and content type before metadata becomes ready.
+- Verified locally: 57 API tests, shared/mobile typechecks, mobile API/async/session smoke, iOS Expo export, 320px/390px rendered visual QA, and browser scan-to-save interaction QA.
+- Provider boundary: real OpenAI food vision is implemented behind server-side env configuration; body-photo AI remains mock and food vision still needs deployed live-call QA before production claims.
+- Product boundary: authentication/user scoping, account/image deletion, analytics/monitoring, and store/device beta validation remain release-readiness work.
 
 ## Session Plan
 
@@ -276,10 +320,10 @@ Current scaffold status:
 
 - [x] Implement analysis job API client integration for the mock vertical slice.
 - [x] Add backend analysis provider interface and deterministic mock provider.
-- [x] Add OpenAI-ready dry-run scaffold and structured-output validation tests.
+- [x] Add OpenAI Responses API food-vision adapter and structured-output validation tests.
 - [x] Add mobile loading/error/retry semantics for create/fetch/poll.
 - [x] Implement mock/local image upload seam.
-- [ ] Integrate first real AI structured result after explicit API key/paid-call approval.
+- [x] Integrate the first real AI structured result behind explicit server-side provider configuration.
 
 ### Session 5: Clarification and Save
 
@@ -293,33 +337,47 @@ Session summary — 2026-06-14:
 
 - Implemented: mobile scan-to-save now runs through FastAPI mock APIs; backend has mock-first/OpenAI-ready provider boundaries; API/mobile error semantics now use structured `detail.code/message/retryable/kind` and mobile retry behavior distinguishes retryable vs non-retryable failures.
 - Verified: mobile smoke, shared/mobile typecheck, API tests, `git diff --check`, code-review lanes, and UltraQA-style verifier were run during the session.
-- Next: real image upload/object storage and persisted `analysis_jobs` remain deferred; real OpenAI calls require explicit API key and paid-call approval.
+- Historical next step at that time: image storage, persisted jobs, and real OpenAI calls were still deferred. These are now implemented as described in the 2026-07-22 summary below.
 
 Follow-up summary — 2026-06-14:
 
-- Implemented: provider exception mapping now preserves distinct safe codes for unavailable provider config, dry-run OpenAI scaffold, and malformed structured output; mobile `ApiClientError` and reducer state preserve and display behavior by code without real OpenAI calls; OpenAI dry-run scaffold is keyless until real calls are explicitly approved.
+- Implemented at that time: provider exception mapping established safe unavailable, dry-run, and malformed-output codes; mobile `ApiClientError` and reducer state preserved retry behavior. The provider has since advanced to a real opt-in OpenAI adapter.
 - Verified: mobile smoke, shared/mobile typecheck, API tests, and `git diff --check` pass; final review/QA evidence is attached to the Ultragoal ledger for this session.
-- Next: keep real OpenAI, storage, auth, DB, and payment work gated behind explicit product/security decisions.
+- Historical next step at that time: OpenAI, storage, auth, DB, and payment were gated. OpenAI food vision, R2, and Neon are now implemented; auth and payment remain gated.
 
 Persistence foundation summary — 2026-06-14:
 
 - Implemented: server-local sqlite repository boundary for image upload metadata, analysis jobs, clarification events, and meal log records while preserving mock provider/API contract behavior.
 - Verified: persistence records survive new repository instances; final command/review evidence is attached to the Ultragoal ledger for this session.
-- Next: production DB schema, object storage, auth/user scoping, and real OpenAI calls remain gated behind explicit decisions.
+- Historical next step at that time: production DB, object storage, auth, and OpenAI were gated. Neon, R2, and OpenAI food vision are now implemented; auth/user scoping remains gated.
+
+MVP readiness summary — 2026-07-15:
+
+- Implemented: mobile onboarding target flow, camera/photo-library entry points, selected meal image propagation through analyze/review/saved screens, safety/privacy checkpoint screen, direct-upload API adapter use, and env-based CORS for Expo Web preview.
+- Verified: local API plus Expo Web click QA covers onboarding calculation, dashboard entry, and safety screen navigation; mobile smoke, shared/mobile typecheck, API tests, and `git diff --check` pass.
+- Remaining from that checkpoint: production/device verification, auth/user scoping, and retention/deletion APIs. The R2 and OpenAI food-vision code paths are now implemented but still require one deployed Android live-flow verification.
 
 ### Session 6: Personalization and Recommendation
 
-- Add weight logs.
-- Add target adjustment.
-- Add nutrient gap and next-meal recommendation.
+- [x] Add weight logs.
+- [x] Add evidence-gated target adjustment suggestions that require confirmation.
+- [x] Add nutrient gap and next-meal recommendation.
+- [x] Add workout plan/session, recovery, body check-in, progress, and weekly coach loops.
+
+OpenAI food-vision integration summary — 2026-07-22:
+
+- Implemented: private R2 images are read through short-lived presigned GET URLs; the FastAPI OpenAI provider sends an image input to the Responses API with a strict JSON schema and `store: false`; normalized results are persisted for fetch, clarification, and meal save.
+- Reliability: malformed structured output is retried once and then fails closed; provider/configuration failures return safe structured errors without exposing credentials or signed URLs.
+- Runtime: Vercel uses a bounded synchronous MVP path with a 60-second function limit. A queue/worker remains a scale-up decision rather than an internal-beta blocker.
+- Remaining proof: deploy the current code and run one real Android meal-photo flow against production. Body-photo AI, authentication, deletion, monitoring, and Play release remain separate approval/readiness gates.
 
 ### Session 7: QA and Private Beta Prep
 
-- Safety guardrails.
-- Analytics.
-- Error handling.
-- Test fixtures.
-- Private beta checklist.
+- [x] Safety guardrails for nutrition, body-image observations, and workout guidance.
+- [ ] Analytics and monitoring.
+- [x] Structured error handling and retry semantics.
+- [x] Deterministic test fixtures and rendered browser QA.
+- [ ] Real-device private beta checklist and account/data deletion controls.
 
 ## Risks
 

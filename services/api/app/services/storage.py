@@ -6,7 +6,9 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 
 DEFAULT_IMAGE_UPLOAD_MAX_BYTES = 8_000_000
@@ -35,12 +37,23 @@ class StorageReadiness:
     message: str | None = None
 
 
+@dataclass(frozen=True)
+class StorageObjectMetadata:
+    byte_size: int
+    content_type: str
+    etag: str | None = None
+
+
 class StorageAdapter(Protocol):
     provider: str
 
     def presign_put(self, *, object_key: str, content_type: str, expires_seconds: int) -> PresignedUpload: ...
 
     def image_reference(self, *, object_key: str) -> str: ...
+
+    def presign_get(self, *, object_key: str, expires_seconds: int) -> str: ...
+
+    def stat_object(self, *, object_key: str) -> StorageObjectMetadata | None: ...
 
 
 def get_image_upload_max_bytes(environ: dict[str, str] | None = None) -> int:
@@ -93,6 +106,13 @@ class LocalStorageAdapter:
     def image_reference(self, *, object_key: str) -> str:
         return f"local-image://{object_key}"
 
+    def presign_get(self, *, object_key: str, expires_seconds: int) -> str:
+        del expires_seconds
+        return self.image_reference(object_key=object_key)
+
+    def stat_object(self, *, object_key: str) -> StorageObjectMetadata | None:
+        return None
+
 
 @dataclass(frozen=True)
 class R2StorageAdapter:
@@ -144,6 +164,7 @@ class R2StorageAdapter:
         signed_headers = "content-type;host"
         query_params = {
             "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+            "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
             "X-Amz-Credential": credential,
             "X-Amz-Date": amz_date,
             "X-Amz-Expires": str(expires_seconds),
@@ -180,6 +201,63 @@ class R2StorageAdapter:
 
     def image_reference(self, *, object_key: str) -> str:
         return f"r2://{self.bucket_name}/{object_key}"
+
+    def presign_get(self, *, object_key: str, expires_seconds: int) -> str:
+        return self._presign_read(method="GET", object_key=object_key, expires_seconds=expires_seconds)
+
+    def stat_object(self, *, object_key: str) -> StorageObjectMetadata | None:
+        request_url = self._presign_read(method="HEAD", object_key=object_key, expires_seconds=60)
+        try:
+            with urlopen(Request(request_url, method="HEAD"), timeout=8) as response:
+                raw_size = response.headers.get("Content-Length")
+                content_type = response.headers.get_content_type()
+                if raw_size is None:
+                    raise StorageConfigurationError("R2 HEAD response is missing Content-Length")
+                return StorageObjectMetadata(
+                    byte_size=int(raw_size),
+                    content_type=content_type,
+                    etag=response.headers.get("ETag"),
+                )
+        except HTTPError as exc:
+            if exc.code == 404:
+                return None
+            raise StorageConfigurationError(f"R2 HEAD failed with status {exc.code}") from exc
+        except (URLError, TimeoutError, ValueError) as exc:
+            raise StorageConfigurationError("R2 HEAD request failed") from exc
+
+    def _presign_read(self, *, method: str, object_key: str, expires_seconds: int) -> str:
+        now = datetime.now(UTC)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        parsed = urlparse(self.endpoint)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise StorageConfigurationError("R2_ENDPOINT must be an absolute URL")
+
+        canonical_uri = _canonical_object_path(parsed.path, self.bucket_name, object_key)
+        credential_scope = f"{date_stamp}/{self.region}/s3/aws4_request"
+        query_params = {
+            "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+            "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
+            "X-Amz-Credential": f"{self.access_key_id}/{credential_scope}",
+            "X-Amz-Date": amz_date,
+            "X-Amz-Expires": str(expires_seconds),
+            "X-Amz-SignedHeaders": "host",
+        }
+        canonical_query = _canonical_query(query_params)
+        canonical_request = "\n".join(
+            [method, canonical_uri, canonical_query, f"host:{parsed.netloc}\n", "host", "UNSIGNED-PAYLOAD"]
+        )
+        string_to_sign = "\n".join(
+            [
+                "AWS4-HMAC-SHA256",
+                amz_date,
+                credential_scope,
+                hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+            ]
+        )
+        signing_key = _signature_key(self.secret_access_key, date_stamp, self.region, "s3")
+        signature = hmac.new(signing_key, string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
+        return f"{parsed.scheme}://{parsed.netloc}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"
 
 
 def _canonical_object_path(endpoint_path: str, bucket_name: str, object_key: str) -> str:

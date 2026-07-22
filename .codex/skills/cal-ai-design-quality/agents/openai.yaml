@@ -1,0 +1,7 @@
+interface:
+  display_name: "Cal AI Design Quality"
+  short_description: "Generate polished Cal AI design concepts"
+  brand_color: "#2F6540"
+  default_prompt: "Use $cal-ai-design-quality to create a high-quality Cal AI mobile UI concept from these references without copying them."
+policy:
+  allow_implicit_invocation: true
