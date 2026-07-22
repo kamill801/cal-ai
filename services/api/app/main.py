@@ -191,11 +191,17 @@ def ready() -> ReadyResponse:
     provider_name = os.environ.get("AI_PROVIDER", "mock").strip().lower() or "mock"
     if provider_name == "mock":
         ai_status = ReadyDependencyResponse(status="ok", provider="mock", message="deterministic mock analysis enabled")
+    elif provider_name == "openai" and (os.environ.get("AI_MODEL_VISION") or "").startswith("sk-"):
+        ai_status = ReadyDependencyResponse(
+            status="misconfigured",
+            provider="openai",
+            message="OpenAI vision model is invalid",
+        )
     elif provider_name == "openai" and os.environ.get("AI_PROVIDER_API_KEY"):
         ai_status = ReadyDependencyResponse(
             status="ok",
             provider="openai",
-            message=f"vision model configured: {os.environ.get('AI_MODEL_VISION') or 'gpt-5.5'}",
+            message="vision model configured",
         )
     elif provider_name == "openai":
         ai_status = ReadyDependencyResponse(status="misconfigured", provider="openai", message="OpenAI API key is missing")

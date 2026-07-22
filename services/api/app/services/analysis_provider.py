@@ -223,9 +223,12 @@ def get_analysis_provider(environ: dict[str, str] | None = None) -> AnalysisProv
         api_key = env.get("AI_PROVIDER_API_KEY")
         if not api_key:
             raise AnalysisProviderConfigurationError("openai_api_key_missing")
+        vision_model = env.get("AI_MODEL_VISION")
+        if vision_model and vision_model.startswith("sk-"):
+            raise AnalysisProviderConfigurationError("openai_model_invalid")
         return OpenAIAnalysisProvider(
             api_key=api_key,
-            vision_model=env.get("AI_MODEL_VISION"),
+            vision_model=vision_model,
             text_model=env.get("AI_MODEL_TEXT"),
         )
     raise AnalysisProviderConfigurationError("ai_provider_unknown")

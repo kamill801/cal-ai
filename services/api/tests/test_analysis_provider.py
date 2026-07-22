@@ -32,6 +32,19 @@ def test_openai_provider_requires_api_key_when_enabled() -> None:
     assert str(exc_info.value) == "openai_api_key_missing"
 
 
+def test_openai_provider_rejects_secret_like_model_value() -> None:
+    with pytest.raises(AnalysisProviderConfigurationError) as exc_info:
+        get_analysis_provider(
+            {
+                "AI_PROVIDER": "openai",
+                "AI_PROVIDER_API_KEY": "test-key",
+                "AI_MODEL_VISION": "sk-secret-was-put-in-the-wrong-field",
+            }
+        )
+
+    assert str(exc_info.value) == "openai_model_invalid"
+
+
 def test_openai_provider_does_not_make_network_call_until_analysis_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail_socket(*args: object, **kwargs: object) -> socket.socket:
         raise AssertionError("network call attempted")

@@ -442,6 +442,23 @@ def test_ready_reports_openai_configuration_without_exposing_secret(monkeypatch)
     assert "test-key" not in response.text
 
 
+def test_ready_never_echoes_openai_model_environment_value(monkeypatch) -> None:
+    secret_like_model_value = "sk-sensitive-value-must-not-be-returned"
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("AI_PROVIDER_API_KEY", "test-provider-key")
+    monkeypatch.setenv("AI_MODEL_VISION", secret_like_model_value)
+
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["ai"] == {
+        "status": "misconfigured",
+        "provider": "openai",
+        "message": "OpenAI vision model is invalid",
+    }
+    assert secret_like_model_value not in response.text
+
+
 def test_recreating_deterministic_mock_job_clears_stale_persisted_response() -> None:
     first_upload_id = upload_demo_image("first-dinner-demo")
     first_create = client.post(
