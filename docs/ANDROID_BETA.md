@@ -37,7 +37,7 @@ Remove `apps/mobile/export-validation` after local validation.
 
 ## EAS Build Profiles
 
-Root `eas.json` defines:
+`apps/mobile/eas.json` defines:
 
 - `development` - internal Android APK.
 - `preview` - internal Android APK for tester distribution.
@@ -45,9 +45,10 @@ Root `eas.json` defines:
 
 For cost-sensitive food-photo testing, `AI_MODEL_VISION=gpt-5.4-mini` is the recommended starting point. The server-side environment value remains authoritative.
 
-Typical build commands, run by the account owner after Expo login:
+Typical build commands, run from `apps/mobile` by the account owner after Expo login:
 
 ```sh
+cd apps/mobile
 eas login
 eas build --platform android --profile preview
 eas build --platform android --profile production
@@ -55,8 +56,8 @@ eas build --platform android --profile production
 
 ## User-Owned Expo Steps
 
-1. Log in to the Expo account that should own the app.
-2. Run `eas init` if the project has not been linked yet.
+1. From `apps/mobile`, log in to the Expo account that should own the app.
+2. Run `eas init` from `apps/mobile` if the project has not been linked yet.
 3. Confirm the Expo project owner and project id shown by EAS.
 4. Configure Android credentials through EAS when prompted.
 5. Keep generated credentials in Expo/EAS credential storage unless there is a specific reason to manage them manually.

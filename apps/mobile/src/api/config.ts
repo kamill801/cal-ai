@@ -1,13 +1,11 @@
 import { Platform } from "react-native";
-declare const process:
-  | {
-      env?: Record<string, string | undefined>;
-    }
-  | undefined;
+declare const process: {
+  env: Record<string, string | undefined>;
+};
 
 
 export function getApiBaseUrl(): string {
-  const envValue = typeof process !== "undefined" ? process.env?.EXPO_PUBLIC_API_BASE_URL : undefined;
+  const envValue = process.env.EXPO_PUBLIC_API_BASE_URL;
   if (envValue && envValue.trim().length > 0) {
     return trimTrailingSlash(envValue.trim());
   }
