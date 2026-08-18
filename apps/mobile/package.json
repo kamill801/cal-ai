@@ -8,6 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "export:web:vercel": "expo export --platform web --output-dir dist-web-preview && rm -rf ../../public && mkdir -p ../../public && cp -R dist-web-preview/. ../../public/",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/run-smoke-tests.mjs"
   },
@@ -15,14 +16,20 @@
     "@cal-ai/shared": "0.1.0",
     "@expo/metro-runtime": "~5.0.5",
     "@react-native-async-storage/async-storage": "^3.1.1",
+    "@supabase/supabase-js": "^2.110.8",
     "expo": "53.0.27",
+    "expo-auth-session": "~6.2.1",
+    "expo-image-manipulator": "~13.1.7",
     "expo-image-picker": "~16.1.4",
+    "expo-secure-store": "~14.2.4",
     "expo-status-bar": "2.2.3",
+    "expo-web-browser": "~14.2.0",
     "lucide-react-native": "^1.25.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-native": "0.79.6",
     "react-native-svg": "^15.11.2",
+    "react-native-url-polyfill": "^4.0.0",
     "react-native-web": "^0.20.0"
   },
   "devDependencies": {

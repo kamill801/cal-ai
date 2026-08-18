@@ -30,6 +30,7 @@ class ImageUploadError(RuntimeError):
 def create_mock_image_upload(
     payload: ImageUploadRequest,
     repository: PersistenceRepository | None = None,
+    owner_id: str | None = None,
 ) -> ImageUploadResponse:
     if payload.simulate_failure:
         raise ImageUploadError("image_upload_failed", "이미지를 업로드하지 못했어요. 다시 시도해 주세요.", retryable=True)
@@ -37,16 +38,22 @@ def create_mock_image_upload(
 
     safe_asset_id = re.sub(r"[^a-zA-Z0-9_-]+", "-", payload.local_asset_id).strip("-") or "local-image"
     image_upload_id = f"local-upload-{safe_asset_id}"
+    if owner_id:
+        image_upload_id = f"{image_upload_id}-{uuid4()}"
     image_reference = f"local-image://{image_upload_id}"
     (repository or get_persistence_repository()).save_image_upload(
         payload=payload,
         image_upload_id=image_upload_id,
         image_reference=image_reference,
+        owner_id=owner_id,
     )
     return ImageUploadResponse(image_upload_id=image_upload_id, image_reference=image_reference, status="ready")
 
 
-def create_presigned_image_upload(payload: ImageUploadPresignRequest) -> ImageUploadPresignResponse:
+def create_presigned_image_upload(
+    payload: ImageUploadPresignRequest,
+    owner_id: str | None = None,
+) -> ImageUploadPresignResponse:
     _validate_image_metadata(content_type=payload.content_type, byte_size=payload.byte_size)
     try:
         repository = get_persistence_repository()
@@ -81,6 +88,7 @@ def create_presigned_image_upload(payload: ImageUploadPresignRequest) -> ImageUp
             object_key=object_key,
             upload_status="pending",
             upload_expires_at=presigned.expires_at,
+            owner_id=owner_id,
         )
         return ImageUploadPresignResponse(
             image_upload_id=image_upload_id,
@@ -100,6 +108,7 @@ def create_presigned_image_upload(payload: ImageUploadPresignRequest) -> ImageUp
 def complete_presigned_image_upload(
     payload: ImageUploadCompleteRequest,
     repository: PersistenceRepository | None = None,
+    owner_id: str | None = None,
 ) -> ImageUploadResponse:
     _validate_image_metadata(content_type=payload.content_type, byte_size=payload.byte_size)
     _validate_object_key(payload.object_key)
@@ -109,7 +118,7 @@ def complete_presigned_image_upload(
     try:
         persistence = repository or get_persistence_repository()
         existing = persistence.get_image_upload(payload.image_upload_id)
-        if not existing:
+        if not existing or not _is_owned_by(existing.owner_id, owner_id):
             raise ImageUploadError("image_upload_not_found", "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.", retryable=False)
         _validate_presigned_upload_record(existing, payload)
         if existing.upload_status == "ready":
@@ -151,6 +160,7 @@ def complete_presigned_image_upload(
             upload_status="ready",
             cleanup_after=cleanup_after,
             upload_expires_at=existing.upload_expires_at,
+            owner_id=owner_id,
         )
         return ImageUploadResponse(image_upload_id=record.image_upload_id, image_reference=record.image_reference, status="ready")
     except StorageConfigurationError as exc:
@@ -160,9 +170,10 @@ def complete_presigned_image_upload(
 def resolve_image_reference(
     image_upload_id: str,
     repository: PersistenceRepository | None = None,
+    owner_id: str | None = None,
 ) -> str:
     upload = (repository or get_persistence_repository()).get_image_upload(image_upload_id)
-    if not upload:
+    if not upload or not _is_owned_by(upload.owner_id, owner_id):
         raise ImageUploadError("image_upload_not_found", "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.", retryable=False)
     if upload.upload_status != "ready":
         raise ImageUploadError("image_upload_not_ready", "이미지 업로드가 아직 완료되지 않았어요.", retryable=False)
@@ -172,10 +183,11 @@ def resolve_image_reference(
 def resolve_analysis_image_reference(
     image_upload_id: str,
     repository: PersistenceRepository | None = None,
+    owner_id: str | None = None,
 ) -> str:
     persistence = repository or get_persistence_repository()
     upload = persistence.get_image_upload(image_upload_id)
-    if not upload:
+    if not upload or not _is_owned_by(upload.owner_id, owner_id):
         raise ImageUploadError("image_upload_not_found", "업로드된 이미지를 찾을 수 없어요. 다시 업로드해 주세요.", retryable=False)
     if upload.upload_status != "ready":
         raise ImageUploadError("image_upload_not_ready", "이미지 업로드가 아직 완료되지 않았어요.", retryable=False)
@@ -236,3 +248,7 @@ def _validate_presigned_upload_record(existing: object, payload: ImageUploadComp
 
 def _cleanup_after_iso(ttl_days: int) -> str:
     return (datetime.now(UTC) + timedelta(days=ttl_days)).isoformat(timespec="seconds")
+
+
+def _is_owned_by(record_owner_id: str | None, expected_owner_id: str | None) -> bool:
+    return expected_owner_id is None or record_owner_id == expected_owner_id

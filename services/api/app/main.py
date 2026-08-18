@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from datetime import UTC, datetime
+from secrets import compare_digest
 from typing import Literal
 from uuid import uuid4
 
@@ -29,6 +31,7 @@ from app.schemas import (
     OnboardingResponse,
     ReadyDependencyResponse,
     ReadyResponse,
+    RetentionCleanupResponse,
     SavedImpactResponse,
 )
 from app.coach_routes import router as coach_router
@@ -40,14 +43,15 @@ from app.services.analysis_provider import (
     failed_analysis_job,
     get_analysis_provider,
 )
-from app.services.analysis_results import apply_persisted_clarification, save_persisted_meal
+from app.services.analysis_results import apply_manual_nutrition_override, apply_persisted_clarification, save_persisted_meal
 from app.services.image_uploads import ImageUploadError, complete_presigned_image_upload, create_mock_image_upload, create_presigned_image_upload, resolve_analysis_image_reference, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
-from app.services.storage import get_storage_readiness
+from app.services.storage import StorageConfigurationError, get_storage_adapter, get_storage_readiness
 from app.services.targets import calculate_initial_target
 from app.services.coach import CoachNotFoundError, create_profile, merge_profile_meal_impact
 from app.services.coach_repository import get_coach_repository
+from app.services.auth import AuthConfigurationError, AuthenticationError, authenticate_bearer_token
 
 ApiErrorKind = Literal["provider", "validation", "not_found", "server", "unknown"]
 DEFAULT_CORS_ALLOWED_ORIGINS = ("http://localhost:8081", "http://127.0.0.1:8081")
@@ -72,6 +76,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(coach_router)
+
+
+@app.middleware("http")
+async def optional_authentication(request: Request, call_next):
+    protected = request.url.path.startswith("/v1/") or request.url.path.startswith("/image-uploads/")
+    if not protected or request.method == "OPTIONS":
+        return await call_next(request)
+    try:
+        user = authenticate_bearer_token(request.headers.get("Authorization"))
+        request.state.user_id = user.user_id if user else None
+    except AuthenticationError:
+        detail = ApiErrorDetail(code="authentication_required", message="로그인이 필요해요.", retryable=False, kind="validation")
+        return JSONResponse(status_code=401, content={"detail": detail.model_dump()})
+    except AuthConfigurationError:
+        detail = ApiErrorDetail(code="auth_unavailable", message="로그인 설정을 확인해 주세요.", retryable=False, kind="server")
+        return JSONResponse(status_code=503, content={"detail": detail.model_dump()})
+    return await call_next(request)
 
 
 def api_error(*, status_code: int, code: str, message: str, retryable: bool, kind: ApiErrorKind) -> HTTPException:
@@ -207,7 +228,43 @@ def ready() -> ReadyResponse:
         ai_status = ReadyDependencyResponse(status="misconfigured", provider="openai", message="OpenAI API key is missing")
     else:
         ai_status = ReadyDependencyResponse(status="misconfigured", provider=provider_name, message="unsupported AI provider")
-    dependencies = (database_status, storage_status, ai_status)
+    body_provider = os.environ.get("BODY_AI_PROVIDER", "mock").strip().lower() or "mock"
+    if body_provider == "mock":
+        body_ai_status = ReadyDependencyResponse(status="ok", provider="mock", message="safe deterministic body observations enabled")
+    elif body_provider == "openai" and (os.environ.get("AI_MODEL_VISION") or "").startswith("sk-"):
+        body_ai_status = ReadyDependencyResponse(status="misconfigured", provider="openai", message="OpenAI vision model is invalid")
+    elif body_provider == "openai" and os.environ.get("AI_PROVIDER_API_KEY"):
+        body_ai_status = ReadyDependencyResponse(status="ok", provider="openai", message="consent-gated vision model configured")
+    elif body_provider == "openai":
+        body_ai_status = ReadyDependencyResponse(status="misconfigured", provider="openai", message="OpenAI API key is missing")
+    else:
+        body_ai_status = ReadyDependencyResponse(status="misconfigured", provider=body_provider, message="unsupported body AI provider")
+
+    auth_provider = os.environ.get("AUTH_PROVIDER", "disabled").strip().lower() or "disabled"
+    auth_algorithm = (os.environ.get("SUPABASE_JWT_ALGORITHM") or "").strip().upper()
+    if auth_provider == "disabled":
+        auth_status = ReadyDependencyResponse(status="disabled", provider="disabled", message="anonymous MVP mode")
+    elif (
+        auth_provider == "supabase"
+        and (os.environ.get("SUPABASE_URL") or "").startswith("https://")
+        and auth_algorithm in {"RS256", "ES256"}
+    ):
+        auth_status = ReadyDependencyResponse(
+            status="ok",
+            provider="supabase",
+            message=f"asymmetric {auth_algorithm} JWKS verification configured",
+        )
+    elif auth_provider == "supabase":
+        auth_status = ReadyDependencyResponse(
+            status="misconfigured",
+            provider="supabase",
+            message="Supabase URL and an asymmetric RS256 or ES256 signing key are required",
+        )
+    else:
+        auth_status = ReadyDependencyResponse(status="misconfigured", provider=auth_provider, message="unsupported auth provider")
+    dependencies = (database_status, storage_status, ai_status, body_ai_status)
+    if auth_provider != "disabled":
+        dependencies += (auth_status,)
     overall_status = "ok" if all(item.status == "ok" for item in dependencies) else "degraded"
     return ReadyResponse(
         status=overall_status,
@@ -215,15 +272,62 @@ def ready() -> ReadyResponse:
         database=database_status,
         storage=storage_status,
         ai=ai_status,
+        body_ai=body_ai_status,
+        auth=auth_status,
     )
 
 
+@app.get("/internal/cleanup-images", response_model=RetentionCleanupResponse)
+def cleanup_expired_images(
+    request: Request,
+    repository: PersistenceRepository = Depends(persistence_repository),
+) -> RetentionCleanupResponse:
+    expected_secret = os.environ.get("CRON_SECRET", "")
+    provided = request.headers.get("Authorization", "")
+    if not expected_secret or not compare_digest(provided, f"Bearer {expected_secret}"):
+        raise api_error(
+            status_code=401,
+            code="cleanup_unauthorized",
+            message="정리 작업을 실행할 권한이 없어요.",
+            retryable=False,
+            kind="validation",
+        )
+
+    try:
+        storage = get_storage_adapter()
+        expired = repository.list_expired_image_uploads(datetime.now(UTC).isoformat(timespec="seconds"))
+        for image_record in expired:
+            if image_record.object_key:
+                if image_record.storage_provider != storage.provider:
+                    raise StorageConfigurationError("stored image provider does not match active storage provider")
+                repository.mark_image_upload_deleting(image_record.image_upload_id)
+                storage.delete_object(object_key=image_record.object_key)
+            repository.mark_image_upload_deleted(image_record.image_upload_id)
+        return RetentionCleanupResponse(status="ok", deleted_images=len(expired))
+    except StorageConfigurationError as exc:
+        raise api_error(
+            status_code=503,
+            code="storage_cleanup_unavailable",
+            message="사진 보관 기간 정리를 완료하지 못했어요.",
+            retryable=True,
+            kind="server",
+        ) from exc
+    except PersistenceError as exc:
+        raise persistence_unavailable_error() from exc
+
+
 @app.post("/v1/onboarding", response_model=OnboardingResponse)
-def create_onboarding(payload: OnboardingRequest) -> OnboardingResponse:
+def create_onboarding(payload: OnboardingRequest, request: Request) -> OnboardingResponse:
     target, warnings = calculate_initial_target(payload)
     profile_id = str(uuid4())
     try:
-        create_profile(profile_id=profile_id, onboarding=payload, target=target, repository=get_coach_repository())
+        create_profile(
+            profile_id=profile_id,
+            owner_id=getattr(request.state, "user_id", None),
+            onboarding=payload,
+            target=target,
+            repository=get_coach_repository(),
+        )
     except PersistenceError as exc:
         raise persistence_unavailable_error() from exc
     return OnboardingResponse(profile_id=profile_id, target=target, warnings=warnings)
@@ -237,10 +341,15 @@ def dashboard_today() -> DashboardTodayResponse:
 @app.post("/v1/image-uploads", response_model=ImageUploadResponse)
 def create_image_upload(
     payload: ImageUploadRequest,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> ImageUploadResponse:
     try:
-        return create_mock_image_upload(payload, repository=repository)
+        return create_mock_image_upload(
+            payload,
+            repository=repository,
+            owner_id=getattr(request.state, "user_id", None),
+        )
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
     except PersistenceError as exc:
@@ -248,9 +357,9 @@ def create_image_upload(
 
 
 @app.post("/image-uploads/presign", response_model=ImageUploadPresignResponse)
-def presign_image_upload(payload: ImageUploadPresignRequest) -> ImageUploadPresignResponse:
+def presign_image_upload(payload: ImageUploadPresignRequest, request: Request) -> ImageUploadPresignResponse:
     try:
-        return create_presigned_image_upload(payload)
+        return create_presigned_image_upload(payload, owner_id=getattr(request.state, "user_id", None))
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
     except PersistenceError as exc:
@@ -260,10 +369,15 @@ def presign_image_upload(payload: ImageUploadPresignRequest) -> ImageUploadPresi
 @app.post("/image-uploads/complete", response_model=ImageUploadResponse)
 def complete_image_upload(
     payload: ImageUploadCompleteRequest,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> ImageUploadResponse:
     try:
-        return complete_presigned_image_upload(payload, repository=repository)
+        return complete_presigned_image_upload(
+            payload,
+            repository=repository,
+            owner_id=getattr(request.state, "user_id", None),
+        )
     except ImageUploadError as exc:
         raise image_upload_error(exc) from exc
     except PersistenceError as exc:
@@ -273,23 +387,46 @@ def complete_image_upload(
 @app.post("/v1/analysis-jobs", response_model=AnalysisJobCreateResponse)
 def create_analysis_job(
     payload: AnalysisJobRequest,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> AnalysisJobCreateResponse:
     try:
-        stored_image_reference = resolve_image_reference(payload.image_upload_id, repository=repository)
+        owner_id = getattr(request.state, "user_id", None)
+        if payload.profile_id:
+            profile = get_coach_repository().get_profile(payload.profile_id)
+            if profile is None or (owner_id and profile.owner_id != owner_id):
+                raise api_error(
+                    status_code=404,
+                    code="profile_not_found",
+                    message="프로필을 찾을 수 없어요.",
+                    retryable=False,
+                    kind="not_found",
+                )
+        stored_image_reference = resolve_image_reference(
+            payload.image_upload_id,
+            repository=repository,
+            owner_id=owner_id,
+        )
         provider = get_analysis_provider()
         response = provider.create_job(payload)
+        if owner_id:
+            response = response.model_copy(update={"analysis_job_id": f"{response.analysis_job_id}-{uuid4()}"})
         repository.save_analysis_job(
             payload=payload,
             image_reference=stored_image_reference,
             create_response=response,
+            owner_id=owner_id,
         )
         if provider.processes_jobs_synchronously:
             try:
                 analysis_response = provider.analyze(
                     job_id=response.analysis_job_id,
                     payload=payload,
-                    image_reference=resolve_analysis_image_reference(payload.image_upload_id, repository=repository),
+                    image_reference=resolve_analysis_image_reference(
+                        payload.image_upload_id,
+                        repository=repository,
+                        owner_id=owner_id,
+                    ),
                 )
                 repository.save_analysis_job_response(analysis_response)
             except (AnalysisProviderConfigurationError, AnalysisProviderUnavailableError, StructuredOutputMalformedError) as exc:
@@ -313,11 +450,21 @@ def create_analysis_job(
 @app.get("/v1/analysis-jobs/{job_id}", response_model=AnalysisJobResponse)
 def analysis_job(
     job_id: str,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> AnalysisJobResponse:
     try:
         provider = get_analysis_provider()
         record = repository.get_analysis_job(job_id)
+        owner_id = getattr(request.state, "user_id", None)
+        if owner_id and (record is None or record.owner_id != owner_id):
+            raise api_error(
+                status_code=404,
+                code="analysis_job_not_found",
+                message="분석 작업을 찾을 수 없어요. 사진을 다시 분석해 주세요.",
+                retryable=False,
+                kind="not_found",
+            )
         if record and record.response:
             return record.response
         if provider.uses_persisted_result_operations:
@@ -341,11 +488,21 @@ def analysis_job(
 def clarify_analysis_job(
     job_id: str,
     payload: ClarificationRequest,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> ClarificationResponse:
     try:
         provider = get_analysis_provider()
         record = repository.get_analysis_job(job_id)
+        owner_id = getattr(request.state, "user_id", None)
+        if owner_id and (record is None or record.owner_id != owner_id):
+            raise api_error(
+                status_code=404,
+                code="analysis_job_not_found",
+                message="분석 결과를 찾을 수 없어요. 사진을 다시 분석해 주세요.",
+                retryable=False,
+                kind="not_found",
+            )
         if provider.uses_persisted_result_operations and record and record.response and record.response.result:
             response = apply_persisted_clarification(record.response.result, payload)
         elif provider.uses_persisted_result_operations:
@@ -369,13 +526,24 @@ def clarify_analysis_job(
 @app.post("/v1/meal-logs", response_model=SavedImpactResponse)
 def create_meal_log(
     payload: MealLogRequest,
+    request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> SavedImpactResponse:
     try:
         provider = get_analysis_provider()
         record = repository.get_analysis_job(payload.analysis_job_id)
-        if provider.uses_persisted_result_operations and record and record.response and record.response.result:
-            if payload.result_id != record.response.result.id:
+        user_id = getattr(request.state, "user_id", None)
+        if user_id and (record is None or record.owner_id != user_id):
+            raise api_error(
+                status_code=404,
+                code="analysis_job_not_found",
+                message="저장할 분석 결과를 찾을 수 없어요.",
+                retryable=False,
+                kind="not_found",
+            )
+        stored_result = record.response.result if record and record.response and record.response.result else None
+        if payload.nutrition_override and stored_result:
+            if payload.result_id != stored_result.id:
                 raise api_error(
                     status_code=409,
                     code="analysis_result_mismatch",
@@ -383,7 +551,20 @@ def create_meal_log(
                     retryable=False,
                     kind="validation",
                 )
-            response = save_persisted_meal(record.response.result, payload)
+            response = save_persisted_meal(
+                apply_manual_nutrition_override(stored_result, payload.nutrition_override),
+                payload,
+            )
+        elif provider.uses_persisted_result_operations and stored_result:
+            if payload.result_id != stored_result.id:
+                raise api_error(
+                    status_code=409,
+                    code="analysis_result_mismatch",
+                    message="저장하려는 결과가 최신 분석 결과와 일치하지 않아요.",
+                    retryable=False,
+                    kind="validation",
+                )
+            response = save_persisted_meal(stored_result, payload)
         elif provider.uses_persisted_result_operations:
             raise api_error(
                 status_code=404,
@@ -395,11 +576,21 @@ def create_meal_log(
         else:
             response = provider.save_meal(payload)
         if payload.profile_id:
+            coach_repository = get_coach_repository()
+            profile = coach_repository.get_profile(payload.profile_id)
+            if user_id and (profile is None or profile.owner_id != user_id):
+                raise api_error(
+                    status_code=404,
+                    code="profile_not_found",
+                    message="프로필을 찾을 수 없어요.",
+                    retryable=False,
+                    kind="not_found",
+                )
             response = merge_profile_meal_impact(
                 payload.profile_id,
                 payload,
                 response,
-                repository=get_coach_repository(),
+                repository=coach_repository,
                 meal_repository=repository,
             )
         repository.save_meal_log(payload=payload, response=response)

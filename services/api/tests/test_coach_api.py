@@ -179,6 +179,7 @@ def test_body_check_in_uses_ready_private_upload_and_safe_mock_observations() ->
             "captured_on": "2026-07-20",
             "image_upload_id": image_upload_id,
             "view": "front",
+            "consent_to_ai_analysis": True,
         },
     )
 
@@ -188,6 +189,10 @@ def test_body_check_in_uses_ready_private_upload_and_safe_mock_observations() ->
     assert body["analysis"]["provider"] == "mock"
     assert body["analysis"]["confidence"] == "limited"
     assert body["analysis"]["training_focus"]
+    assert body["consent"]["provider"] == "mock"
+    assert body["consent"]["model"] == "deterministic-v1"
+    assert body["consent"]["policy_version"]
+    assert body["consent"]["consented_at"]
     assert "body_fat" not in response.text
     assert "diagnosis" not in response.text
 
@@ -205,11 +210,25 @@ def test_body_check_in_rejects_unknown_upload() -> None:
             "captured_on": "2026-07-20",
             "image_upload_id": "missing-upload",
             "view": "front",
+            "consent_to_ai_analysis": True,
         },
     )
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "image_upload_not_found"
+
+
+def test_body_check_in_requires_explicit_ai_consent() -> None:
+    profile_id = create_profile()
+    image_upload_id = upload_body_photo()
+
+    response = client.post(
+        f"/v1/profiles/{profile_id}/body-check-ins",
+        json={"captured_on": "2026-07-20", "image_upload_id": image_upload_id, "view": "front"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "validation_error"
 
 
 def test_workout_plan_and_session_logging_form_a_complete_loop() -> None:

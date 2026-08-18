@@ -5,10 +5,52 @@
       "maxDuration": 60
     }
   },
+  "crons": [
+    {
+      "path": "/internal/cleanup-images",
+      "schedule": "0 18 * * *"
+    }
+  ],
+  "buildCommand": "EXPO_PUBLIC_API_BASE_URL=https://cal-ai-api.vercel.app npm --workspace apps/mobile run export:web:vercel",
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/v1/(.*)",
       "dest": "api/index.py"
+    },
+    {
+      "src": "/image-uploads/(.*)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/health",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/ready",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/internal/cleanup-images",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/docs",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/redoc",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/openapi.json",
+      "dest": "api/index.py"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }

@@ -55,6 +55,8 @@ class StorageAdapter(Protocol):
 
     def stat_object(self, *, object_key: str) -> StorageObjectMetadata | None: ...
 
+    def delete_object(self, *, object_key: str) -> None: ...
+
 
 def get_image_upload_max_bytes(environ: dict[str, str] | None = None) -> int:
     return _read_positive_int("IMAGE_UPLOAD_MAX_BYTES", DEFAULT_IMAGE_UPLOAD_MAX_BYTES, environ)
@@ -112,6 +114,9 @@ class LocalStorageAdapter:
 
     def stat_object(self, *, object_key: str) -> StorageObjectMetadata | None:
         return None
+
+    def delete_object(self, *, object_key: str) -> None:
+        del object_key
 
 
 @dataclass(frozen=True)
@@ -224,6 +229,18 @@ class R2StorageAdapter:
             raise StorageConfigurationError(f"R2 HEAD failed with status {exc.code}") from exc
         except (URLError, TimeoutError, ValueError) as exc:
             raise StorageConfigurationError("R2 HEAD request failed") from exc
+
+    def delete_object(self, *, object_key: str) -> None:
+        request_url = self._presign_read(method="DELETE", object_key=object_key, expires_seconds=60)
+        try:
+            with urlopen(Request(request_url, method="DELETE"), timeout=8):
+                return
+        except HTTPError as exc:
+            if exc.code == 404:
+                return
+            raise StorageConfigurationError(f"R2 DELETE failed with status {exc.code}") from exc
+        except (URLError, TimeoutError, ValueError) as exc:
+            raise StorageConfigurationError("R2 DELETE request failed") from exc
 
     def _presign_read(self, *, method: str, object_key: str, expires_seconds: int) -> str:
         now = datetime.now(UTC)

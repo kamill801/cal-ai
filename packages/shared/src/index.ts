@@ -356,6 +356,23 @@ export interface ApiMealLogRequest {
   clarification_value: string;
   profile_id?: string | null;
   logged_on?: string | null;
+  nutrition_override?: ApiMealNutritionOverride | null;
+}
+
+export interface MealNutritionOverride {
+  mealName?: string;
+  caloriesKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
+export interface ApiMealNutritionOverride {
+  meal_name?: string | null;
+  calories_kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
 }
 
 export interface ApiSavedImpact {
@@ -534,7 +551,15 @@ export interface CoachDashboard {
   date: string;
   nutrition: CoachNutritionSnapshot;
   training: CoachTrainingSnapshot;
+  meals: DashboardMeal[];
   nextAction: { type: "log_meal" | "start_workout" | "check_in" | "recover"; title: string; detail: string };
+}
+
+export interface ProfileDeletionResult {
+  profileId: string;
+  status: "deleted";
+  deletedImages: number;
+  deletedMealLogs: number;
 }
 
 export interface WeightLog {
@@ -563,7 +588,7 @@ export interface BodyCheckIn {
   imageUploadId: string;
   view: "front" | "side" | "back";
   analysis: {
-    provider: "mock" | "openai_dry_run";
+    provider: "mock" | "openai";
     confidence: "limited";
     captureQuality: "good" | "retake_recommended";
     observations: { title: string; detail: string }[];
@@ -612,10 +637,18 @@ export interface WorkoutSession {
   performedOn: string;
   durationMinutes: number;
   completedExerciseIds: string[];
+  exercisePerformance: WorkoutExercisePerformance[];
   sessionRpe: number;
   completed: boolean;
   feedback: string;
   createdAt: string;
+}
+
+export interface WorkoutExercisePerformance {
+  exerciseId: string;
+  setsCompleted: number;
+  repsCompleted?: number;
+  loadKg?: number;
 }
 
 export interface ProgressSummary {
@@ -652,7 +685,15 @@ export interface ApiCoachDashboard {
   date: string;
   nutrition: { target: ApiNutritionTarget; consumed: ApiNutritionTarget; remaining: ApiNutritionTarget; protein_progress: number; guidance: string };
   training: { planned_sessions: number; completed_sessions: number; next_workout_title?: string | null; recovery_message: string };
+  meals?: ApiDashboardMeal[];
   next_action: { type: CoachDashboard["nextAction"]["type"]; title: string; detail: string };
+}
+
+export interface ApiProfileDeletionResult {
+  profile_id: string;
+  status: "deleted";
+  deleted_images: number;
+  deleted_meal_logs: number;
 }
 
 export interface ApiWeightLog {
@@ -713,6 +754,12 @@ export interface ApiWorkoutSession {
   performed_on: string;
   duration_minutes: number;
   completed_exercise_ids: string[];
+  exercise_performance?: Array<{
+    exercise_id: string;
+    sets_completed: number;
+    reps_completed?: number | null;
+    load_kg?: number | null;
+  }>;
   session_rpe: number;
   completed: boolean;
   feedback: string;
@@ -763,7 +810,23 @@ export function mapApiCoachDashboard(value: ApiCoachDashboard): CoachDashboard {
       nextWorkoutTitle: value.training.next_workout_title ?? undefined,
       recoveryMessage: value.training.recovery_message
     },
+    meals: (value.meals ?? []).map((meal) => ({
+      id: meal.id,
+      name: meal.name,
+      mealType: meal.meal_type,
+      caloriesKcal: meal.calories_kcal,
+      confidenceLabel: meal.confidence_label
+    })),
     nextAction: value.next_action
+  };
+}
+
+export function mapApiProfileDeletionResult(value: ApiProfileDeletionResult): ProfileDeletionResult {
+  return {
+    profileId: value.profile_id,
+    status: value.status,
+    deletedImages: value.deleted_images,
+    deletedMealLogs: value.deleted_meal_logs
   };
 }
 
@@ -841,6 +904,12 @@ export function mapApiWorkoutSession(value: ApiWorkoutSession): WorkoutSession {
     performedOn: value.performed_on,
     durationMinutes: value.duration_minutes,
     completedExerciseIds: value.completed_exercise_ids,
+    exercisePerformance: (value.exercise_performance ?? []).map((item) => ({
+      exerciseId: item.exercise_id,
+      setsCompleted: item.sets_completed,
+      repsCompleted: item.reps_completed ?? undefined,
+      loadKg: item.load_kg ?? undefined
+    })),
     sessionRpe: value.session_rpe,
     completed: value.completed,
     feedback: value.feedback,

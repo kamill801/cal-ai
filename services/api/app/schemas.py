@@ -67,6 +67,13 @@ class ReadyResponse(BaseModel):
     database: ReadyDependencyResponse
     storage: ReadyDependencyResponse
     ai: ReadyDependencyResponse
+    body_ai: ReadyDependencyResponse
+    auth: ReadyDependencyResponse
+
+
+class RetentionCleanupResponse(BaseModel):
+    status: Literal["ok"]
+    deleted_images: int = Field(ge=0)
 
 
 class ApiErrorDetail(BaseModel):
@@ -200,6 +207,7 @@ class AnalysisResult(BaseModel):
 
 class AnalysisJobRequest(BaseModel):
     image_upload_id: str = Field(min_length=1, max_length=180)
+    profile_id: str | None = Field(default=None, min_length=1, max_length=180)
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"] = "lunch"
     optional_note: str | None = None
 
@@ -242,12 +250,21 @@ class ClarificationResponse(BaseModel):
     range_narrowing: RangeNarrowingResponse | None = None
 
 
+class MealNutritionOverride(BaseModel):
+    meal_name: str | None = Field(default=None, min_length=1, max_length=120)
+    calories_kcal: int = Field(ge=1, le=5000)
+    protein_g: int = Field(ge=0, le=500)
+    carbs_g: int = Field(ge=0, le=800)
+    fat_g: int = Field(ge=0, le=500)
+
+
 class MealLogRequest(BaseModel):
     analysis_job_id: str
     result_id: str
     clarification_value: Literal["half_bowl", "one_bowl", "large_bowl", "unknown"]
     profile_id: str | None = Field(default=None, min_length=1, max_length=180)
     logged_on: date | None = None
+    nutrition_override: MealNutritionOverride | None = None
 
 
 class SavedImpactResponse(BaseModel):

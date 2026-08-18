@@ -8,6 +8,7 @@ from app.schemas import (
     ClarificationResponse,
     DashboardMeal,
     MealLogRequest,
+    MealNutritionOverride,
     NutritionTarget,
     RangeNarrowingResponse,
     SavedImpactResponse,
@@ -21,6 +22,33 @@ PORTION_FACTORS = {
     "large_bowl": 1.2,
     "unknown": 1.0,
 }
+
+
+def apply_manual_nutrition_override(
+    result: AnalysisResult,
+    override: MealNutritionOverride,
+) -> AnalysisResult:
+    calories = override.calories_kcal
+    margin = min(50, max(15, round(calories * 0.04)))
+    summary = AnalysisSummary(
+        calories_kcal=calories,
+        calorie_range=CalorieRange(low=max(0, calories - margin), midpoint=calories, high=calories + margin),
+        protein_g=override.protein_g,
+        carbs_g=override.carbs_g,
+        fat_g=override.fat_g,
+        confidence=1,
+        confidence_label="manual",
+        confidence_group="manual",
+    )
+    return result.model_copy(
+        update={
+            "meal_name": override.meal_name or result.meal_name,
+            "stage_text": "직접 확인한 값을 반영했어요",
+            "summary": summary,
+            "primary_explanation": "사용자가 확인하고 수정한 열량과 영양소 값으로 저장해요.",
+            "clarification_question": None,
+        }
+    )
 
 
 def apply_persisted_clarification(

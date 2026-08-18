@@ -1,4 +1,4 @@
-import type { AnalysisJobViewModel, AnalysisResult, ClientErrorKind, DashboardTodayResponse, MealType, NutritionTarget, RangeNarrowingResult, SavedImpactViewModel } from "@cal-ai/shared";
+import type { AnalysisJobViewModel, AnalysisResult, ClientErrorKind, DashboardTodayResponse, MealNutritionOverride, MealType, NutritionTarget, RangeNarrowingResult, SavedImpactViewModel } from "@cal-ai/shared";
 import { todayDashboard } from "../mockData";
 import type { SelectedMealImage } from "./selectedMealImage";
 import { titleForApiError, type FlowError, type RequestStatus } from "./scanToSaveErrors";
@@ -12,7 +12,7 @@ export type ScanToSaveCommand =
   | { type: "CREATE_ANALYSIS_JOB"; requestId: number; imageUploadId: string; mealType: MealType }
   | { type: "FETCH_ANALYSIS_JOB"; requestId: number; jobId: string; pollAttempt: number; delayMs?: number }
   | { type: "SUBMIT_CLARIFICATION"; requestId: number; jobId: string; questionKey: string; value: string }
-  | { type: "SAVE_MEAL"; requestId: number; analysisJobId: string; resultId: string; clarificationValue: string };
+  | { type: "SAVE_MEAL"; requestId: number; analysisJobId: string; resultId: string; clarificationValue: string; nutritionOverride?: MealNutritionOverride };
 
 export interface ScanToSaveState {
   screen: "today" | "analyzing" | "clarifying" | "review" | "saved";
@@ -24,6 +24,7 @@ export interface ScanToSaveState {
   rangeNarrowing?: RangeNarrowingResult;
   selectedValue?: string;
   clarificationValue?: string;
+  nutritionOverride?: MealNutritionOverride;
   impact?: SavedImpactViewModel;
   analysisJobId?: string;
   error?: FlowError;
@@ -44,6 +45,7 @@ export type ScanToSaveAction =
   | { type: "CLARIFICATION_SUBMITTED"; analysis: AnalysisResult; rangeNarrowing?: RangeNarrowingResult }
   | { type: "SKIP_CLARIFICATION" }
   | { type: "EDIT_RESULT" }
+  | { type: "APPLY_MANUAL_ADJUSTMENT"; override: MealNutritionOverride }
   | { type: "SAVE_MEAL" }
   | { type: "MEAL_SAVED"; impact: SavedImpactViewModel }
   | { type: "COMMAND_FAILED"; command: ScanToSaveCommand; message: string; code?: string; kind?: ClientErrorKind; retryable?: boolean; status?: number }
@@ -71,6 +73,7 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
           rangeNarrowing: undefined,
           selectedValue: undefined,
           clarificationValue: undefined,
+          nutritionOverride: undefined,
           impact: undefined,
           error: undefined,
           lastFailedCommand: undefined,
@@ -139,6 +142,40 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
         return state;
       }
       return state.analysis.clarificationQuestion ? { ...state, screen: "clarifying", status: "idle", error: undefined } : state;
+    case "APPLY_MANUAL_ADJUSTMENT": {
+      if (state.screen !== "review" || !state.analysis || state.status === "loading") {
+        return state;
+      }
+      const { override } = action;
+      const margin = Math.min(50, Math.max(15, Math.round(override.caloriesKcal * 0.04)));
+      return {
+        ...state,
+        analysis: {
+          ...state.analysis,
+          mealName: override.mealName?.trim() || state.analysis.mealName,
+          stageText: "직접 확인한 값을 반영했어요",
+          primaryExplanation: "확인하고 수정한 열량과 영양소 값으로 저장해요.",
+          clarificationQuestion: undefined,
+          summary: {
+            ...state.analysis.summary,
+            caloriesKcal: override.caloriesKcal,
+            calorieRange: {
+              low: Math.max(0, override.caloriesKcal - margin),
+              midpoint: override.caloriesKcal,
+              high: override.caloriesKcal + margin
+            },
+            proteinG: override.proteinG,
+            carbsG: override.carbsG,
+            fatG: override.fatG,
+            confidence: 1,
+            confidenceLabel: "manual",
+            confidenceGroup: "manual"
+          }
+        },
+        nutritionOverride: override,
+        error: undefined
+      };
+    }
     case "SAVE_MEAL":
       if (state.screen !== "review" || state.status === "loading" || state.error?.retryable === false || !state.analysis || !state.analysisJobId) {
         return state;
@@ -150,7 +187,8 @@ export function scanToSaveReducer(state: ScanToSaveState, action: ScanToSaveActi
           requestId,
           analysisJobId: state.analysisJobId!,
           resultId: state.analysis!.id,
-          clarificationValue: state.clarificationValue ?? state.selectedValue ?? "unknown"
+          clarificationValue: state.clarificationValue ?? state.selectedValue ?? "unknown",
+          nutritionOverride: state.nutritionOverride
         })
       );
     case "MEAL_SAVED":

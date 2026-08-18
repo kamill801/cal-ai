@@ -395,6 +395,10 @@ async function expectTimeoutStatusFallback(): Promise<void> {
 async function expectCoachContractsMap(): Promise<void> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = ((url, init) => {
+    const headers = init?.headers as Record<string, string> | undefined;
+    if (headers?.Authorization !== "Bearer session-token") {
+      return Promise.reject(new Error("authenticated API request did not include bearer token"));
+    }
     const path = String(url);
     if (path.endsWith("/v1/profiles/profile-1/dashboard/today")) {
       return Promise.resolve({
@@ -411,6 +415,7 @@ async function expectCoachContractsMap(): Promise<void> {
             guidance: "단백질이 88g 남았어요."
           },
           training: { planned_sessions: 3, completed_sessions: 1, next_workout_title: "전신 B", recovery_message: "계획을 진행해도 괜찮아요." },
+          meals: [{ id: "meal-1", name: "닭가슴살 덮밥", meal_type: "lunch", calories_kcal: 510, confidence_label: "manual" }],
           next_action: { type: "start_workout", title: "전신 B", detail: "다음 운동을 시작해요." }
         })
       } as Response);
@@ -433,17 +438,28 @@ async function expectCoachContractsMap(): Promise<void> {
         })
       } as Response);
     }
+    if (path.endsWith("/v1/profiles/profile-1") && init?.method === "DELETE") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ profile_id: "profile-1", status: "deleted", deleted_images: 2, deleted_meal_logs: 4 })
+      } as Response);
+    }
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const client = createCalAiApiClient("http://127.0.0.1:8015");
+    const client = createCalAiApiClient("http://127.0.0.1:8015", "session-token");
     const dashboard = await client.getCoachDashboard("profile-1");
     const plan = await client.generateWorkoutPlan("profile-1");
+    const deletion = await client.deleteProfile("profile-1");
     if (dashboard.nutrition.remaining.proteinG !== 88 || dashboard.training.nextWorkoutTitle !== "전신 B") {
       throw new Error("coach dashboard response did not map");
     }
     if (plan.daysPerWeek !== 3 || plan.days[0]?.exercises[0]?.targetRir !== 2) {
       throw new Error("workout plan response did not map");
+    }
+    if (dashboard.meals[0]?.name !== "닭가슴살 덮밥" || deletion.deletedImages !== 2 || deletion.deletedMealLogs !== 4) {
+      throw new Error("meal history or profile deletion response did not map");
     }
   } finally {
     globalThis.fetch = originalFetch;

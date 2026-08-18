@@ -25,7 +25,7 @@
 6. 운동 완료를 기록하고 Today, Progress, Weekly Coach 화면을 갱신한다.
 7. 식사 5회와 체중 2회 이후에는 목표를 자동 변경하지 않고 칼로리 조정안을 제안한다.
 
-OpenAI 음식 이미지 분석은 provider seam 뒤에 구현되어 있다. 서버에서 `AI_PROVIDER=openai`와 API key를 설정한 경우 private R2 이미지를 짧은 수명의 presigned GET URL로 읽고, Responses API strict JSON schema 결과를 영속화한다. 결정론적 mock은 로컬 개발 fallback으로 유지한다. 신체 이미지 분석은 여전히 안전한 mock 관찰만 제공하며 별도의 개인정보·동의 검토 전에는 실서비스 AI 결과로 표시하지 않는다.
+OpenAI 음식 이미지 분석은 provider seam 뒤에 구현되어 있다. 서버에서 `AI_PROVIDER=openai`와 API key를 설정한 경우 private R2 이미지를 짧은 수명의 presigned GET URL로 읽고, Responses API strict JSON schema 결과를 영속화한다. 결정론적 mock은 로컬 개발 fallback으로 유지한다. 신체 이미지 분석은 별도 `BODY_AI_PROVIDER`와 명시적 사용자 동의로만 활성화하며 체지방률, 질환, 외모, 신원 같은 민감 추론을 금지한다. 모바일은 업로드 전에 긴 변을 줄이고 JPEG로 반복 압축해 900KB 이하를 목표로 한다.
 
 ## 2. Recommended Technical Direction
 
@@ -779,7 +779,7 @@ The FastAPI service uses a repository boundary backed by Neon Postgres when `DAT
 - `clarifications`: submitted answers and resulting narrowed analysis response.
 - `meal_logs`: save request and saved-impact response.
 
-This foundation still has no authentication or server-enforced user scoping. Food analysis can call OpenAI directly through the Responses HTTP API when server-side env configuration enables it; local development remains mock-first. Production tables below remain the target normalized schema as auth/security work proceeds.
+The mobile app includes an optional Supabase Auth Kakao OAuth gate with PKCE and secure session storage. When `AUTH_PROVIDER=supabase`, FastAPI requires `SUPABASE_JWT_ALGORITHM=RS256|ES256`, verifies the asymmetric Supabase JWT through JWKS, and scopes profiles, image uploads, and analysis jobs to the token subject. Anonymous local development remains available only while auth is explicitly disabled. Body-photo consent evidence stores the consent timestamp, provider, model, and policy version with each check-in. Food analysis can call OpenAI directly through the Responses HTTP API when server-side env configuration enables it; local development remains mock-first.
 
 ### analysis_jobs
 
@@ -909,6 +909,7 @@ Request:
 ```json
 {
   "image_upload_id": "uuid",
+  "profile_id": "profile-id",
   "meal_type": "lunch",
   "optional_note": "밥은 거의 다 먹었어요"
 }
@@ -1085,10 +1086,21 @@ Request:
 ```json
 {
   "analysis_job_id": "uuid",
-  "meal_type": "lunch",
-  "eaten_at": "2026-06-09T12:20:00+09:00"
+  "result_id": "analysis-result-id",
+  "clarification_value": "one_bowl",
+  "profile_id": "profile-id",
+  "logged_on": "2026-06-09",
+  "nutrition_override": {
+    "meal_name": "직접 수정한 닭가슴살 덮밥",
+    "calories_kcal": 510,
+    "protein_g": 42,
+    "carbs_g": 55,
+    "fat_g": 12
+  }
 }
 ```
+
+`nutrition_override` is optional. When present, the saved meal is marked as user-confirmed/manual and the corrected values drive dashboard accumulation.
 
 ### GET /v1/dashboard/today
 
@@ -1102,9 +1114,13 @@ Purpose: save weight log.
 
 Purpose: get nutrient-gap and menu-type recommendation.
 
-### POST /v1/privacy/delete-account
+### DELETE /v1/profiles/{profile_id}
 
-Purpose: request account/data deletion.
+Purpose: permanently delete profile-scoped app data, unsaved profile-linked scans, authenticated owner uploads, and linked private image objects. Supabase Auth identity deletion remains a separate re-authenticated operation. Image metadata enters a retryable `deleting` state before object deletion so a partial failure does not lose the object key required for recovery.
+
+### GET /internal/cleanup-images
+
+Purpose: daily retention cleanup for expired private image objects. The endpoint requires `Authorization: Bearer <CRON_SECRET>` and is invoked by Vercel Cron once per day.
 
 ## 14. AI Call Design
 
@@ -1154,10 +1170,10 @@ Sensitive:
 
 ### Retention Defaults
 
-- Raw food images: retain only as long as needed for product experience; default policy TBD.
+- Raw food/body images: retain for `IMAGE_TTL_DAYS` (default 30 days), then delete through the daily cleanup job.
 - Analysis JSON: retain for history and personalization.
 - Raw AI responses: restricted access, consider shorter retention.
-- Deleted user data: remove or anonymize according to deletion policy.
+- Deleted profile data: mark image metadata as `deleting`, remove linked private storage objects, then remove meal, coach, analysis, and image metadata before returning success. Failed deletion remains retryable because the object key is retained until finalization.
 
 ### Access Control
 
@@ -1237,10 +1253,15 @@ R2_REGION=auto
 IMAGE_UPLOAD_MAX_BYTES=8000000
 IMAGE_TTL_DAYS=30
 UPLOAD_SOFT_LIMIT_BYTES=8000000000
+CRON_SECRET=
 AI_PROVIDER_API_KEY=
 AI_PROVIDER=mock
+BODY_AI_PROVIDER=mock
 AI_MODEL_VISION=
 AI_MODEL_TEXT=
+AUTH_PROVIDER=disabled
+SUPABASE_URL=
+SUPABASE_JWT_ALGORITHM=ES256
 POSTHOG_KEY=
 SENTRY_DSN=
 REVENUECAT_API_KEY=

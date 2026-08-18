@@ -1,4 +1,5 @@
 import type { BodyCheckIn, ProgressSummary } from "@cal-ai/shared";
+import { Check } from "lucide-react-native";
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
@@ -6,19 +7,30 @@ import { FlowStatusCard } from "../components/FlowStatusCard";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
-export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onLogWeight, onLogWellness, onCaptureBody, onPickBody }: { readonly progress?: ProgressSummary; readonly latestBodyCheckIn?: BodyCheckIn; readonly status: RequestStatus; readonly error?: FlowError; readonly onLogWeight: (weightKg: number) => void; readonly onLogWellness: (input: { energy: number; sleepQuality: number; soreness: number }) => void; readonly onCaptureBody: () => void; readonly onPickBody: () => void }) {
+type BodyPhotoView = BodyCheckIn["view"];
+
+const BODY_PHOTO_VIEWS: ReadonlyArray<{ readonly value: BodyPhotoView; readonly label: string; readonly description: string }> = [
+  { value: "front", label: "정면", description: "카메라를 정면으로 바라봐요" },
+  { value: "side", label: "측면", description: "몸을 옆으로 돌려 촬영해요" },
+  { value: "back", label: "후면", description: "카메라를 등지고 촬영해요" }
+];
+
+export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onLogWeight, onLogWellness, onCaptureBody, onPickBody }: { readonly progress?: ProgressSummary; readonly latestBodyCheckIn?: BodyCheckIn; readonly status: RequestStatus; readonly error?: FlowError; readonly onLogWeight: (weightKg: number) => void; readonly onLogWellness: (input: { energy: number; sleepQuality: number; soreness: number }) => void; readonly onCaptureBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void; readonly onPickBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void }) {
   const [weight, setWeight] = useState(progress?.latestWeightKg?.toString() ?? "");
   const [energy, setEnergy] = useState(3);
   const [sleepQuality, setSleepQuality] = useState(3);
   const [soreness, setSoreness] = useState(2);
+  const [bodyAnalysisConsent, setBodyAnalysisConsent] = useState(false);
+  const [selectedBodyView, setSelectedBodyView] = useState<BodyPhotoView>("front");
   const parsedWeight = Number(weight);
+  const selectedBodyViewOption = BODY_PHOTO_VIEWS.find(({ value }) => value === selectedBodyView) ?? BODY_PHOTO_VIEWS[0];
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>PROGRESS</Text>
-        <Text style={styles.title}>몸 변화는 한 장보다 흐름으로 봐요</Text>
-        <Text style={styles.subtitle}>체중, 회복, 운동 기록과 같은 조건의 사진을 함께 보면 다음 조언이 더 현실적이에요.</Text>
+        <Text style={styles.eyebrow}>변화 기록</Text>
+        <Text style={styles.title}>작은 기록이 몸의 변화를 보여줘요</Text>
+        <Text style={styles.subtitle}>체중과 회복 상태, 같은 조건의 사진을 함께 보면 다음 운동을 더 현실적으로 조절할 수 있어요.</Text>
       </View>
       {error ? <FlowStatusCard error={error} /> : null}
 
@@ -43,18 +55,72 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onL
       ) : null}
 
       <CoachCard title="오늘 회복 상태" eyebrow="1분 체크인" tone="warm">
-        <ScoreRow label="에너지" value={energy} onChange={setEnergy} />
-        <ScoreRow label="수면" value={sleepQuality} onChange={setSleepQuality} />
-        <ScoreRow label="근육통" value={soreness} onChange={setSoreness} />
+        <Text style={styles.scoreGuide}>1은 매우 낮음, 5는 매우 높음이에요. 근육통은 숫자가 높을수록 많이 뻐근하다는 뜻이에요.</Text>
+        <ScoreRow label="에너지" value={energy} onChange={setEnergy} lowLabel="매우 낮음" highLabel="매우 높음" />
+        <ScoreRow label="수면" value={sleepQuality} onChange={setSleepQuality} lowLabel="매우 나쁨" highLabel="매우 좋음" />
+        <ScoreRow label="근육통" value={soreness} onChange={setSoreness} lowLabel="거의 없음" highLabel="매우 심함" />
         <TouchableOpacity style={styles.primaryButton} disabled={status === "loading"} onPress={() => onLogWellness({ energy, sleepQuality, soreness })} accessibilityRole="button"><Text style={styles.primaryButtonText}>오늘 상태 저장</Text></TouchableOpacity>
       </CoachCard>
 
       <CoachCard title="신체 사진 체크인" eyebrow="선택 기록">
-        <Text style={styles.body}>같은 조명, 거리, 자세로 찍으면 주간 변화를 비교하기 좋아요. 사진만으로 체지방률이나 건강 상태를 판단하지 않아요.</Text>
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.primaryButtonHalf} disabled={status === "loading"} onPress={onCaptureBody} accessibilityRole="button"><Text style={styles.primaryButtonText}>사진 촬영</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} disabled={status === "loading"} onPress={onPickBody} accessibilityRole="button"><Text style={styles.secondaryButtonText}>사진 선택</Text></TouchableOpacity>
+        <Text style={styles.body}>같은 조명과 거리, 자세로 찍으면 지난 기록과 비교하기 좋아요. 원하는 촬영 방향을 먼저 골라주세요.</Text>
+        <View style={styles.viewSelector} accessibilityRole="radiogroup" accessibilityLabel="신체 사진 촬영 방향">
+          {BODY_PHOTO_VIEWS.map(({ value, label }) => {
+            const isSelected = selectedBodyView === value;
+
+            return (
+              <TouchableOpacity
+                key={value}
+                style={[styles.viewOption, isSelected && styles.viewOptionSelected]}
+                onPress={() => setSelectedBodyView(value)}
+                accessibilityRole="radio"
+                accessibilityLabel={`${label} 사진`}
+                accessibilityState={{ selected: isSelected }}
+              >
+                <Text style={[styles.viewOptionText, isSelected && styles.viewOptionTextSelected]}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
+        <Text style={styles.viewDescription}>{selectedBodyViewOption.description}</Text>
+        <TouchableOpacity
+          style={styles.consentRow}
+          onPress={() => setBodyAnalysisConsent((value) => !value)}
+          accessibilityRole="checkbox"
+          accessibilityLabel="신체 사진 저장 및 제한적 AI 관찰에 동의"
+          accessibilityState={{ checked: bodyAnalysisConsent }}
+        >
+          <View style={[styles.checkbox, bodyAnalysisConsent && styles.checkboxChecked]}>
+            {bodyAnalysisConsent ? <Check color={colors.surface} size={16} strokeWidth={3} /> : null}
+          </View>
+          <Text style={styles.consentText}>이 사진을 비공개로 저장하고 AI가 자세와 운동 초점만 제한적으로 관찰하는 데 동의해요.</Text>
+        </TouchableOpacity>
+        <Text style={styles.safety}>동의하기 전에는 사진을 촬영하거나 불러올 수 없어요. 체지방률, 질환, 외모 점수, 신원 같은 민감 정보는 추정하지 않아요.</Text>
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.primaryButtonHalf, !bodyAnalysisConsent && styles.buttonDisabled]}
+            disabled={status === "loading" || !bodyAnalysisConsent}
+            onPress={() => onCaptureBody(true, selectedBodyView)}
+            accessibilityRole="button"
+            accessibilityLabel={`${selectedBodyViewOption.label} 사진 촬영`}
+            accessibilityHint={bodyAnalysisConsent ? "카메라를 열어 신체 사진을 촬영합니다" : "먼저 사진 저장 및 AI 관찰에 동의해주세요"}
+            accessibilityState={{ disabled: status === "loading" || !bodyAnalysisConsent }}
+          >
+            <Text style={styles.primaryButtonText}>{status === "loading" ? "처리 중" : "사진 촬영"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.secondaryButton, !bodyAnalysisConsent && styles.buttonDisabled]}
+            disabled={status === "loading" || !bodyAnalysisConsent}
+            onPress={() => onPickBody(true, selectedBodyView)}
+            accessibilityRole="button"
+            accessibilityLabel={`${selectedBodyViewOption.label} 사진 선택`}
+            accessibilityHint={bodyAnalysisConsent ? "사진 보관함에서 신체 사진을 선택합니다" : "먼저 사진 저장 및 AI 관찰에 동의해주세요"}
+            accessibilityState={{ disabled: status === "loading" || !bodyAnalysisConsent }}
+          >
+            <Text style={styles.secondaryButtonText}>{status === "loading" ? "처리 중" : "사진 선택"}</Text>
+          </TouchableOpacity>
+        </View>
+        {!latestBodyCheckIn ? <Text style={styles.emptyState}>아직 저장된 신체 사진이 없어요. 첫 기록을 남기면 다음 체크인부터 같은 방향의 변화를 비교할 수 있어요.</Text> : null}
       </CoachCard>
 
       {latestBodyCheckIn ? (
@@ -71,13 +137,22 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onL
   );
 }
 
-function ScoreRow({ label, value, onChange }: { readonly label: string; readonly value: number; readonly onChange: (value: number) => void }) {
+function ScoreRow({ label, value, onChange, lowLabel, highLabel }: { readonly label: string; readonly value: number; readonly onChange: (value: number) => void; readonly lowLabel: string; readonly highLabel: string }) {
   return (
     <View style={styles.scoreRow}>
       <Text style={styles.scoreLabel}>{label}</Text>
       <View style={styles.scoreButtons}>
         {[1, 2, 3, 4, 5].map((score) => (
-          <TouchableOpacity key={score} style={[styles.scoreButton, value === score && styles.scoreButtonSelected]} onPress={() => onChange(score)} accessibilityRole="button" accessibilityState={{ selected: value === score }}><Text style={[styles.scoreText, value === score && styles.scoreTextSelected]}>{score}</Text></TouchableOpacity>
+          <TouchableOpacity
+            key={score}
+            style={[styles.scoreButton, value === score && styles.scoreButtonSelected]}
+            onPress={() => onChange(score)}
+            accessibilityRole="radio"
+            accessibilityLabel={`${label} ${score}점, ${score === 1 ? lowLabel : score === 5 ? highLabel : "보통 범위"}`}
+            accessibilityState={{ selected: value === score }}
+          >
+            <Text style={[styles.scoreText, value === score && styles.scoreTextSelected]}>{score}</Text>
+          </TouchableOpacity>
         ))}
       </View>
     </View>
@@ -96,6 +171,7 @@ const styles = StyleSheet.create({
   smallButton: { width: 64, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leaf, paddingHorizontal: spacing.sm },
   smallButtonText: { color: colors.surface, ...typography.bodyStrong },
   body: { color: colors.body, ...typography.body },
+  scoreGuide: { color: colors.muted, ...typography.caption },
   scoreRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", gap: spacing.md },
   scoreLabel: { width: 52, color: colors.ink, ...typography.bodyStrong },
   scoreButtons: { flex: 1, flexDirection: "row", gap: spacing.xs },
@@ -109,6 +185,18 @@ const styles = StyleSheet.create({
   secondaryButton: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", borderColor: colors.hairline, borderWidth: 1, borderRadius: radii.control, backgroundColor: colors.surface, padding: spacing.md },
   secondaryButtonText: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: "800" },
   actionRow: { flexDirection: "row", gap: spacing.sm },
+  viewSelector: { flexDirection: "row", gap: spacing.xs, padding: 4, borderRadius: radii.control, backgroundColor: colors.canvas },
+  viewOption: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderColor: "transparent", borderWidth: 1, borderRadius: radii.control, paddingHorizontal: spacing.sm },
+  viewOptionSelected: { borderColor: colors.leafMuted, backgroundColor: colors.surface, ...shadows.card },
+  viewOptionText: { color: colors.muted, ...typography.bodyStrong },
+  viewOptionTextSelected: { color: colors.leaf },
+  viewDescription: { color: colors.body, textAlign: "center", ...typography.caption },
+  consentRow: { alignItems: "flex-start", flexDirection: "row", gap: spacing.sm, minHeight: 44 },
+  checkbox: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderColor: colors.hairline, borderWidth: 1, borderRadius: 6, backgroundColor: colors.surface },
+  checkboxChecked: { borderColor: colors.leaf, backgroundColor: colors.leaf },
+  consentText: { flex: 1, color: colors.body, ...typography.body },
+  buttonDisabled: { opacity: 0.42 },
+  emptyState: { borderTopColor: colors.hairline, borderTopWidth: 1, color: colors.muted, paddingTop: spacing.md, ...typography.caption },
   observation: { gap: spacing.xs, borderTopColor: colors.leafMuted, borderTopWidth: 1, paddingTop: spacing.md },
   observationTitle: { color: colors.ink, ...typography.bodyStrong },
   focusTitle: { color: colors.leaf, ...typography.bodyStrong },

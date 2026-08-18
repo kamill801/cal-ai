@@ -77,6 +77,17 @@ export function runAsyncFlowSmoke(): void {
   const completed: AnalysisJobViewModel = { id: "mock-lunch-001", status: "needs_clarification", result: initialAnalysis };
   const loaded = scanToSaveReducer(created, { type: "ANALYSIS_JOB_LOADED", job: completed });
   assert(loaded.analysis?.id === "analysis-lunch-001", "job result loads analysis");
+  const adjusted = scanToSaveReducer(
+    { ...loaded, screen: "review", clarificationValue: "unknown" },
+    {
+      type: "APPLY_MANUAL_ADJUSTMENT",
+      override: { mealName: "직접 수정한 식사", caloriesKcal: 510, proteinG: 42, carbsG: 55, fatG: 12 }
+    }
+  );
+  assert(adjusted.analysis?.mealName === "직접 수정한 식사", "manual adjustment updates meal name");
+  assert(adjusted.analysis?.summary.confidenceLabel === "manual", "manual adjustment marks user-confirmed confidence");
+  const adjustedSaving = scanToSaveReducer(adjusted, { type: "SAVE_MEAL" });
+  assert(adjustedSaving.pendingCommand?.type === "SAVE_MEAL" && adjustedSaving.pendingCommand.nutritionOverride?.proteinG === 42, "manual values are included in save command");
   const saving = scanToSaveReducer({ ...loaded, screen: "review", clarificationValue: "unknown" }, { type: "SAVE_MEAL" });
   assert(saving.status === "loading" && saving.pendingCommand?.type === "SAVE_MEAL", "save schedules API command");
   const failedSave = scanToSaveReducer(saving, {

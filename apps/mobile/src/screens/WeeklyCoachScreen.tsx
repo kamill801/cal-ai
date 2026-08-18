@@ -7,22 +7,25 @@ import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, spacing, typography } from "../theme";
 
 export function WeeklyCoachScreen({ report, status, error }: { readonly report?: WeeklyCoachReport; readonly status: RequestStatus; readonly error?: FlowError }) {
+  const evidenceCount = report ? report.evidence.mealsLogged + report.evidence.workoutsCompleted + report.evidence.weightLogs + report.evidence.wellnessCheckIns + report.evidence.bodyCheckIns : 0;
+  const hasEvidence = evidenceCount > 0;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
-          <Text style={styles.eyebrow}>WEEKLY COACH</Text>
-          <Text style={styles.title}>결과는 전문적으로, 다음 행동은 가볍게</Text>
+          <Text style={styles.eyebrow}>이번 주 코치</Text>
+          <Text style={styles.title}>{hasEvidence ? "이번 주 결론부터 간단히 볼게요" : "기록이 쌓이면 함께 돌아봐요"}</Text>
           <Text style={styles.subtitle}>식사, 운동, 체중, 회복 기록을 함께 보고 다음 주에 바꿀 한두 가지만 골라요.</Text>
         </View>
         <TrustBuddy size={68} accessory="spoon" />
       </View>
       {error ? <FlowStatusCard error={error} /> : null}
       {status === "loading" && !report ? <CoachCard title="이번 주 기록을 정리하고 있어요" eyebrow="잠시만요"><Text style={styles.body}>반복된 패턴과 회복 신호를 함께 확인해요.</Text></CoachCard> : null}
-      {report ? (
+      {report && hasEvidence ? (
         <>
           <CoachCard title={report.headline} eyebrow={`이번 주 균형 점수 ${report.score}점`} tone="leaf">
-            <View style={styles.scoreTrack}><View style={[styles.scoreFill, { width: `${report.score}%` }]} /></View>
+            <View style={styles.scoreTrack} accessible accessibilityRole="progressbar" accessibilityLabel="이번 주 균형 점수" accessibilityValue={{ min: 0, max: 100, now: report.score }}><View style={[styles.scoreFill, { width: `${report.score}%` }]} /></View>
             <View style={styles.evidenceRow}>
               <Evidence label="식사" value={report.evidence.mealsLogged} />
               <Evidence label="운동" value={report.evidence.workoutsCompleted} />
@@ -44,12 +47,26 @@ export function WeeklyCoachScreen({ report, status, error }: { readonly report?:
           </CoachCard>
         </>
       ) : null}
+      {report && !hasEvidence ? (
+        <CoachCard title="아직 평가할 기록이 부족해요" eyebrow="점수 대신 다음 행동" tone="warm">
+          <Text style={styles.body}>식사 한 번 또는 운동 한 번만 기록해도 이번 주 패턴을 설명할 근거가 생겨요.</Text>
+          <View style={styles.emptySteps}>
+            <Text style={styles.listItem}>1. 오늘 먹은 식사 한 장 기록하기</Text>
+            <Text style={styles.listItem}>2. 운동한 날 완료 기록 남기기</Text>
+          </View>
+        </CoachCard>
+      ) : null}
+      {!report && status !== "loading" && !error ? (
+        <CoachCard title="이번 주 기록을 불러오면 여기에 보여드려요" eyebrow="주간 요약">
+          <Text style={styles.body}>식사, 운동, 체중, 회복 기록을 바탕으로 다음 주에 바꿀 행동을 한두 개만 골라드려요.</Text>
+        </CoachCard>
+      ) : null}
     </ScrollView>
   );
 }
 
 function Evidence({ label, value }: { readonly label: string; readonly value: number }) {
-  return <View style={styles.evidence}><Text style={styles.evidenceValue}>{value}</Text><Text style={styles.evidenceLabel}>{label}</Text></View>;
+  return <View style={styles.evidence} accessible accessibilityLabel={`${label} 기록 ${value}개`}><Text style={styles.evidenceValue}>{value}</Text><Text style={styles.evidenceLabel}>{label}</Text></View>;
 }
 
 const styles = StyleSheet.create({
@@ -67,6 +84,7 @@ const styles = StyleSheet.create({
   evidenceValue: { color: colors.ink, fontSize: 20, lineHeight: 24, fontWeight: "800" },
   evidenceLabel: { color: colors.muted, ...typography.caption },
   listItem: { color: colors.body, ...typography.body },
+  emptySteps: { gap: spacing.sm },
   actionRow: { alignItems: "center", flexDirection: "row", gap: spacing.md, borderTopColor: colors.hairline, borderTopWidth: 1, paddingTop: spacing.md },
   actionNumber: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderRadius: radii.pill, backgroundColor: colors.leafTint },
   actionNumberText: { color: colors.leaf, ...typography.caption },

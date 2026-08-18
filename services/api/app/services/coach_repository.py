@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol, TypeVar
 
@@ -53,6 +54,8 @@ class CoachRepository(Protocol):
     def save_workout_session(self, value: WorkoutSessionResponse) -> WorkoutSessionResponse: ...
 
     def list_workout_sessions(self, profile_id: str) -> list[WorkoutSessionResponse]: ...
+
+    def delete_profile(self, profile_id: str) -> bool: ...
 
 
 class SqlCoachRepository:
@@ -117,6 +120,19 @@ class SqlCoachRepository:
     def list_workout_sessions(self, profile_id: str) -> list[WorkoutSessionResponse]:
         return self._list_events(profile_id, "workout", WorkoutSessionResponse)
 
+    def delete_profile(self, profile_id: str) -> bool:
+        with self._connection() as conn:
+            existing = conn.execute(
+                self._sql("select profile_id from coach_profiles where profile_id = ?"),
+                (profile_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+            conn.execute(self._sql("delete from coach_events where profile_id = ?"), (profile_id,))
+            conn.execute(self._sql("delete from workout_plans where profile_id = ?"), (profile_id,))
+            conn.execute(self._sql("delete from coach_profiles where profile_id = ?"), (profile_id,))
+        return True
+
     def _save_event(self, event_type: str, value: ModelT) -> ModelT:
         event_id = str(getattr(value, "id"))
         profile_id = str(getattr(value, "profile_id"))
@@ -178,7 +194,18 @@ class SqlCoachRepository:
         return json.dumps(value.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
 
 
-def get_coach_repository(environ: dict[str, str] | None = None) -> CoachRepository:
-    env = environ if environ is not None else os.environ
-    location = env.get("DATABASE_URL") or env.get("CAL_AI_API_DATA_PATH") or str(DEFAULT_API_DATA_PATH)
+def _coach_repository_location(env: Mapping[str, str]) -> str:
+    return env.get("DATABASE_URL") or env.get("CAL_AI_API_DATA_PATH") or str(DEFAULT_API_DATA_PATH)
+
+
+@lru_cache(maxsize=8)
+def _coach_repository_for_location(location: str) -> CoachRepository:
     return SqlCoachRepository(location)
+
+
+def _create_coach_repository(env: Mapping[str, str]) -> CoachRepository:
+    return _coach_repository_for_location(_coach_repository_location(env))
+
+
+def get_coach_repository(environ: dict[str, str] | None = None) -> CoachRepository:
+    return _create_coach_repository(os.environ if environ is None else environ)

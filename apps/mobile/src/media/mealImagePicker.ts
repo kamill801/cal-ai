@@ -1,6 +1,7 @@
 import * as ImagePicker from "expo-image-picker";
 import type { SelectedMealImage } from "../flow/scanToSaveFlow";
-import { fallbackImageFileName, MealImageReadError, readMealImageBlob, resolveImageContentType } from "./mealImageFile";
+import { ImagePreparationError, prepareImageForUpload } from "./imagePreparation";
+import { resolveImageContentType } from "./mealImageFile";
 
 export type MealImagePickerResult =
   | { readonly status: "selected"; readonly image: SelectedMealImage }
@@ -8,6 +9,7 @@ export type MealImagePickerResult =
   | { readonly status: "permission_denied" }
   | { readonly status: "camera_unavailable" }
   | { readonly status: "unsupported_type" }
+  | { readonly status: "too_large" }
   | { readonly status: "read_failed" };
 
 export async function pickMealImageFromLibrary(): Promise<MealImagePickerResult> {
@@ -65,29 +67,21 @@ async function createSelectedMealImage(asset: ImagePicker.ImagePickerAsset | und
   }
 
   try {
-    const byteSize = typeof asset.fileSize === "number" && asset.fileSize > 0 ? asset.fileSize : await readImageByteSize(asset.uri);
-    const fileName = (asset.fileName ?? fallbackImageFileName(contentType)).slice(0, 180);
     const assetId = asset.assetId?.trim();
-    const localAssetId = assetId && assetId.length <= 120 ? assetId : `mobile-${Date.now()}-${byteSize}`;
+    const localAssetId = assetId && assetId.length <= 120 ? assetId : `mobile-${Date.now()}`;
     return {
       status: "selected",
-      image: {
-        localAssetId,
+      image: await prepareImageForUpload({
         uri: asset.uri,
-        fileName,
-        contentType,
-        byteSize
-      }
+        width: asset.width,
+        height: asset.height,
+        localAssetId
+      })
     };
   } catch (error) {
-    if (error instanceof MealImageReadError) {
-      return { status: "read_failed" };
+    if (error instanceof ImagePreparationError) {
+      return { status: error.code };
     }
     throw error;
   }
-}
-
-async function readImageByteSize(uri: string): Promise<number> {
-  const blob = await readMealImageBlob(uri);
-  return blob.size;
 }

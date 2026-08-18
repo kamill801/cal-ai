@@ -4,11 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas import NutritionTarget, OnboardingRequest
+from app.schemas import DashboardMeal, NutritionTarget, OnboardingRequest
 
 
 class CoachProfile(BaseModel):
     profile_id: str
+    owner_id: str | None = None
     onboarding: OnboardingRequest
     target: NutritionTarget
     created_at: str
@@ -40,7 +41,15 @@ class CoachDashboardResponse(BaseModel):
     date: str
     nutrition: NutritionSnapshot
     training: TrainingSnapshot
+    meals: list[DashboardMeal]
     next_action: CoachNextAction
+
+
+class ProfileDeletionResponse(BaseModel):
+    profile_id: str
+    status: Literal["deleted"]
+    deleted_images: int = Field(ge=0)
+    deleted_meal_logs: int = Field(ge=0)
 
 
 class WeightLogRequest(BaseModel):
@@ -72,6 +81,7 @@ class BodyCheckInRequest(BaseModel):
     captured_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     image_upload_id: str = Field(min_length=1, max_length=180)
     view: Literal["front", "side", "back"]
+    consent_to_ai_analysis: Literal[True]
 
 
 class BodyObservation(BaseModel):
@@ -80,13 +90,20 @@ class BodyObservation(BaseModel):
 
 
 class BodyCheckInAnalysis(BaseModel):
-    provider: Literal["mock", "openai_dry_run"]
+    provider: Literal["mock", "openai"]
     confidence: Literal["limited"]
     capture_quality: Literal["good", "retake_recommended"]
     observations: list[BodyObservation]
     training_focus: list[str]
     comparison_note: str
     safety_note: str
+
+
+class BodyAnalysisConsent(BaseModel):
+    consented_at: str
+    provider: Literal["mock", "openai"]
+    model: str
+    policy_version: str
 
 
 class BodyCheckInResponse(BaseModel):
@@ -96,6 +113,7 @@ class BodyCheckInResponse(BaseModel):
     image_upload_id: str
     view: Literal["front", "side", "back"]
     analysis: BodyCheckInAnalysis
+    consent: BodyAnalysisConsent | None = None
     created_at: str
 
 
@@ -129,12 +147,20 @@ class WorkoutPlanResponse(BaseModel):
     generated_at: str
 
 
+class ExercisePerformance(BaseModel):
+    exercise_id: str = Field(min_length=1, max_length=180)
+    sets_completed: int = Field(ge=0, le=20)
+    reps_completed: int | None = Field(default=None, ge=0, le=100)
+    load_kg: float | None = Field(default=None, ge=0, le=500)
+
+
 class WorkoutSessionRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=180)
     workout_day_id: str = Field(min_length=1, max_length=180)
     performed_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     duration_minutes: int = Field(ge=5, le=240)
     completed_exercise_ids: list[str]
+    exercise_performance: list[ExercisePerformance] = Field(default_factory=list)
     session_rpe: int = Field(ge=1, le=10)
 
 

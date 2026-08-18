@@ -15,9 +15,9 @@ export function AppBottomNav({ activeTab, onSelect, onScan }: { readonly activeT
   return (
     <View style={styles.bar}>
       {tabs.slice(0, 2).map((tab) => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onPress={() => onSelect(tab.id)} />)}
-      <TouchableOpacity style={styles.scanButton} activeOpacity={0.86} onPress={onScan} accessibilityRole="button" accessibilityLabel="음식 사진 촬영">
+      <TouchableOpacity style={styles.scanButton} activeOpacity={0.86} onPress={onScan} hitSlop={6} accessibilityRole="button" accessibilityLabel="식사 사진 기록" accessibilityHint="카메라를 열어 음식 분석을 시작합니다">
         <Camera color={colors.surface} size={22} strokeWidth={2.5} />
-        <Text style={styles.scanLabel}>식사</Text>
+        <Text style={styles.scanLabel}>기록</Text>
       </TouchableOpacity>
       {tabs.slice(2).map((tab) => <TabButton key={tab.id} tab={tab} active={activeTab === tab.id} onPress={() => onSelect(tab.id)} />)}
     </View>
@@ -27,7 +27,7 @@ export function AppBottomNav({ activeTab, onSelect, onScan }: { readonly activeT
 function TabButton({ tab, active, onPress }: { readonly tab: (typeof tabs)[number]; readonly active: boolean; readonly onPress: () => void }) {
   const Icon = tab.icon;
   return (
-    <TouchableOpacity style={styles.tab} activeOpacity={0.78} onPress={onPress} accessibilityRole="tab" accessibilityLabel={`${tab.label} 탭`} accessibilityState={{ selected: active }}>
+    <TouchableOpacity style={styles.tab} activeOpacity={0.78} onPress={onPress} accessibilityRole="tab" accessibilityLabel={`${tab.label} 탭`} accessibilityHint={`${tab.label} 화면으로 이동합니다`} accessibilityState={{ selected: active }}>
       <View style={styles.tabIcon}><Icon color={active ? colors.leaf : colors.muted} size={20} strokeWidth={active ? 2.5 : 2} /></View>
       <Text style={[styles.tabLabel, active && styles.tabTextActive]}>{tab.label}</Text>
     </TouchableOpacity>

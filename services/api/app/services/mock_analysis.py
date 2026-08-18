@@ -105,7 +105,7 @@ def save_mock_meal(rice_amount: str = "one_bowl", analysis_job_id: str = "mock-l
 
 
 def _meal_type_from_job_id(job_id: str) -> MealType:
-    maybe_meal_type = job_id.removeprefix("mock-").removesuffix("-001")
+    maybe_meal_type = job_id.removeprefix("mock-").split("-", maxsplit=1)[0]
     if maybe_meal_type in {"breakfast", "lunch", "dinner", "snack"}:
         return cast(MealType, maybe_meal_type)
     return "lunch"

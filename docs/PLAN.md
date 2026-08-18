@@ -369,7 +369,7 @@ OpenAI food-vision integration summary — 2026-07-22:
 - Implemented: private R2 images are read through short-lived presigned GET URLs; the FastAPI OpenAI provider sends an image input to the Responses API with a strict JSON schema and `store: false`; normalized results are persisted for fetch, clarification, and meal save.
 - Reliability: malformed structured output is retried once and then fails closed; provider/configuration failures return safe structured errors without exposing credentials or signed URLs.
 - Runtime: Vercel uses a bounded synchronous MVP path with a 60-second function limit. A queue/worker remains a scale-up decision rather than an internal-beta blocker.
-- Remaining proof: deploy the current code and run one real Android meal-photo flow against production. Body-photo AI, authentication, deletion, monitoring, and Play release remain separate approval/readiness gates.
+- Remaining proof: deploy the current code and run one real Android meal-photo flow against production. Body-photo AI, authentication, monitoring, Supabase identity deletion, and Play release remain separate approval/readiness gates.
 
 ### Session 7: QA and Private Beta Prep
 
@@ -377,7 +377,23 @@ OpenAI food-vision integration summary — 2026-07-22:
 - [ ] Analytics and monitoring.
 - [x] Structured error handling and retry semantics.
 - [x] Deterministic test fixtures and rendered browser QA.
-- [ ] Real-device private beta checklist and account/data deletion controls.
+- [ ] Real-device private beta checklist.
+- [x] Profile-scoped app-data deletion controls for meal, coach, and image records.
+
+### Session 8: Trust and Repetition Quality Pass
+
+- [x] Empty-safe onboarding with experience, equipment, and session-duration inputs.
+- [x] Honest dashboard and weekly-coach empty states without fabricated praise or baseline scores.
+- [x] Persisted daily meal history on the coach dashboard.
+- [x] User-confirmed meal name, calories, and macro correction before save.
+- [x] Equipment-, experience-, duration-, recovery-, and body-focus-aware deterministic workout plans.
+- [x] Front, side, and back body-photo capture selection with explicit consent.
+- [x] Profile/account-scoped app-data deletion, including unsaved scans and linked private storage objects.
+- [x] Retryable image-deletion tombstones plus a daily TTL cleanup endpoint and Vercel Cron schedule protected by `CRON_SECRET`.
+- [x] Deterministic post-validation rejects schema-valid body-analysis output containing sensitive inferences.
+- [x] Legacy body check-ins without consent metadata remain readable during rolling deployment.
+- [ ] Supabase Auth identity deletion after re-authentication.
+- [ ] Production deployment verification and Android real-device E2E.
 
 ## Risks
 

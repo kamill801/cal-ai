@@ -22,23 +22,6 @@ export const styles = StyleSheet.create({
     color: colors.ink,
     ...typography.sectionTitle
   },
-  bell: {
-    width: 40,
-    height: 40,
-    borderColor: colors.hairline,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-    backgroundColor: colors.surface
-  },
-  bellDot: {
-    position: "absolute",
-    top: 9,
-    right: 10,
-    width: 8,
-    height: 8,
-    borderRadius: radii.pill,
-    backgroundColor: colors.fat
-  },
   heroCard: {
     position: "relative",
     gap: spacing.md,
@@ -49,12 +32,6 @@ export const styles = StyleSheet.create({
     overflow: "hidden",
     padding: spacing.lg,
     ...shadows.card
-  },
-  buddyFloat: {
-    position: "absolute",
-    right: spacing.lg,
-    top: spacing.lg,
-    opacity: 0.96
   },
   spaceBetweenRow: {
     flexDirection: "row",
@@ -231,6 +208,18 @@ export const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.ink,
     ...typography.sectionTitle
+  },
+  emptyState: {
+    gap: spacing.xs,
+    borderColor: colors.hairline,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    backgroundColor: colors.surfaceSoft,
+    padding: spacing.lg
+  },
+  emptyTitle: {
+    color: colors.ink,
+    ...typography.bodyStrong
   },
   mealRow: {
     alignItems: "center",

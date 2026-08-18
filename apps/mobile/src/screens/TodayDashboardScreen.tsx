@@ -24,24 +24,32 @@ export function TodayDashboardScreen({
   const progress = target.caloriesKcal ? Math.min(1, consumed.caloriesKcal / target.caloriesKcal) : 0;
   const proteinRemaining = coachDashboard?.nutrition.remaining.proteinG ?? Math.max(0, target.proteinG - consumed.proteinG);
   const proteinProgress = coachDashboard?.nutrition.proteinProgress ?? Math.min(1, consumed.proteinG / target.proteinG);
-  const meals = coachDashboard && consumed.caloriesKcal === 0 ? [] : dashboard.meals;
+  const meals = coachDashboard?.meals ?? dashboard.meals;
+  const calorieProgressPercent = Math.round(progress * 100);
+  const proteinProgressPercent = Math.round(Math.min(1, proteinProgress) * 100);
+  const hasRecords = meals.length > 0 || consumed.caloriesKcal > 0 || consumed.proteinG > 0;
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.topBar}>
         <View>
-          <Text style={styles.greeting}>지연님, 오늘도</Text>
-          <Text style={styles.title}>충분히 잘하고 있어요</Text>
+          <Text style={styles.greeting}>오늘의 식단</Text>
+          <Text style={styles.title}>{hasRecords ? "기록한 만큼 더 정확해져요" : "첫 식사를 기록해볼까요?"}</Text>
         </View>
-        <View style={styles.bell}>
-          <View style={styles.bellDot} />
-        </View>
+        <TrustBuddy size={52} accessory="sprout" />
       </View>
 
-      <View style={styles.heroCard}>
-        <View style={styles.buddyFloat}>
-          <TrustBuddy size={76} accessory="sprout" />
+      <TouchableOpacity style={styles.scanButton} activeOpacity={0.86} onPress={onCaptureMeal} accessibilityRole="button" accessibilityLabel="카메라로 음식 사진 찍기" accessibilityHint="촬영한 사진을 분석해 식사 기록을 시작합니다">
+        <View style={styles.scanCopy}>
+          <Text style={styles.scanTitle}>음식 사진 찍기</Text>
+          <Text style={styles.scanSubtitle}>촬영하고 한 번 확인하면 기록돼요</Text>
         </View>
+        <View style={styles.scanIcon} accessible={false}>
+          <Text style={styles.scanIconText}>+</Text>
+        </View>
+      </TouchableOpacity>
+
+      <View style={styles.heroCard}>
         <View style={styles.spaceBetweenRow}>
           <Text style={styles.cardLabel}>오늘 남은 권장 섭취량</Text>
           <Text style={styles.goalLabel}>개인 맞춤 목표</Text>
@@ -50,40 +58,30 @@ export function TodayDashboardScreen({
           <Text style={styles.kcal}>{remaining.toLocaleString()}</Text>
           <Text style={styles.kcalUnit}>kcal</Text>
         </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+        <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 칼로리 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: calorieProgressPercent }}>
+          <View style={[styles.progressFill, { width: `${calorieProgressPercent}%` }]} />
         </View>
       </View>
-
-      <MacroSummary macros={consumed} />
 
       <View style={styles.weeklyCard}>
         <View style={styles.spaceBetweenRow}>
           <Text style={styles.sectionTitle}>오늘 단백질</Text>
           <Text style={styles.cardLabel}>{proteinRemaining}g 남음</Text>
         </View>
-        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(Math.min(1, proteinProgress) * 100)}%` }]} /></View>
-        <Text style={styles.legendText}>{coachDashboard?.nutrition.guidance ?? "다음 식사에서 단백질을 먼저 챙기면 목표에 가까워져요."}</Text>
+        <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 단백질 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: proteinProgressPercent }}><View style={[styles.progressFill, { width: `${proteinProgressPercent}%` }]} /></View>
+        <Text style={styles.legendText}>{hasRecords ? coachDashboard?.nutrition.guidance ?? "다음 식사에서 단백질을 먼저 챙기면 목표에 가까워져요." : "식사를 기록하면 섭취량과 남은 양을 계산해드려요."}</Text>
       </View>
 
-      <TouchableOpacity style={styles.scanButton} activeOpacity={0.86} onPress={onCaptureMeal} accessibilityRole="button">
-        <View style={styles.scanCopy}>
-          <Text style={styles.scanTitle}>음식 사진 찍기</Text>
-          <Text style={styles.scanSubtitle}>카메라로 촬영하고 바로 분석</Text>
-        </View>
-        <View style={styles.scanIcon}>
-          <Text style={styles.scanIconText}>+</Text>
-        </View>
-      </TouchableOpacity>
+      <MacroSummary macros={consumed} />
 
       <View style={styles.secondaryActionRow}>
-        <TouchableOpacity style={styles.secondaryAction} activeOpacity={0.82} onPress={onPickMeal} accessibilityRole="button">
+        <TouchableOpacity style={styles.secondaryAction} activeOpacity={0.82} onPress={onPickMeal} accessibilityRole="button" accessibilityLabel="사진첩에서 음식 사진 선택" accessibilityHint="이미 찍어둔 사진을 분석합니다">
           <Text style={styles.secondaryActionTitle}>사진첩에서 선택</Text>
-          <Text style={styles.secondaryActionBody}>기존 음식 사진으로 테스트</Text>
+          <Text style={styles.secondaryActionBody}>이미 찍어둔 사진 기록</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryAction} activeOpacity={0.82} onPress={onOpenSafety} accessibilityRole="button">
-          <Text style={styles.secondaryActionTitle}>개인정보/안전</Text>
-          <Text style={styles.secondaryActionBody}>MVP 검증 전 확인</Text>
+        <TouchableOpacity style={styles.secondaryAction} activeOpacity={0.82} onPress={onOpenSafety} accessibilityRole="button" accessibilityLabel="개인정보와 분석 안전 원칙 보기">
+          <Text style={styles.secondaryActionTitle}>개인정보·안전</Text>
+          <Text style={styles.secondaryActionBody}>저장과 분석 원칙 확인</Text>
         </TouchableOpacity>
       </View>
 
@@ -100,14 +98,19 @@ export function TodayDashboardScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>최근 기록</Text>
-        {meals.length === 0 ? <Text style={styles.legendText}>첫 식사를 기록하면 여기에 차곡차곡 보여드려요.</Text> : null}
+        {meals.length === 0 ? (
+          <View style={styles.emptyState} accessibilityLabel="아직 기록한 식사가 없습니다">
+            <Text style={styles.emptyTitle}>아직 기록한 식사가 없어요</Text>
+            <Text style={styles.legendText}>첫 사진을 남기면 분석 결과와 섭취량이 여기에 쌓여요.</Text>
+          </View>
+        ) : null}
         {meals.map((meal) => (
           <View key={meal.id} style={styles.mealRow}>
             <View style={styles.thumb} />
             <View style={styles.mealText}>
               <Text style={styles.mealName}>{meal.name}</Text>
               <View style={styles.mealMetaRow}>
-                <Text style={styles.mealMeta}>{meal.mealType}</Text>
+                <Text style={styles.mealMeta}>{mealTypeLabel(meal.mealType)}</Text>
                 <ConfidencePill label={meal.confidenceLabel} />
               </View>
             </View>
@@ -117,4 +120,8 @@ export function TodayDashboardScreen({
       </View>
     </ScrollView>
   );
+}
+
+function mealTypeLabel(value: string): string {
+  return { breakfast: "아침", lunch: "점심", dinner: "저녁", snack: "간식" }[value] ?? value;
 }

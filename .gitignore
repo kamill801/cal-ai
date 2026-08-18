@@ -11,8 +11,10 @@ pnpm-debug.log*
 
 .expo/
 dist/
+dist-*/
 build/
 coverage/
+public/
 
 __pycache__/
 *.py[cod]

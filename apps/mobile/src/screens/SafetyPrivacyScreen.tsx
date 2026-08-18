@@ -1,15 +1,29 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { TrustBuddy } from "../components/TrustBuddy";
+import type { RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
-export function SafetyPrivacyScreen({ onBack }: { readonly onBack: () => void }) {
+export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, deletionStatus, deletionError }: { readonly onBack: () => void; readonly onSignOut?: () => void; readonly onDeleteData: () => void; readonly deletionStatus: RequestStatus; readonly deletionError?: string }) {
+  const isDeleting = deletionStatus === "loading";
+
+  function confirmDeletion(): void {
+    Alert.alert(
+      "앱 데이터를 모두 삭제할까요?",
+      "식사, 운동, 체중, 회복 기록과 저장된 사진이 삭제됩니다. 이 작업은 되돌릴 수 없어요.",
+      [
+        { text: "취소", style: "cancel" },
+        { text: "모두 삭제", style: "destructive", onPress: onDeleteData }
+      ]
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>개인정보와 안전</Text>
           <Text style={styles.title}>출시 전 안전 체크</Text>
-          <Text style={styles.subtitle}>지금 빌드는 내부 MVP 검증용입니다. 실제 출시 전에는 로그인, 삭제, 보관 기간, AI 제공자 정책을 확정해야 합니다.</Text>
+          <Text style={styles.subtitle}>사진은 비공개 저장소를 사용하고, 사용자는 앱 기록과 연결된 원본 사진을 직접 삭제할 수 있어요.</Text>
         </View>
         <TrustBuddy size={68} accessory="sprout" />
       </View>
@@ -18,15 +32,17 @@ export function SafetyPrivacyScreen({ onBack }: { readonly onBack: () => void })
         <Text style={styles.sectionTitle}>현재 연결된 것</Text>
         <ChecklistItem title="음식 사진 업로드" body="앱이 API에서 presigned URL을 받고 Cloudflare R2 private bucket에 직접 업로드해요." />
         <ChecklistItem title="음식 분석 결과" body="운영 API가 OpenAI 모드일 때 음식 사진을 범위와 근거 중심으로 분석해요. 결과는 추정치이며 한 번의 확인으로 보정할 수 있어요." />
-        <ChecklistItem title="신체 사진 분석" body="현재는 내부 MVP용 제한된 mock 관찰만 제공해요. 별도 동의와 정책 검토 전에는 외부 AI로 보내지 않아요." />
+        <ChecklistItem title="신체 사진 분석" body="명시적으로 동의한 사진만 제한된 자세·운동 초점 관찰에 사용해요. 운영 provider를 켜기 전에는 안전한 mock 결과를 사용해요." />
         <ChecklistItem title="저장소" body="Vercel API, Neon Postgres, Cloudflare R2 private bucket을 사용해요." />
+        <ChecklistItem title="내 앱 데이터 삭제" body="식사, 운동, 체중, 회복, 신체 사진 기록과 연결된 원본 이미지를 한 번에 삭제할 수 있어요." />
       </View>
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>출시 전 승인 필요</Text>
-        <ChecklistItem title="로그인과 사용자별 분리" body="인증 provider와 user scoping 정책을 정해야 실제 개인 데이터로 볼 수 있어요." />
-        <ChecklistItem title="신체 사진 AI 동의" body="외부 AI 분석을 도입하기 전에 전송 범위, 보관 기간, 동의 철회 방식을 확정해야 해요." />
-        <ChecklistItem title="삭제/보관 정책" body="사진 TTL, 계정 삭제, 로그 삭제 정책과 API가 필요해요." />
+        <ChecklistItem title="카카오 로그인 활성화" body="Supabase Auth와 Kakao 앱을 연결하고 운영 API의 JWT 검증 설정을 켜야 해요." />
+        <ChecklistItem title="신체 사진 AI 운영 승인" body="전송 범위와 보관 기간을 고지한 뒤 BODY_AI_PROVIDER를 별도로 켜야 해요." />
+        <ChecklistItem title="보관 기간 자동 집행" body="사진 TTL과 매일 실행되는 cleanup 경로는 준비됐어요. 운영 CRON_SECRET 등록과 공개 개인정보 처리방침 연결을 확인해야 해요." />
+        <ChecklistItem title="로그인 계정 자체 삭제" body="앱 데이터 삭제와 별개로 Supabase 로그인 계정 제거를 위한 운영 함수와 재인증 절차가 필요해요." />
       </View>
 
       <View style={styles.notice}>
@@ -36,6 +52,26 @@ export function SafetyPrivacyScreen({ onBack }: { readonly onBack: () => void })
       <TouchableOpacity activeOpacity={0.86} style={styles.primaryButton} onPress={onBack} accessibilityRole="button">
         <Text style={styles.primaryButtonText}>대시보드로 돌아가기</Text>
       </TouchableOpacity>
+      {onSignOut ? (
+        <TouchableOpacity activeOpacity={0.86} style={styles.secondaryButton} onPress={onSignOut} accessibilityRole="button">
+          <Text style={styles.secondaryButtonText}>로그아웃</Text>
+        </TouchableOpacity>
+      ) : null}
+      <View style={styles.dangerZone}>
+        <Text style={styles.dangerTitle}>내 앱 데이터 관리</Text>
+        <Text style={styles.dangerBody}>삭제하면 현재 프로필에 연결된 기록과 원본 사진이 사라지며 복구할 수 없어요.</Text>
+        {deletionError ? <Text style={styles.errorText}>{deletionError}</Text> : null}
+        <TouchableOpacity
+          activeOpacity={0.86}
+          style={[styles.deleteButton, isDeleting && styles.buttonDisabled]}
+          disabled={isDeleting}
+          onPress={confirmDeletion}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isDeleting, busy: isDeleting }}
+        >
+          <Text style={styles.deleteButtonText}>{isDeleting ? "삭제 중" : "내 앱 데이터 모두 삭제"}</Text>
+        </TouchableOpacity>
+      </View>
     </ScrollView>
   );
 }
@@ -69,5 +105,14 @@ const styles = StyleSheet.create({
   notice: { borderColor: colors.warningBorder, borderRadius: radii.card, borderWidth: 1, backgroundColor: colors.warningBg, padding: spacing.lg, ...shadows.card },
   noticeText: { color: colors.warningText, ...typography.body },
   primaryButton: { alignItems: "center", justifyContent: "center", minHeight: 58, borderRadius: radii.control, backgroundColor: colors.leaf, padding: spacing.md, ...shadows.card },
-  primaryButtonText: { color: colors.surface, fontSize: 16, lineHeight: 21, fontWeight: "800" }
+  primaryButtonText: { color: colors.surface, fontSize: 16, lineHeight: 21, fontWeight: "800" },
+  secondaryButton: { alignItems: "center", justifyContent: "center", minHeight: 52, borderColor: colors.hairline, borderRadius: radii.control, borderWidth: 1, backgroundColor: colors.surface, padding: spacing.md },
+  secondaryButtonText: { color: colors.ink, ...typography.bodyStrong },
+  dangerZone: { gap: spacing.sm, borderColor: colors.warningBorder, borderRadius: radii.card, borderWidth: 1, backgroundColor: colors.surface, padding: spacing.lg },
+  dangerTitle: { color: colors.warningText, ...typography.sectionTitle },
+  dangerBody: { color: colors.body, ...typography.body },
+  errorText: { color: colors.warningText, ...typography.caption },
+  deleteButton: { minHeight: 52, alignItems: "center", justifyContent: "center", borderColor: colors.warningBorder, borderRadius: radii.control, borderWidth: 1, backgroundColor: colors.warningBg, padding: spacing.md },
+  deleteButtonText: { color: colors.warningText, ...typography.bodyStrong },
+  buttonDisabled: { opacity: 0.5 }
 });

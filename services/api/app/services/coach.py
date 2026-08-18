@@ -7,7 +7,7 @@ from app.coach_schemas import (
     BodyCheckInAnalysis,
     BodyCheckInRequest,
     BodyCheckInResponse,
-    BodyObservation,
+    BodyAnalysisConsent,
     CoachDashboardResponse,
     CoachNextAction,
     CoachProfile,
@@ -42,9 +42,10 @@ def create_profile(
     onboarding: OnboardingRequest,
     target: NutritionTarget,
     repository: CoachRepository,
+    owner_id: str | None = None,
 ) -> CoachProfile:
     return repository.save_profile(
-        CoachProfile(profile_id=profile_id, onboarding=onboarding, target=target, created_at=now_iso())
+        CoachProfile(profile_id=profile_id, owner_id=owner_id, onboarding=onboarding, target=target, created_at=now_iso())
     )
 
 
@@ -90,6 +91,7 @@ def dashboard_today(
             next_workout_title=_next_workout_title(plan, completed_sessions),
             recovery_message=recovery_message,
         ),
+        meals=latest_dashboard.meals if latest_dashboard else [],
         next_action=next_action,
     )
 
@@ -113,31 +115,18 @@ def create_body_check_in(
     payload: BodyCheckInRequest,
     *,
     repository: CoachRepository,
+    analysis: BodyCheckInAnalysis,
+    consent: BodyAnalysisConsent,
 ) -> BodyCheckInResponse:
     require_profile(profile_id, repository)
-    previous = repository.list_body_check_ins(profile_id)
-    comparison_note = "첫 체크인이에요. 같은 조명과 거리로 기록하면 주간 변화를 비교하기 쉬워요."
-    if previous:
-        comparison_note = "이전 기록과 함께 보되, 사진 차이는 조명과 자세의 영향도 커서 주간 추세로 확인해요."
-    analysis = BodyCheckInAnalysis(
-        provider="mock",
-        confidence="limited",
-        capture_quality="good",
-        observations=[
-            BodyObservation(title="기록 조건", detail="전신이 프레임 안에 들어와 비교용 기록으로 사용할 수 있어요."),
-            BodyObservation(title="해석 범위", detail="사진에서 보이는 자세와 윤곽만 참고하고 건강 상태를 판단하지 않아요."),
-        ],
-        training_focus=["등과 후면 어깨를 주 2회 균형 있게 훈련", "하체 기본 동작의 반복 품질 유지"],
-        comparison_note=comparison_note,
-        safety_note="사진만으로 체지방률, 질환, 통증 원인을 판단하지 않아요. 통증이 있으면 전문가와 상의해 주세요.",
-    )
     return repository.save_body_check_in(
         BodyCheckInResponse(
             id=f"body-{uuid4()}",
             profile_id=profile_id,
             created_at=now_iso(),
             analysis=analysis,
-            **payload.model_dump(),
+            consent=consent,
+            **payload.model_dump(exclude={"consent_to_ai_analysis"}),
         )
     )
 
@@ -146,18 +135,66 @@ def generate_workout_plan(profile_id: str, *, repository: CoachRepository) -> Wo
     profile = require_profile(profile_id, repository)
     body_check_ins = repository.list_body_check_ins(profile_id)
     latest_body_focus = body_check_ins[-1].analysis.training_focus if body_check_ins else []
-    days_per_week = {"none": 2, "1-2": 2, "3-4": 3, "5+": 4}.get(profile.onboarding.training_frequency or "none", 2)
-    day_specs = _workout_day_specs()[:days_per_week]
+    wellness = repository.list_wellness(profile_id)
+    latest_wellness = wellness[-1] if wellness else None
+    recovery_adjusted = _needs_recovery_adjustment(latest_wellness)
+    days_per_week = {"none": 2, "1-2": 2, "3-4": 3, "5+": 5}.get(profile.onboarding.training_frequency or "none", 2)
+    equipment_mode = _equipment_mode(profile.onboarding.available_equipment)
+    exercise_limit = _exercise_limit(profile.onboarding.session_minutes, recovery_adjusted)
+    sets_adjustment = _sets_adjustment(
+        profile.onboarding.experience_level,
+        profile.onboarding.session_minutes,
+        recovery_adjusted,
+    )
+    target_rir = _target_rir(profile.onboarding.experience_level, recovery_adjusted)
+    rest_seconds = _rest_seconds(profile.onboarding.experience_level, recovery_adjusted)
+    body_focus_exercise = _body_focus_exercise(equipment_mode, latest_body_focus)
+    day_specs = _workout_day_specs(equipment_mode)[:days_per_week]
     plan_id = f"plan-{uuid4()}"
-    days = [
-        WorkoutDay(
-            id=f"{plan_id}-day-{index + 1}",
-            title=title,
-            focus=focus,
-            exercises=[_exercise(plan_id, index, exercise_index, item) for exercise_index, item in enumerate(exercises)],
+    days: list[WorkoutDay] = []
+    for index, (title, focus, exercises) in enumerate(day_specs):
+        selected_exercises = list(exercises[:exercise_limit])
+        if index == 0 and body_focus_exercise:
+            body_focus_name = body_focus_exercise[0]
+            if all(item[0] != body_focus_name for item in selected_exercises):
+                selected_exercises[-1] = body_focus_exercise
+        days.append(
+            WorkoutDay(
+                id=f"{plan_id}-day-{index + 1}",
+                title=title,
+                focus=f"{focus} · 회복 조절" if recovery_adjusted else focus,
+                exercises=[
+                    _exercise(
+                        plan_id,
+                        index,
+                        exercise_index,
+                        item,
+                        sets_adjustment=sets_adjustment,
+                        target_rir=target_rir,
+                        rest_seconds=rest_seconds,
+                    )
+                    for exercise_index, item in enumerate(selected_exercises)
+                ],
+            )
         )
-        for index, (title, focus, exercises) in enumerate(day_specs)
+
+    personalization_basis = [
+        f"목표: {_goal_label(profile.onboarding.goal_type)}",
+        f"주당 가능 빈도: {days_per_week}회",
+        f"운동 경력: {_experience_label(profile.onboarding.experience_level)}",
+        f"사용 장비: {_equipment_label(profile.onboarding.available_equipment)}",
+        f"세션 시간: {profile.onboarding.session_minutes}분",
     ]
+    if recovery_adjusted and latest_wellness:
+        personalization_basis.append(
+            "최근 회복 상태에 따른 회복 조절: "
+            f"에너지 {latest_wellness.energy}/5, 수면 {latest_wellness.sleep_quality}/5, 근육통 {latest_wellness.soreness}/5"
+        )
+    if latest_body_focus:
+        personalization_basis.append(f"몸 체크인 초점: 최근 관찰 {len(latest_body_focus)}개를 운동 선택에 반영")
+        personalization_basis.extend(latest_body_focus)
+
+    progression_rule = _progression_rule(profile.onboarding.experience_level, recovery_adjusted)
     return repository.save_workout_plan(
         WorkoutPlanResponse(
             id=plan_id,
@@ -166,12 +203,8 @@ def generate_workout_plan(profile_id: str, *, repository: CoachRepository) -> Wo
             days_per_week=days_per_week,
             session_minutes=profile.onboarding.session_minutes,
             days=days,
-            personalization_basis=[
-                f"목표: {_goal_label(profile.onboarding.goal_type)}",
-                f"주당 가능 빈도: {days_per_week}회",
-                *latest_body_focus,
-            ],
-            progression_rule="모든 세트에서 목표 반복 상단을 여유 2회로 달성하면 다음 운동에서 중량을 2.5-5% 올려요.",
+            personalization_basis=personalization_basis,
+            progression_rule=progression_rule,
             safety_note="통증이 생기면 해당 동작을 중단하고, 부상이나 질환이 있다면 전문가에게 운동 가능 범위를 확인해 주세요.",
             generated_at=now_iso(),
         )
@@ -191,8 +224,16 @@ def log_workout_session(
     if workout_day is None:
         raise CoachNotFoundError("workout_day_not_found")
     expected_ids = {exercise.id for exercise in workout_day.exercises}
+    performance_ids = {item.exercise_id for item in payload.exercise_performance}
+    if not performance_ids.issubset(expected_ids):
+        raise CoachNotFoundError("workout_exercise_not_found")
     completed = expected_ids.issubset(set(payload.completed_exercise_ids))
-    feedback = "오늘 계획을 완료했어요. 다음 운동 전까지 단백질과 수면을 챙겨주세요." if completed else "일부만 해도 기록은 남아요. 다음에는 남은 동작부터 이어가도 괜찮아요."
+    if completed and payload.session_rpe >= 9:
+        feedback = "계획을 마쳤지만 체감 강도가 높았어요. 다음 운동은 증량보다 회복과 동작 품질을 먼저 확인해요."
+    elif completed:
+        feedback = "오늘 계획을 완료했어요. 기록한 중량과 반복을 기준으로 다음 증량 여부를 판단할 수 있어요."
+    else:
+        feedback = "완료한 종목과 세트까지 기록했어요. 다음에는 남은 동작부터 이어가도 괜찮아요."
     return repository.save_workout_session(
         WorkoutSessionResponse(
             id=f"session-{uuid4()}",
@@ -233,7 +274,7 @@ def weekly_coach(
     repository: CoachRepository,
     meal_repository: PersistenceRepository,
 ) -> WeeklyCoachResponse:
-    require_profile(profile_id, repository)
+    profile = require_profile(profile_id, repository)
     meals = [record for record in meal_repository.list_meal_logs() if record.request.profile_id == profile_id]
     sessions = repository.list_workout_sessions(profile_id)
     weights = repository.list_weight_logs(profile_id)
@@ -242,19 +283,34 @@ def weekly_coach(
     evidence = WeeklyCoachEvidence(
         meals_logged=len(meals), workouts_completed=len(sessions), weight_logs=len(weights), wellness_check_ins=len(wellness), body_check_ins=len(bodies)
     )
-    score = min(100, 35 + len(meals) * 5 + len(sessions) * 15 + len(weights) * 5 + len(wellness) * 5 + len(bodies) * 5)
+    plan = repository.get_workout_plan(profile_id)
+    planned_sessions = plan.days_per_week if plan else {
+        "none": 2,
+        "1-2": 2,
+        "3-4": 3,
+        "5+": 5,
+    }.get(profile.onboarding.training_frequency or "none", 2)
+    score = _weekly_evidence_score(evidence, planned_sessions)
     latest_wellness = wellness[-1] if wellness else None
-    focus_items = ["식사 사진 기록을 3일 이상 남겨 단백질 패턴을 확인해요."] if len(meals) < 3 else ["단백질 섭취를 하루 전체에 나누어 유지해요."]
-    if latest_wellness and latest_wellness.soreness >= 4:
-        focus_items.append("근육통이 높은 날은 중량보다 회복과 동작 품질을 우선해요.")
-    wins = ["운동 기록을 시작해 실행 데이터를 만들었어요."] if sessions else ["목표와 운동 가능 조건을 설정했어요."]
+    total_records = sum(evidence.model_dump().values())
+    has_baseline = len(meals) >= 3 and (len(sessions) >= 1 or len(wellness) >= 2 or len(weights) >= 2)
+    if total_records == 0:
+        headline = "아직 주간 코칭을 만들 기록이 없어요. 먼저 기준선을 만들어요."
+    elif not has_baseline:
+        headline = "기록이 아직 적어, 이번 주는 패턴 평가보다 기준선을 만드는 단계예요."
+    else:
+        headline = "이번 주 기록에서 다음 행동을 정할 만큼의 패턴이 보이기 시작했어요."
+
+    wins = _weekly_evidence_facts(evidence)
+    focus_items = _weekly_focus_items(evidence, latest_wellness)
+    next_week_actions = _weekly_next_actions(evidence, planned_sessions)
     return WeeklyCoachResponse(
         profile_id=profile_id,
         score=score,
-        headline="이번 주는 기록의 기반을 만들고, 다음 행동을 더 구체적으로 정한 주예요.",
+        headline=headline,
         wins=wins,
         focus_items=focus_items,
-        next_week_actions=["운동 계획을 일정에 먼저 배치하기", "운동 후 식사에서 단백질 25-40g 챙기기", "주 2회 같은 조건으로 체중 기록하기"],
+        next_week_actions=next_week_actions,
         evidence=evidence,
         safety_note="이 코칭은 기록 기반 일반 가이드이며 의료 진단이나 치료를 대신하지 않아요.",
     )
@@ -276,11 +332,12 @@ def merge_profile_meal_impact(
     latest_meal = response.dashboard.meals[0]
     job = meal_repository.get_analysis_job(payload.analysis_job_id)
     summary = job.response.result.summary if job and job.response and job.response.result else None
+    override = payload.nutrition_override
     meal_macros = NutritionTarget(
-        calories_kcal=summary.calories_kcal if summary else latest_meal.calories_kcal,
-        protein_g=summary.protein_g if summary else 34,
-        carbs_g=summary.carbs_g if summary else 79,
-        fat_g=summary.fat_g if summary else 22,
+        calories_kcal=override.calories_kcal if override else (summary.calories_kcal if summary else latest_meal.calories_kcal),
+        protein_g=override.protein_g if override else (summary.protein_g if summary else 34),
+        carbs_g=override.carbs_g if override else (summary.carbs_g if summary else 79),
+        fat_g=override.fat_g if override else (summary.fat_g if summary else 22),
     )
     consumed = NutritionTarget(
         calories_kcal=previous_consumed.calories_kcal + meal_macros.calories_kcal,
@@ -425,17 +482,184 @@ def _goal_label(goal_type: str) -> str:
     }.get(goal_type, "개인 목표")
 
 
-def _exercise(plan_id: str, day_index: int, exercise_index: int, item: tuple[str, int, str, str]) -> WorkoutExercise:
+def _exercise(
+    plan_id: str,
+    day_index: int,
+    exercise_index: int,
+    item: tuple[str, int, str, str],
+    *,
+    sets_adjustment: int,
+    target_rir: int,
+    rest_seconds: int,
+) -> WorkoutExercise:
     name, sets, reps, rationale = item
     return WorkoutExercise(
-        id=f"{plan_id}-exercise-{day_index + 1}-{exercise_index + 1}", name=name, sets=sets, reps=reps, target_rir=2, rest_seconds=120, rationale=rationale
+        id=f"{plan_id}-exercise-{day_index + 1}-{exercise_index + 1}",
+        name=name,
+        sets=min(6, max(2, sets + sets_adjustment)),
+        reps=reps,
+        target_rir=target_rir,
+        rest_seconds=rest_seconds,
+        rationale=rationale,
     )
 
 
-def _workout_day_specs() -> list[tuple[str, str, list[tuple[str, int, str, str]]]]:
+def _workout_day_specs(equipment_mode: str) -> list[tuple[str, str, list[tuple[str, int, str, str]]]]:
+    if equipment_mode == "bodyweight":
+        return [
+            ("전신 A", "무릎 우세와 수평 밀기", [("템포 스쿼트", 3, "8-12회", "천천히 내려가 하체 동작 품질 확보"), ("인클라인 푸시업", 3, "8-15회", "난도를 조절할 수 있는 상체 밀기"), ("글루트 브리지", 3, "10-15회", "둔근과 골반 안정"), ("데드버그", 2, "8-10회/측", "허리에 부담을 낮춘 몸통 안정"), ("카프 레이즈", 2, "12-20회", "종아리 기초 볼륨")]),
+            ("전신 B", "한쪽 하체와 등 뒤쪽", [("리버스 런지", 3, "8-12회/측", "좌우 하체 균형"), ("파이크 푸시업", 3, "6-12회", "맨몸 수직 밀기"), ("프론 Y-T 레이즈", 3, "8-12회", "등 상부와 견갑 움직임"), ("사이드 플랭크", 2, "20-40초/측", "측면 몸통 안정"), ("싱글 레그 브리지", 2, "8-12회/측", "둔근 좌우 조절")]),
+            ("전신 C", "하체 볼륨과 밀기 조절", [("스플릿 스쿼트", 3, "8-12회/측", "기구 없이 하체 자극 확보"), ("푸시업", 3, "여유 2-3회 남기기", "상체 밀기 반복"), ("힙 힌지 연습", 3, "10-15회", "등을 중립으로 유지하는 힌지 학습"), ("버드독", 2, "8-10회/측", "몸통과 골반 제어"), ("월싯", 2, "30-45초", "하체 등척성 지구력")]),
+            ("상체 보완", "어깨와 견갑의 낮은 피로 볼륨", [("니 푸시업", 3, "10-15회", "부담을 낮춘 상체 밀기"), ("리버스 스노우 엔젤", 3, "10-15회", "후면 어깨와 등 상부"), ("스캡 푸시업", 3, "10-15회", "견갑 움직임 연습"), ("할로우 홀드", 2, "20-40초", "앞쪽 몸통 안정"), ("숄더 탭", 2, "8-12회/측", "어깨와 몸통 협응")]),
+            ("기술과 회복", "낮은 피로의 전신 반복", [("박스 스쿼트", 3, "10-15회", "깊이를 통제하는 스쿼트"), ("월 푸시업", 3, "12-20회", "낮은 부담의 밀기"), ("프론 W 레이즈", 3, "10-15회", "등 상부 동작 품질"), ("글루트 브리지 홀드", 2, "20-40초", "둔근 등척성 제어"), ("호흡 데드버그", 2, "6-8회/측", "호흡과 몸통 안정")]),
+        ]
+    if equipment_mode == "dumbbells":
+        return [
+            ("전신 A", "스쿼트와 수평 밀기", [("고블릿 스쿼트", 3, "8-12회", "덤벨 한 개로 안전하게 하체 훈련"), ("덤벨 플로어 프레스", 3, "8-12회", "바닥에서 범위를 통제하는 가슴 운동"), ("원암 덤벨 로우", 3, "8-12회/측", "등 좌우 균형"), ("덤벨 루마니안 데드리프트", 2, "8-12회", "둔근과 햄스트링"), ("데드버그", 2, "8-10회/측", "몸통 안정")]),
+            ("전신 B", "힌지와 수직 밀기", [("덤벨 루마니안 데드리프트", 3, "8-12회", "둔근과 햄스트링 강화"), ("덤벨 숄더프레스", 3, "8-12회", "어깨와 상체 밀기"), ("리버스 런지", 3, "8-10회/측", "좌우 하체 균형"), ("덤벨 풀오버", 2, "10-15회", "등과 몸통 협응"), ("수트케이스 홀드", 2, "30-45초/측", "측면 몸통 안정")]),
+            ("전신 C", "하체 볼륨과 상체 균형", [("덤벨 스플릿 스쿼트", 3, "8-12회/측", "하체 좌우 볼륨"), ("인클라인 덤벨프레스", 3, "8-12회", "상부 가슴과 어깨"), ("체스트 서포티드 덤벨 로우", 3, "8-12회", "허리 부담을 낮춘 등 운동"), ("덤벨 레터럴 레이즈", 2, "12-20회", "측면 어깨 보완"), ("덤벨 카프 레이즈", 2, "12-20회", "종아리 볼륨")]),
+            ("상체 보완", "등과 팔의 낮은 피로 볼륨", [("덤벨 플로어 프레스", 3, "10-15회", "통제된 상체 밀기"), ("덤벨 리버스 플라이", 3, "12-20회", "후면 어깨와 등 상부"), ("덤벨 컬", 2, "10-15회", "팔 굽힘 보완"), ("덤벨 트라이셉스 익스텐션", 2, "10-15회", "팔 폄 보완"), ("파머 캐리", 2, "30-60초", "그립과 몸통 안정")]),
+            ("기술과 회복", "낮은 피로의 전신 반복", [("덤벨 박스 스쿼트", 3, "10-15회", "깊이를 통제하는 하체 운동"), ("뉴트럴 그립 플로어 프레스", 3, "10-15회", "어깨 부담을 낮춘 밀기"), ("덤벨 로우 정지 반복", 3, "8-12회/측", "등 수축 위치 제어"), ("덤벨 힙 브리지", 2, "10-15회", "둔근 반복 품질"), ("수트케이스 캐리", 2, "30-45초/측", "몸통 안정")]),
+        ]
     return [
-        ("전신 A", "스쿼트와 수평 밀기", [("스쿼트", 3, "6-10회", "하체 힘과 근육의 기본 동작"), ("벤치프레스", 3, "6-10회", "가슴과 삼두의 기본 밀기"), ("시티드 로우", 3, "8-12회", "등과 후면 어깨 균형"), ("플랭크", 2, "30-45초", "몸통 안정성")]),
-        ("전신 B", "힌지와 수직 당기기", [("루마니안 데드리프트", 3, "6-10회", "둔근과 햄스트링 강화"), ("랫풀다운", 3, "8-12회", "등 너비와 견갑 움직임"), ("덤벨 숄더프레스", 3, "8-12회", "어깨와 상체 밀기"), ("불가리안 스플릿 스쿼트", 2, "8-10회/측", "좌우 하체 균형")]),
-        ("전신 C", "하체 볼륨과 상체 균형", [("레그프레스", 3, "10-15회", "안정적인 하체 볼륨"), ("인클라인 덤벨프레스", 3, "8-12회", "상부 가슴과 어깨"), ("케이블 로우", 3, "8-12회", "등 중앙부와 자세 유지"), ("레터럴 레이즈", 2, "12-20회", "측면 어깨 보완")]),
-        ("상체 보완", "약점 보완과 낮은 피로", [("푸시업", 3, "여유 2회 남기기", "상체 밀기 반복"), ("페이스풀", 3, "12-20회", "후면 어깨와 견갑 안정"), ("케이블 컬", 2, "10-15회", "팔 굽힘 보완"), ("트라이셉스 프레스다운", 2, "10-15회", "팔 폄 보완")]),
+        ("전신 A", "스쿼트와 수평 밀기", [("스쿼트", 3, "6-10회", "하체 힘과 근육의 기본 동작"), ("벤치프레스", 3, "6-10회", "가슴과 삼두의 기본 밀기"), ("시티드 로우", 3, "8-12회", "등과 후면 어깨 균형"), ("플랭크", 2, "30-45초", "몸통 안정성"), ("레그 컬", 2, "10-15회", "햄스트링 보완")]),
+        ("전신 B", "힌지와 수직 당기기", [("루마니안 데드리프트", 3, "6-10회", "둔근과 햄스트링 강화"), ("랫풀다운", 3, "8-12회", "등 너비와 견갑 움직임"), ("덤벨 숄더프레스", 3, "8-12회", "어깨와 상체 밀기"), ("불가리안 스플릿 스쿼트", 2, "8-10회/측", "좌우 하체 균형"), ("팔로프 프레스", 2, "10-12회/측", "회전에 저항하는 몸통 안정")]),
+        ("전신 C", "하체 볼륨과 상체 균형", [("레그프레스", 3, "10-15회", "안정적인 하체 볼륨"), ("인클라인 덤벨프레스", 3, "8-12회", "상부 가슴과 어깨"), ("케이블 로우", 3, "8-12회", "등 중앙부와 자세 유지"), ("레터럴 레이즈", 2, "12-20회", "측면 어깨 보완"), ("스탠딩 카프 레이즈", 2, "12-20회", "종아리 볼륨")]),
+        ("상체 보완", "약점 보완과 낮은 피로", [("푸시업", 3, "여유 2회 남기기", "상체 밀기 반복"), ("케이블 하이 로우", 3, "10-15회", "등 상부와 견갑 제어"), ("케이블 컬", 2, "10-15회", "팔 굽힘 보완"), ("트라이셉스 프레스다운", 2, "10-15회", "팔 폄 보완"), ("케이블 외회전", 2, "12-20회", "어깨 회전근 보완")]),
+        ("기술과 회복", "낮은 피로의 전신 반복", [("핵 스쿼트", 3, "10-15회", "안정적인 하체 반복"), ("체스트 프레스 머신", 3, "10-15회", "통제된 상체 밀기"), ("체스트 서포티드 로우", 3, "10-15회", "허리 부담을 낮춘 등 운동"), ("힙 쓰러스트", 2, "8-12회", "둔근 수축 제어"), ("케이블 데드버그", 2, "8-10회/측", "몸통 안정")]),
     ]
+
+
+def _equipment_mode(available_equipment: list[str]) -> str:
+    if "gym" in available_equipment:
+        return "gym"
+    if "dumbbells" in available_equipment:
+        return "dumbbells"
+    return "bodyweight"
+
+
+def _equipment_label(available_equipment: list[str]) -> str:
+    labels = {"bodyweight": "맨몸", "dumbbells": "덤벨", "gym": "헬스장"}
+    return ", ".join(labels[item] for item in available_equipment)
+
+
+def _experience_label(experience_level: str) -> str:
+    return {"beginner": "입문", "intermediate": "중급", "advanced": "숙련"}.get(experience_level, "입문")
+
+
+def _needs_recovery_adjustment(wellness: WellnessCheckInResponse | None) -> bool:
+    return bool(wellness and (wellness.energy <= 2 or wellness.sleep_quality <= 2 or wellness.soreness >= 4))
+
+
+def _exercise_limit(session_minutes: int, recovery_adjusted: bool) -> int:
+    limit = 3 if session_minutes <= 35 else 4 if session_minutes < 80 else 5
+    return max(3, limit - 1) if recovery_adjusted else limit
+
+
+def _sets_adjustment(experience_level: str, session_minutes: int, recovery_adjusted: bool) -> int:
+    adjustment = {"beginner": -1, "intermediate": 0, "advanced": 1}.get(experience_level, -1)
+    if session_minutes <= 35:
+        adjustment -= 1
+    elif session_minutes >= 80:
+        adjustment += 1
+    if recovery_adjusted:
+        adjustment -= 1
+    return adjustment
+
+
+def _target_rir(experience_level: str, recovery_adjusted: bool) -> int:
+    target = {"beginner": 3, "intermediate": 2, "advanced": 1}.get(experience_level, 3)
+    return min(4, target + 1) if recovery_adjusted else target
+
+
+def _rest_seconds(experience_level: str, recovery_adjusted: bool) -> int:
+    rest = {"beginner": 90, "intermediate": 120, "advanced": 150}.get(experience_level, 90)
+    return min(180, rest + 30) if recovery_adjusted else rest
+
+
+def _progression_rule(experience_level: str, recovery_adjusted: bool) -> str:
+    if recovery_adjusted:
+        return "최근 회복 기록이 낮아 이번 계획에서는 증량하지 않아요. 회복 신호가 돌아온 뒤 목표 반복 상단을 여유 있게 달성하면 중량을 2.5% 이내로 올려요."
+    if experience_level == "beginner":
+        return "같은 동작을 2회 연속 안정적으로 마치고 목표 반복 상단에서 3회 정도 여유가 남으면 가장 작은 단위로 중량을 올려요."
+    if experience_level == "advanced":
+        return "모든 세트에서 목표 반복 상단을 여유 1회로 달성하면 다음 운동에서 중량을 2.5-5% 올리고, 수행이 무너지면 이전 중량을 유지해요."
+    return "모든 세트에서 목표 반복 상단을 여유 2회로 달성하면 다음 운동에서 중량을 2.5-5% 올려요."
+
+
+def _body_focus_exercise(equipment_mode: str, body_focus: list[str]) -> tuple[str, int, str, str] | None:
+    focus_text = " ".join(body_focus)
+    if not focus_text:
+        return None
+    if any(keyword in focus_text for keyword in ("등", "후면", "견갑")):
+        return {
+            "bodyweight": ("프론 Y-T 레이즈", 2, "8-12회", "최근 몸 체크인의 등·후면 어깨 훈련 초점 반영"),
+            "dumbbells": ("덤벨 리버스 플라이", 2, "12-20회", "최근 몸 체크인의 등·후면 어깨 훈련 초점 반영"),
+            "gym": ("리버스 펙덱", 2, "12-20회", "최근 몸 체크인의 등·후면 어깨 훈련 초점 반영"),
+        }[equipment_mode]
+    if any(keyword in focus_text for keyword in ("하체", "스쿼트", "둔근")):
+        return {
+            "bodyweight": ("스플릿 스쿼트", 2, "8-12회/측", "최근 몸 체크인의 하체 훈련 초점 반영"),
+            "dumbbells": ("덤벨 스플릿 스쿼트", 2, "8-12회/측", "최근 몸 체크인의 하체 훈련 초점 반영"),
+            "gym": ("레그프레스", 2, "10-15회", "최근 몸 체크인의 하체 훈련 초점 반영"),
+        }[equipment_mode]
+    if any(keyword in focus_text for keyword in ("코어", "몸통", "안정")):
+        return {
+            "bodyweight": ("데드버그", 2, "8-10회/측", "최근 몸 체크인의 몸통 안정 초점 반영"),
+            "dumbbells": ("수트케이스 홀드", 2, "30-45초/측", "최근 몸 체크인의 몸통 안정 초점 반영"),
+            "gym": ("팔로프 프레스", 2, "10-12회/측", "최근 몸 체크인의 몸통 안정 초점 반영"),
+        }[equipment_mode]
+    return None
+
+
+def _weekly_evidence_score(evidence: WeeklyCoachEvidence, planned_sessions: int) -> int:
+    meal_points = min(40, evidence.meals_logged * 8)
+    workout_points = round(30 * min(evidence.workouts_completed, planned_sessions) / max(1, planned_sessions))
+    weight_points = min(10, evidence.weight_logs * 5)
+    wellness_points = min(15, evidence.wellness_check_ins * 5)
+    body_points = min(5, evidence.body_check_ins * 5)
+    return min(100, meal_points + workout_points + weight_points + wellness_points + body_points)
+
+
+def _weekly_evidence_facts(evidence: WeeklyCoachEvidence) -> list[str]:
+    facts: list[str] = []
+    if evidence.meals_logged:
+        facts.append(f"식사 기록 {evidence.meals_logged}회를 확인했어요.")
+    if evidence.workouts_completed:
+        facts.append(f"운동 기록 {evidence.workouts_completed}회를 확인했어요.")
+    if evidence.weight_logs:
+        facts.append(f"체중 기록 {evidence.weight_logs}회를 확인했어요.")
+    if evidence.wellness_check_ins:
+        facts.append(f"회복 상태 기록 {evidence.wellness_check_ins}회를 확인했어요.")
+    if evidence.body_check_ins:
+        facts.append(f"몸 변화 사진 기록 {evidence.body_check_ins}회를 확인했어요.")
+    return facts
+
+
+def _weekly_focus_items(
+    evidence: WeeklyCoachEvidence,
+    latest_wellness: WellnessCheckInResponse | None,
+) -> list[str]:
+    items: list[str] = []
+    if evidence.meals_logged < 3:
+        items.append("식사 기록이 3회 미만이라 단백질 섭취 패턴은 아직 판단하지 않아요.")
+    else:
+        items.append("식사 기록을 이어가며 단백질이 부족해지는 시간대를 확인해요.")
+    if evidence.workouts_completed == 0:
+        items.append("운동 수행 기록이 없어 운동 강도나 진행 속도는 아직 평가하지 않아요.")
+    if latest_wellness and (latest_wellness.soreness >= 4 or latest_wellness.sleep_quality <= 2 or latest_wellness.energy <= 2):
+        items.append("최근 회복 신호가 낮아 중량보다 수면과 동작 품질을 우선해요.")
+    return items[:3]
+
+
+def _weekly_next_actions(evidence: WeeklyCoachEvidence, planned_sessions: int) -> list[str]:
+    actions: list[str] = []
+    if evidence.meals_logged < 3:
+        actions.append(f"식사 사진 {3 - evidence.meals_logged}회 더 기록하기")
+    if evidence.workouts_completed < planned_sessions:
+        actions.append(f"계획한 운동 중 {planned_sessions - evidence.workouts_completed}회 실행하고 기록하기")
+    if evidence.weight_logs < 2:
+        actions.append(f"같은 조건으로 체중 {2 - evidence.weight_logs}회 더 기록하기")
+    if evidence.wellness_check_ins < 2:
+        actions.append(f"수면·에너지·근육통 상태 {2 - evidence.wellness_check_ins}회 더 남기기")
+    return actions[:3]
