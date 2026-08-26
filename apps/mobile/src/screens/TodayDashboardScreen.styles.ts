@@ -224,7 +224,7 @@ export const styles = StyleSheet.create({
   mealRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm,
     borderColor: colors.hairline,
     borderRadius: radii.card,
     borderWidth: 1,
@@ -233,8 +233,8 @@ export const styles = StyleSheet.create({
     ...shadows.card
   },
   thumb: {
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     borderRadius: radii.photo,
     backgroundColor: colors.surfaceSoft
   },
@@ -262,5 +262,35 @@ export const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: "800"
+  },
+  mealTrailing: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+    gap: spacing.xs
+  },
+  mealActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  mealActionButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderColor: colors.leafMuted,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    backgroundColor: colors.leafTint
+  },
+  deleteActionButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderColor: colors.hairline,
+    borderRadius: radii.control,
+    borderWidth: 1,
+    backgroundColor: colors.surface
   }
 });

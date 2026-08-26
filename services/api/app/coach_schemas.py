@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -117,6 +118,14 @@ class BodyCheckInResponse(BaseModel):
     created_at: str
 
 
+class ExercisePerformanceSnapshot(BaseModel):
+    sets_completed: int = Field(ge=0, le=20)
+    reps_completed: int | None = Field(default=None, ge=0, le=100)
+    load_kg: float | None = Field(default=None, ge=0, le=500)
+    effort: Literal["easy", "on_target", "hard"]
+    performed_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class WorkoutExercise(BaseModel):
     id: str
     name: str
@@ -125,6 +134,11 @@ class WorkoutExercise(BaseModel):
     target_rir: int = Field(ge=0, le=5)
     rest_seconds: int = Field(ge=30, le=300)
     rationale: str
+    last_performance: ExercisePerformanceSnapshot | None = None
+    progression_action: Literal["collect_baseline", "increase", "hold", "reduce"] = "collect_baseline"
+    recommended_load_kg: float | None = Field(default=None, ge=0, le=500)
+    recommended_reps: int | None = Field(default=None, ge=1, le=100)
+    recommendation_reason: str = "첫 수행 기록을 남기면 다음 목표를 계산해요."
 
 
 class WorkoutDay(BaseModel):
@@ -152,6 +166,7 @@ class ExercisePerformance(BaseModel):
     sets_completed: int = Field(ge=0, le=20)
     reps_completed: int | None = Field(default=None, ge=0, le=100)
     load_kg: float | None = Field(default=None, ge=0, le=500)
+    effort: Literal["easy", "on_target", "hard"] = "on_target"
 
 
 class WorkoutSessionRequest(BaseModel):
@@ -170,6 +185,49 @@ class WorkoutSessionResponse(WorkoutSessionRequest):
     completed: bool
     feedback: str
     created_at: str
+
+
+class WorkoutHistoryItem(BaseModel):
+    session_id: str
+    performed_on: str
+    workout_title: str
+    duration_minutes: int
+    session_rpe: int
+    completed: bool
+    exercise_count: int = Field(ge=0)
+    total_volume_kg: float = Field(ge=0)
+
+
+class WorkoutHistoryResponse(BaseModel):
+    profile_id: str
+    total_sessions: int = Field(ge=0)
+    sessions: list[WorkoutHistoryItem]
+    summary: str
+
+
+class MealLogSummary(BaseModel):
+    id: str
+    profile_id: str
+    logged_on: str
+    name: str
+    meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
+    nutrition: NutritionTarget
+    confidence_label: Literal["high", "medium_high", "medium", "low", "manual"]
+    created_at: str
+
+
+class MealLogHistoryResponse(BaseModel):
+    profile_id: str
+    meals: list[MealLogSummary]
+
+
+class RepeatMealLogRequest(BaseModel):
+    logged_on: date
+
+
+class MealLogDeleteResponse(BaseModel):
+    meal_log_id: str
+    status: Literal["deleted"]
 
 
 class TargetAdjustmentSuggestion(BaseModel):

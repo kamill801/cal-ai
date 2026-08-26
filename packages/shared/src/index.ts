@@ -60,6 +60,7 @@ export interface DashboardMeal {
   mealType: MealType;
   caloriesKcal: number;
   confidenceLabel: ConfidenceLabel;
+  nutrition?: NutritionTarget;
 }
 
 export interface DashboardTodayResponse {
@@ -217,6 +218,7 @@ export interface ApiDashboardMeal {
   meal_type: MealType;
   calories_kcal: number;
   confidence_label: ConfidenceLabel;
+  nutrition?: ApiNutritionTarget | null;
 }
 
 export interface ApiDashboardTodayResponse {
@@ -418,7 +420,8 @@ export function mapApiDashboardToday(response: ApiDashboardTodayResponse): Dashb
       name: meal.name,
       mealType: meal.meal_type,
       caloriesKcal: meal.calories_kcal,
-      confidenceLabel: meal.confidence_label
+      confidenceLabel: meal.confidence_label,
+      nutrition: meal.nutrition ? mapApiNutritionTarget(meal.nutrition) : undefined
     }))
   };
 }
@@ -607,7 +610,22 @@ export interface WorkoutExercise {
   targetRir: number;
   restSeconds: number;
   rationale: string;
+  lastPerformance?: WorkoutExercisePerformanceSnapshot;
+  progressionAction: "collect_baseline" | "increase" | "hold" | "reduce";
+  recommendedLoadKg?: number;
+  recommendedReps?: number;
+  recommendationReason: string;
 }
+
+export interface WorkoutExercisePerformanceSnapshot {
+  setsCompleted: number;
+  repsCompleted?: number;
+  loadKg?: number;
+  effort: WorkoutEffort;
+  performedOn: string;
+}
+
+export type WorkoutEffort = "easy" | "on_target" | "hard";
 
 export interface WorkoutDay {
   id: string;
@@ -649,6 +667,46 @@ export interface WorkoutExercisePerformance {
   setsCompleted: number;
   repsCompleted?: number;
   loadKg?: number;
+  effort: WorkoutEffort;
+}
+
+export interface WorkoutHistoryItem {
+  sessionId: string;
+  performedOn: string;
+  workoutTitle: string;
+  durationMinutes: number;
+  sessionRpe: number;
+  completed: boolean;
+  exerciseCount: number;
+  totalVolumeKg: number;
+}
+
+export interface WorkoutHistory {
+  profileId: string;
+  totalSessions: number;
+  sessions: WorkoutHistoryItem[];
+  summary: string;
+}
+
+export interface MealLogSummary {
+  id: string;
+  profileId: string;
+  loggedOn: string;
+  name: string;
+  mealType: MealType;
+  nutrition: NutritionTarget;
+  confidenceLabel: ConfidenceLabel;
+  createdAt: string;
+}
+
+export interface MealLogHistory {
+  profileId: string;
+  meals: MealLogSummary[];
+}
+
+export interface MealLogDeleteResult {
+  mealLogId: string;
+  status: "deleted";
 }
 
 export interface ProgressSummary {
@@ -739,7 +797,7 @@ export interface ApiWorkoutPlan {
   goal_type: GoalType;
   days_per_week: number;
   session_minutes: number;
-  days: { id: string; title: string; focus: string; exercises: { id: string; name: string; sets: number; reps: string; target_rir: number; rest_seconds: number; rationale: string }[] }[];
+  days: { id: string; title: string; focus: string; exercises: { id: string; name: string; sets: number; reps: string; target_rir: number; rest_seconds: number; rationale: string; last_performance?: { sets_completed: number; reps_completed?: number | null; load_kg?: number | null; effort: WorkoutEffort; performed_on: string } | null; progression_action?: WorkoutExercise["progressionAction"]; recommended_load_kg?: number | null; recommended_reps?: number | null; recommendation_reason?: string }[] }[];
   personalization_basis: string[];
   progression_rule: string;
   safety_note: string;
@@ -759,11 +817,47 @@ export interface ApiWorkoutSession {
     sets_completed: number;
     reps_completed?: number | null;
     load_kg?: number | null;
+    effort?: WorkoutEffort;
   }>;
   session_rpe: number;
   completed: boolean;
   feedback: string;
   created_at: string;
+}
+
+export interface ApiWorkoutHistory {
+  profile_id: string;
+  total_sessions: number;
+  sessions: Array<{
+    session_id: string;
+    performed_on: string;
+    workout_title: string;
+    duration_minutes: number;
+    session_rpe: number;
+    completed: boolean;
+    exercise_count: number;
+    total_volume_kg: number;
+  }>;
+  summary: string;
+}
+
+export interface ApiMealLogHistory {
+  profile_id: string;
+  meals: Array<{
+    id: string;
+    profile_id: string;
+    logged_on: string;
+    name: string;
+    meal_type: MealType;
+    nutrition: ApiNutritionTarget;
+    confidence_label: ConfidenceLabel;
+    created_at: string;
+  }>;
+}
+
+export interface ApiMealLogDeleteResult {
+  meal_log_id: string;
+  status: "deleted";
 }
 
 export interface ApiProgressSummary {
@@ -815,7 +909,8 @@ export function mapApiCoachDashboard(value: ApiCoachDashboard): CoachDashboard {
       name: meal.name,
       mealType: meal.meal_type,
       caloriesKcal: meal.calories_kcal,
-      confidenceLabel: meal.confidence_label
+      confidenceLabel: meal.confidence_label,
+      nutrition: meal.nutrition ? mapApiNutritionTarget(meal.nutrition) : undefined
     })),
     nextAction: value.next_action
   };
@@ -885,7 +980,20 @@ export function mapApiWorkoutPlan(value: ApiWorkoutPlan): WorkoutPlan {
         reps: exercise.reps,
         targetRir: exercise.target_rir,
         restSeconds: exercise.rest_seconds,
-        rationale: exercise.rationale
+        rationale: exercise.rationale,
+        lastPerformance: exercise.last_performance
+          ? {
+              setsCompleted: exercise.last_performance.sets_completed,
+              repsCompleted: exercise.last_performance.reps_completed ?? undefined,
+              loadKg: exercise.last_performance.load_kg ?? undefined,
+              effort: exercise.last_performance.effort,
+              performedOn: exercise.last_performance.performed_on
+            }
+          : undefined,
+        progressionAction: exercise.progression_action ?? "collect_baseline",
+        recommendedLoadKg: exercise.recommended_load_kg ?? undefined,
+        recommendedReps: exercise.recommended_reps ?? undefined,
+        recommendationReason: exercise.recommendation_reason ?? "첫 수행 기록을 남기면 다음 목표를 계산해요."
       }))
     })),
     personalizationBasis: value.personalization_basis,
@@ -908,13 +1016,52 @@ export function mapApiWorkoutSession(value: ApiWorkoutSession): WorkoutSession {
       exerciseId: item.exercise_id,
       setsCompleted: item.sets_completed,
       repsCompleted: item.reps_completed ?? undefined,
-      loadKg: item.load_kg ?? undefined
+      loadKg: item.load_kg ?? undefined,
+      effort: item.effort ?? "on_target"
     })),
     sessionRpe: value.session_rpe,
     completed: value.completed,
     feedback: value.feedback,
     createdAt: value.created_at
   };
+}
+
+export function mapApiWorkoutHistory(value: ApiWorkoutHistory): WorkoutHistory {
+  return {
+    profileId: value.profile_id,
+    totalSessions: value.total_sessions,
+    sessions: value.sessions.map((session) => ({
+      sessionId: session.session_id,
+      performedOn: session.performed_on,
+      workoutTitle: session.workout_title,
+      durationMinutes: session.duration_minutes,
+      sessionRpe: session.session_rpe,
+      completed: session.completed,
+      exerciseCount: session.exercise_count,
+      totalVolumeKg: session.total_volume_kg
+    })),
+    summary: value.summary
+  };
+}
+
+export function mapApiMealLogHistory(value: ApiMealLogHistory): MealLogHistory {
+  return {
+    profileId: value.profile_id,
+    meals: value.meals.map((meal) => ({
+      id: meal.id,
+      profileId: meal.profile_id,
+      loggedOn: meal.logged_on,
+      name: meal.name,
+      mealType: meal.meal_type,
+      nutrition: mapApiNutritionTarget(meal.nutrition),
+      confidenceLabel: meal.confidence_label,
+      createdAt: meal.created_at
+    }))
+  };
+}
+
+export function mapApiMealLogDeleteResult(value: ApiMealLogDeleteResult): MealLogDeleteResult {
+  return { mealLogId: value.meal_log_id, status: value.status };
 }
 
 export function mapApiProgress(value: ApiProgressSummary): ProgressSummary {

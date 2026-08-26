@@ -586,14 +586,18 @@ def create_meal_log(
                     retryable=False,
                     kind="not_found",
                 )
+            meal_log_id = f"meal-log-{uuid4()}"
             response = merge_profile_meal_impact(
                 payload.profile_id,
                 payload,
                 response,
                 repository=coach_repository,
                 meal_repository=repository,
+                meal_log_id=meal_log_id,
             )
-        repository.save_meal_log(payload=payload, response=response)
+        else:
+            meal_log_id = None
+        repository.save_meal_log(payload=payload, response=response, meal_log_id=meal_log_id)
         return response
     except CoachNotFoundError as exc:
         raise api_error(

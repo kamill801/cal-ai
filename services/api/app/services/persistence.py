@@ -151,9 +151,19 @@ class PersistenceRepository(Protocol):
 
     def list_clarifications(self, analysis_job_id: str) -> list[ClarificationRecord]: ...
 
-    def save_meal_log(self, *, payload: MealLogRequest, response: SavedImpactResponse) -> MealLogRecord: ...
+    def save_meal_log(
+        self,
+        *,
+        payload: MealLogRequest,
+        response: SavedImpactResponse,
+        meal_log_id: str | None = None,
+    ) -> MealLogRecord: ...
 
     def list_meal_logs(self, analysis_job_id: str | None = None) -> list[MealLogRecord]: ...
+
+    def get_meal_log(self, meal_log_id: str) -> MealLogRecord | None: ...
+
+    def delete_meal_log(self, meal_log_id: str) -> bool: ...
 
     def delete_profile_artifacts(
         self,
@@ -442,8 +452,14 @@ class SQLitePersistenceRepository:
             ).fetchall()
         return [self._clarification_from_row(row) for row in rows]
 
-    def save_meal_log(self, *, payload: MealLogRequest, response: SavedImpactResponse) -> MealLogRecord:
-        meal_log_id = f"meal-log-{uuid4()}"
+    def save_meal_log(
+        self,
+        *,
+        payload: MealLogRequest,
+        response: SavedImpactResponse,
+        meal_log_id: str | None = None,
+    ) -> MealLogRecord:
+        meal_log_id = meal_log_id or f"meal-log-{uuid4()}"
         created_at = _now_iso()
         with self._connection() as conn:
             conn.execute(
@@ -487,6 +503,16 @@ class SQLitePersistenceRepository:
                     (analysis_job_id,),
                 ).fetchall()
         return [self._meal_log_from_row(row) for row in rows]
+
+    def get_meal_log(self, meal_log_id: str) -> MealLogRecord | None:
+        with self._connection() as conn:
+            row = conn.execute("select * from meal_logs where meal_log_id = ?", (meal_log_id,)).fetchone()
+        return self._meal_log_from_row(row) if row else None
+
+    def delete_meal_log(self, meal_log_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute("delete from meal_logs where meal_log_id = ?", (meal_log_id,))
+        return cursor.rowcount > 0
 
     def delete_profile_artifacts(
         self,
@@ -966,8 +992,14 @@ class PostgresPersistenceRepository:
             ).fetchall()
         return [SQLitePersistenceRepository._clarification_from_row(row) for row in rows]
 
-    def save_meal_log(self, *, payload: MealLogRequest, response: SavedImpactResponse) -> MealLogRecord:
-        meal_log_id = f"meal-log-{uuid4()}"
+    def save_meal_log(
+        self,
+        *,
+        payload: MealLogRequest,
+        response: SavedImpactResponse,
+        meal_log_id: str | None = None,
+    ) -> MealLogRecord:
+        meal_log_id = meal_log_id or f"meal-log-{uuid4()}"
         created_at = _now_iso()
         with self._connection() as conn:
             conn.execute(
@@ -1011,6 +1043,16 @@ class PostgresPersistenceRepository:
                     (analysis_job_id,),
                 ).fetchall()
         return [SQLitePersistenceRepository._meal_log_from_row(row) for row in rows]
+
+    def get_meal_log(self, meal_log_id: str) -> MealLogRecord | None:
+        with self._connection() as conn:
+            row = conn.execute("select * from meal_logs where meal_log_id = %s", (meal_log_id,)).fetchone()
+        return SQLitePersistenceRepository._meal_log_from_row(row) if row else None
+
+    def delete_meal_log(self, meal_log_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute("delete from meal_logs where meal_log_id = %s", (meal_log_id,))
+        return cursor.rowcount > 0
 
     def delete_profile_artifacts(
         self,

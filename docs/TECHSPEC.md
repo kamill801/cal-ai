@@ -1303,3 +1303,32 @@ Until then, implementation should use replaceable tokens aligned to `DESIGN.md`.
 - Exact AI provider/model names
 - Whether MVP is Expo mobile app only or also web/PWA
 - Billing launch timing
+## 21. Repeat Logging and Adaptive Workout Targets
+
+### Meal record operations
+
+Profile-scoped meal APIs expose stable `meal_log_id` values. Repeat creates a new record using the confirmed nutrition payload from the source meal and does not create a new analysis job or AI request. Delete removes only the selected meal record. Both operations rebuild the daily dashboard from persisted meal records so totals cannot depend on stale nested dashboard snapshots.
+
+Required operations:
+
+- `GET /v1/profiles/{profile_id}/meal-logs`
+- `POST /v1/profiles/{profile_id}/meal-logs/{meal_log_id}/repeat`
+- `DELETE /v1/profiles/{profile_id}/meal-logs/{meal_log_id}`
+
+### Adaptive workout recommendation
+
+Exercise performance captures aggregate completed sets, repetitions, load, and exercise-level effort (`easy`, `on_target`, `hard`) for the MVP. After a session is persisted, the active workout plan is updated with the prior performance and next recommendation.
+
+The deterministic recommendation order is:
+
+1. Missing load or repetition evidence: collect a baseline and do not prescribe an increase.
+2. Hard effort, session RPE 9+, or performance below the repetition range: hold or reduce load conservatively.
+3. Easy effort at the top of the repetition range with all planned sets complete: increase by the smallest usable equipment step; if that jump is too large, hold instead.
+4. On-target work: hold load and progress repetitions before load.
+5. Low recovery in the latest wellness check-in: suppress increases even when performance was strong.
+
+Every recommendation includes an action, target, and plain-language reason. The client may display this structured recommendation but must not convert it into a medical or injury claim.
+
+Required operation:
+
+- `GET /v1/profiles/{profile_id}/workout-history`

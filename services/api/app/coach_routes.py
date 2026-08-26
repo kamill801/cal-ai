@@ -3,35 +3,44 @@ from __future__ import annotations
 import os
 from datetime import UTC, date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.coach_schemas import (
     BodyAnalysisConsent,
     BodyCheckInRequest,
     BodyCheckInResponse,
     CoachDashboardResponse,
+    MealLogDeleteResponse,
+    MealLogHistoryResponse,
     ProfileDeletionResponse,
     ProgressResponse,
+    RepeatMealLogRequest,
     WeightLogRequest,
     WeightLogResponse,
     WellnessCheckInRequest,
     WellnessCheckInResponse,
     WeeklyCoachResponse,
     WorkoutPlanResponse,
+    WorkoutHistoryResponse,
     WorkoutSessionRequest,
     WorkoutSessionResponse,
 )
-from app.schemas import ApiErrorDetail
+from app.schemas import ApiErrorDetail, SavedImpactResponse
 from app.services.coach import (
     CoachNotFoundError,
+    CoachValidationError,
     create_body_check_in,
     dashboard_today,
+    delete_meal_log,
     generate_workout_plan,
+    meal_log_history,
     log_weight,
     log_wellness,
     log_workout_session,
     progress,
+    repeat_meal_log,
     weekly_coach,
+    workout_history,
 )
 from app.services.coach_repository import CoachRepository, get_coach_repository
 from app.services.analysis_provider import AnalysisProviderConfigurationError, AnalysisProviderUnavailableError, StructuredOutputMalformedError
@@ -128,6 +137,59 @@ def get_dashboard(
 ) -> CoachDashboardResponse:
     try:
         return dashboard_today(profile_id, repository=repository, meal_repository=meals, logged_on=logged_on)
+    except CoachNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except PersistenceError as exc:
+        raise _persistence_error() from exc
+
+
+@router.get("/{profile_id}/meal-logs", response_model=MealLogHistoryResponse)
+def get_meal_logs(
+    profile_id: str,
+    limit: int = Query(default=30, ge=1, le=100),
+    repository: CoachRepository = Depends(authorized_coach_repository),
+    meals: PersistenceRepository = Depends(meal_repository),
+) -> MealLogHistoryResponse:
+    try:
+        return meal_log_history(profile_id, repository=repository, meal_repository=meals, limit=limit)
+    except CoachNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except PersistenceError as exc:
+        raise _persistence_error() from exc
+
+
+@router.post("/{profile_id}/meal-logs/{meal_log_id}/repeat", response_model=SavedImpactResponse)
+def repeat_saved_meal(
+    profile_id: str,
+    meal_log_id: str,
+    payload: RepeatMealLogRequest,
+    repository: CoachRepository = Depends(authorized_coach_repository),
+    meals: PersistenceRepository = Depends(meal_repository),
+) -> SavedImpactResponse:
+    try:
+        return repeat_meal_log(
+            profile_id,
+            meal_log_id,
+            payload,
+            repository=repository,
+            meal_repository=meals,
+        )
+    except CoachNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except PersistenceError as exc:
+        raise _persistence_error() from exc
+
+
+@router.delete("/{profile_id}/meal-logs/{meal_log_id}", response_model=MealLogDeleteResponse)
+def delete_saved_meal(
+    profile_id: str,
+    meal_log_id: str,
+    repository: CoachRepository = Depends(authorized_coach_repository),
+    meals: PersistenceRepository = Depends(meal_repository),
+) -> MealLogDeleteResponse:
+    try:
+        delete_meal_log(profile_id, meal_log_id, repository=repository, meal_repository=meals)
+        return MealLogDeleteResponse(meal_log_id=meal_log_id, status="deleted")
     except CoachNotFoundError as exc:
         raise _not_found(exc) from exc
     except PersistenceError as exc:
@@ -251,6 +313,22 @@ def create_workout_session(
 ) -> WorkoutSessionResponse:
     try:
         return log_workout_session(profile_id, payload, repository=repository)
+    except CoachValidationError as exc:
+        raise _validation_error(exc) from exc
+    except CoachNotFoundError as exc:
+        raise _not_found(exc) from exc
+    except PersistenceError as exc:
+        raise _persistence_error() from exc
+
+
+@router.get("/{profile_id}/workout-history", response_model=WorkoutHistoryResponse)
+def get_workout_history(
+    profile_id: str,
+    limit: int = Query(default=6, ge=1, le=30),
+    repository: CoachRepository = Depends(authorized_coach_repository),
+) -> WorkoutHistoryResponse:
+    try:
+        return workout_history(profile_id, repository=repository, limit=limit)
     except CoachNotFoundError as exc:
         raise _not_found(exc) from exc
     except PersistenceError as exc:
@@ -292,12 +370,21 @@ def _not_found(exc: CoachNotFoundError) -> HTTPException:
         "workout_plan_not_found": "운동 계획을 찾을 수 없어요. 새 계획을 만들어 주세요.",
         "workout_day_not_found": "운동 일정을 찾을 수 없어요. 계획을 다시 확인해 주세요.",
         "workout_exercise_not_found": "운동 계획에 없는 종목이 포함되어 있어요. 계획을 다시 불러와 주세요.",
+        "meal_log_not_found": "식사 기록을 찾을 수 없어요. 목록을 새로 불러와 주세요.",
     }
     return _error(404, code, messages.get(code, "요청한 코칭 데이터를 찾을 수 없어요."), False, "not_found")
 
 
 def _persistence_error() -> HTTPException:
     return _error(503, "persistence_unavailable", "코칭 데이터를 저장하지 못했어요. 다시 시도해 주세요.", True, "server")
+
+
+def _validation_error(exc: CoachValidationError) -> HTTPException:
+    code = str(exc)
+    messages = {
+        "workout_performance_not_completed": "수행값은 완료로 체크한 운동에만 기록할 수 있어요.",
+    }
+    return _error(422, code, messages.get(code, "입력값을 다시 확인해 주세요."), False, "validation")
 
 
 def _error(status: int, code: str, message: str, retryable: bool, kind: str) -> HTTPException:

@@ -91,6 +91,12 @@ def save_mock_meal(rice_amount: str = "one_bowl", analysis_job_id: str = "mock-l
                     meal_type=clarified.meal_type,
                     calories_kcal=clarified.summary.calories_kcal,
                     confidence_label=clarified.summary.confidence_label,
+                    nutrition=NutritionTarget(
+                        calories_kcal=clarified.summary.calories_kcal,
+                        protein_g=clarified.summary.protein_g,
+                        carbs_g=clarified.summary.carbs_g,
+                        fat_g=clarified.summary.fat_g,
+                    ),
                 ),
                 *dashboard.meals,
             ],

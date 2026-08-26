@@ -120,6 +120,12 @@ def save_persisted_meal(result: AnalysisResult, payload: MealLogRequest) -> Save
                     meal_type=result.meal_type,
                     calories_kcal=result.summary.calories_kcal,
                     confidence_label=result.summary.confidence_label,
+                    nutrition=NutritionTarget(
+                        calories_kcal=result.summary.calories_kcal,
+                        protein_g=result.summary.protein_g,
+                        carbs_g=result.summary.carbs_g,
+                        fat_g=result.summary.fat_g,
+                    ),
                 ),
                 *dashboard.meals,
             ],

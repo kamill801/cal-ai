@@ -7,6 +7,8 @@ import type {
   ApiDashboardTodayResponse,
   ApiImageUploadPresignResponse,
   ApiImageUploadResponse,
+  ApiMealLogDeleteResult,
+  ApiMealLogHistory,
   ApiOnboardingResponse,
   OnboardingRequest,
   ApiSavedImpactResponse,
@@ -18,6 +20,7 @@ import type {
   ApiWeeklyCoachReport,
   ApiWellnessCheckIn,
   ApiWorkoutPlan,
+  ApiWorkoutHistory,
   ApiWorkoutSession,
   ImageContentType,
   MealType
@@ -28,6 +31,8 @@ import {
   mapApiDashboardToday,
   mapApiImageUploadPresign,
   mapApiImageUpload,
+  mapApiMealLogDeleteResult,
+  mapApiMealLogHistory,
   mapApiOnboardingResponse,
   mapApiSavedImpactResponse,
   mapApiBodyCheckIn,
@@ -38,11 +43,14 @@ import {
   mapApiWeeklyCoach,
   mapApiWellness,
   mapApiWorkoutPlan,
+  mapApiWorkoutHistory,
   mapApiWorkoutSession,
   type AnalysisJobViewModel,
   type DashboardTodayResponse,
   type ImageUploadPresignViewModel,
   type ImageUploadViewModel,
+  type MealLogDeleteResult,
+  type MealLogHistory,
   type OnboardingResponse,
   type RangeNarrowingResult,
   type SavedImpactViewModel,
@@ -56,6 +64,8 @@ import {
   type WeeklyCoachReport,
   type WellnessCheckIn,
   type WorkoutPlan,
+  type WorkoutEffort,
+  type WorkoutHistory,
   type WorkoutSession
 } from "@cal-ai/shared";
 import { getApiBaseUrl } from "./config";
@@ -110,13 +120,17 @@ export interface CalAiApiClient {
   getAnalysisJob(jobId: string): Promise<AnalysisJobViewModel>;
   submitClarification(input: { jobId: string; questionKey: string; value: string }): Promise<{ result: AnalysisResult; rangeNarrowing?: RangeNarrowingResult }>;
   saveMealLog(input: { analysisJobId: string; resultId: string; clarificationValue: string; profileId?: string; loggedOn?: string; nutritionOverride?: MealNutritionOverride }): Promise<SavedImpactViewModel>;
+  getMealLogs(profileId: string, limit?: number): Promise<MealLogHistory>;
+  repeatMealLog(profileId: string, mealLogId: string, loggedOn: string): Promise<SavedImpactViewModel>;
+  deleteMealLog(profileId: string, mealLogId: string): Promise<MealLogDeleteResult>;
   getCoachDashboard(profileId: string, loggedOn?: string): Promise<CoachDashboard>;
   logWeight(profileId: string, input: { loggedOn: string; weightKg: number }): Promise<WeightLog>;
   logWellness(profileId: string, input: { loggedOn: string; energy: number; sleepQuality: number; soreness: number; note?: string }): Promise<WellnessCheckIn>;
   createBodyCheckIn(profileId: string, input: { capturedOn: string; imageUploadId: string; view: "front" | "side" | "back"; consentToAiAnalysis: true }): Promise<BodyCheckIn>;
   generateWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
   getWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
-  logWorkoutSession(profileId: string, input: { planId: string; workoutDayId: string; performedOn: string; durationMinutes: number; completedExerciseIds: string[]; exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number }[]; sessionRpe: number }): Promise<WorkoutSession>;
+  logWorkoutSession(profileId: string, input: { planId: string; workoutDayId: string; performedOn: string; durationMinutes: number; completedExerciseIds: string[]; exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[]; sessionRpe: number }): Promise<WorkoutSession>;
+  getWorkoutHistory(profileId: string, limit?: number): Promise<WorkoutHistory>;
   getProgress(profileId: string): Promise<ProgressSummary>;
   getWeeklyCoach(profileId: string): Promise<WeeklyCoachReport>;
   deleteProfile(profileId: string): Promise<ProfileDeletionResult>;
@@ -239,6 +253,26 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
         })
       );
     },
+    async getMealLogs(profileId, limit = 30) {
+      return mapApiMealLogHistory(
+        await call<ApiMealLogHistory>(`/v1/profiles/${encodeURIComponent(profileId)}/meal-logs?limit=${limit}`)
+      );
+    },
+    async repeatMealLog(profileId, mealLogId, loggedOn) {
+      return mapApiSavedImpactResponse(
+        await call<ApiSavedImpactResponse>(`/v1/profiles/${encodeURIComponent(profileId)}/meal-logs/${encodeURIComponent(mealLogId)}/repeat`, {
+          method: "POST",
+          body: { logged_on: loggedOn }
+        })
+      );
+    },
+    async deleteMealLog(profileId, mealLogId) {
+      return mapApiMealLogDeleteResult(
+        await call<ApiMealLogDeleteResult>(`/v1/profiles/${encodeURIComponent(profileId)}/meal-logs/${encodeURIComponent(mealLogId)}`, {
+          method: "DELETE"
+        })
+      );
+    },
     async getCoachDashboard(profileId, loggedOn) {
       const query = loggedOn ? `?logged_on=${encodeURIComponent(loggedOn)}` : "";
       return mapApiCoachDashboard(await call<ApiCoachDashboard>(`/v1/profiles/${encodeURIComponent(profileId)}/dashboard/today${query}`));
@@ -289,11 +323,17 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
               exercise_id: item.exerciseId,
               sets_completed: item.setsCompleted,
               reps_completed: item.repsCompleted ?? null,
-              load_kg: item.loadKg ?? null
+              load_kg: item.loadKg ?? null,
+              effort: item.effort
             })),
             session_rpe: input.sessionRpe
           }
         })
+      );
+    },
+    async getWorkoutHistory(profileId, limit = 6) {
+      return mapApiWorkoutHistory(
+        await call<ApiWorkoutHistory>(`/v1/profiles/${encodeURIComponent(profileId)}/workout-history?limit=${limit}`)
       );
     },
     async getProgress(profileId) {

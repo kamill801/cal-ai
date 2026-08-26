@@ -303,3 +303,22 @@ V1은 streak이나 badge를 핵심 리텐션으로 삼지 않는다. 신뢰와 �
 - 무료 스캔 제한
 - 음식 사진 저장 기본 정책
 - 한국 식품 DB의 초기 확보 방식
+## 18. Daily Logging and Adaptive Strength Coaching
+
+The competitive reference and product decision record lives in `docs/COMPETITIVE_RESEARCH.md`.
+
+The product must satisfy two connected jobs:
+
+1. make a trusted calorie and protein log fast enough to use every day,
+2. convert nutrition, recovery, and actual lifting performance into the next conservative training action.
+
+Near-term product requirements:
+
+- A saved meal can be repeated without a new image analysis or paid AI call.
+- A saved meal can be deleted and today's totals are recalculated from remaining records.
+- Workout exercises show prior performance and a specific next target when evidence exists.
+- Users report exercise-level effort as easy, on target, or hard.
+- Load recommendations name whether to increase, hold, or reduce and explain why.
+- Session history shows date, workout, duration, RPE, completed exercise count, and tracked volume.
+
+The recommendation engine remains deterministic. AI may explain structured evidence later, but it does not invent loads, sets, or medical conclusions.

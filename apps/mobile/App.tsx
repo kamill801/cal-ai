@@ -1,7 +1,7 @@
-import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, ProgressSummary, WeeklyCoachReport, WorkoutPlan } from "@cal-ai/shared";
+import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, ProgressSummary, WeeklyCoachReport, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useReducer, useState } from "react";
-import { ActivityIndicator, Alert, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ApiClientError, createCalAiApiClient } from "./src/api";
 import { useAuthSession } from "./src/auth/useAuthSession";
 import { onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
@@ -38,6 +38,7 @@ export default function App() {
   const [sessionReady, setSessionReady] = useState(false);
   const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | undefined>(undefined);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | undefined>(undefined);
+  const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistory | undefined>(undefined);
   const [progress, setProgress] = useState<ProgressSummary | undefined>(undefined);
   const [weeklyCoach, setWeeklyCoach] = useState<WeeklyCoachReport | undefined>(undefined);
   const [latestBodyCheckIn, setLatestBodyCheckIn] = useState<BodyCheckIn | undefined>(undefined);
@@ -224,7 +225,7 @@ export default function App() {
     setCoachStatus("loading");
     setCoachError(undefined);
     try {
-      const [dashboard, progressSummary, report, existingPlan] = await Promise.all([
+      const [dashboard, progressSummary, report, existingPlan, history] = await Promise.all([
         apiClient.getCoachDashboard(activeProfileId, todayIso()),
         apiClient.getProgress(activeProfileId),
         apiClient.getWeeklyCoach(activeProfileId),
@@ -233,13 +234,15 @@ export default function App() {
             return undefined;
           }
           throw error;
-        })
+        }),
+        apiClient.getWorkoutHistory(activeProfileId)
       ]);
       setCoachDashboard(dashboard);
       setProgress(progressSummary);
       setLatestBodyCheckIn(progressSummary.bodyCheckIns.at(-1));
       setWeeklyCoach(report);
       setWorkoutPlan(existingPlan);
+      setWorkoutHistory(history);
       setCoachStatus("success");
       return "ok";
     } catch (error) {
@@ -286,7 +289,7 @@ export default function App() {
     workoutDayId: string;
     durationMinutes: number;
     completedExerciseIds: string[];
-    exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number }[];
+    exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[];
     sessionRpe: number;
   }): Promise<void> {
     if (!profileId) {
@@ -304,6 +307,59 @@ export default function App() {
         exercisePerformance: input.exercisePerformance,
         sessionRpe: input.sessionRpe
       });
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  async function repeatMeal(mealLogId: string): Promise<void> {
+    if (!profileId || coachStatus === "loading") {
+      return;
+    }
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      await apiClient.repeatMealLog(profileId, mealLogId, todayIso());
+      await refreshCoachData(profileId);
+    } catch (error) {
+      setCoachStatus("error");
+      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+  }
+
+  function confirmDeleteMeal(mealLogId: string, mealName: string): void {
+    if (!profileId || coachStatus === "loading") {
+      return;
+    }
+    if (Platform.OS === "web") {
+      const confirmInBrowser = (globalThis as { confirm?: (message: string) => boolean }).confirm;
+      if (confirmInBrowser?.(`${mealName} 기록을 오늘 섭취량에서 제외할까요?`)) {
+        void deleteMeal(mealLogId);
+      }
+      return;
+    }
+    Alert.alert("식사 기록을 삭제할까요?", `${mealName} 기록을 오늘 섭취량에서 제외해요.`, [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제",
+        style: "destructive",
+        onPress: () => {
+          void deleteMeal(mealLogId);
+        }
+      }
+    ]);
+  }
+
+  async function deleteMeal(mealLogId: string): Promise<void> {
+    if (!profileId) {
+      return;
+    }
+    setCoachStatus("loading");
+    setCoachError(undefined);
+    try {
+      await apiClient.deleteMealLog(profileId, mealLogId);
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
@@ -404,6 +460,7 @@ export default function App() {
     setProfileId(undefined);
     setCoachDashboard(undefined);
     setWorkoutPlan(undefined);
+    setWorkoutHistory(undefined);
     setProgress(undefined);
     setWeeklyCoach(undefined);
     setLatestBodyCheckIn(undefined);
@@ -423,6 +480,7 @@ export default function App() {
       setProfileId(undefined);
       setCoachDashboard(undefined);
       setWorkoutPlan(undefined);
+      setWorkoutHistory(undefined);
       setProgress(undefined);
       setWeeklyCoach(undefined);
       setLatestBodyCheckIn(undefined);
@@ -544,10 +602,14 @@ export default function App() {
             void startScanFromLibrary();
           }}
           onOpenSafety={() => setAppScreen("safety")}
+          status={coachStatus}
+          error={coachError}
+          onRepeatMeal={(mealLogId) => void repeatMeal(mealLogId)}
+          onDeleteMeal={confirmDeleteMeal}
         />
       ) : null}
       {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onComplete={(input) => void completeWorkout(input)} />
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onComplete={(input) => void completeWorkout(input)} />
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen

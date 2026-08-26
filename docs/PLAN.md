@@ -145,10 +145,10 @@ Tasks:
 - [x] Add loading/error/retry handling for meal save.
 - [x] Preserve provider error codes through mobile `ApiClientError` and reducer state.
 - [x] Add local persistence repository boundary for meal log records.
-- [ ] Add production meal log item persistence.
-- [ ] Build production Today dashboard.
-- [ ] Show calorie and macro progress.
-- [ ] Show meal list.
+- [x] Add production meal log item persistence.
+- [x] Build production Today dashboard.
+- [x] Show calorie and macro progress.
+- [x] Show meal list.
 
 Acceptance:
 
@@ -165,8 +165,8 @@ Tasks:
 
 - [x] Add weight log UI/API.
 - [x] Implement basic target adjustment suggestion.
-- Implement correction history summary.
-- Use recent logs to improve defaults.
+- [ ] Implement correction history summary.
+- [ ] Use recent logs to improve defaults.
 
 Acceptance:
 
@@ -205,6 +205,30 @@ Tasks:
 - [x] Record completed exercises, session duration, and RPE.
 - [x] Add energy, sleep, and soreness check-ins.
 - [x] Reduce training emphasis when recovery signals are low.
+- [x] Capture exercise-level effort and persist it with actual load/repetition performance.
+- [x] Update the active plan with an explained increase/hold/reduce recommendation after each session.
+- [x] Show prior exercise performance and the next target in the workout logger.
+- [x] Add recent workout history and tracked-volume summaries.
+
+### Milestone 12: Mature Daily Logging Foundation
+
+Goal: Make repeated daily use competitive with established calorie trackers without expanding into a broad recipe product.
+
+Tasks:
+
+- [x] Expose stable profile-scoped meal history records.
+- [x] Repeat a confirmed meal without another image analysis or paid AI call.
+- [x] Delete a meal and rebuild daily nutrition totals from persisted records.
+- [x] Add repeat and delete controls to recent meals.
+- [x] Preserve the photo-first trust flow while adding faster repeat logging.
+
+Acceptance:
+
+- A repeated meal appears as a new record on the selected day.
+- Repeating does not create an analysis job or invoke an AI provider.
+- Deleting one record updates calories, protein, carbs, fat, and meal history.
+- Ownership checks apply to list, repeat, and delete operations.
+- Existing scan-to-save behavior remains compatible.
 
 ### Milestone 10: Body Progress Check-in
 

@@ -300,3 +300,281 @@ def test_workout_session_rejects_performance_for_unknown_exercise() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "workout_exercise_not_found"
+
+
+def test_workout_session_rejects_unknown_completed_exercise() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+
+    response = client.post(
+        f"/v1/profiles/{profile_id}/workout-sessions",
+        json={
+            "plan_id": plan["id"],
+            "workout_day_id": day["id"],
+            "performed_on": "2026-08-19",
+            "duration_minutes": 30,
+            "completed_exercise_ids": ["unknown-exercise"],
+            "exercise_performance": [],
+            "session_rpe": 6,
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "workout_exercise_not_found"
+
+
+def test_workout_session_rejects_performance_for_unchecked_exercise() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    exercise = day["exercises"][0]
+
+    response = client.post(
+        f"/v1/profiles/{profile_id}/workout-sessions",
+        json={
+            "plan_id": plan["id"],
+            "workout_day_id": day["id"],
+            "performed_on": "2026-08-19",
+            "duration_minutes": 30,
+            "completed_exercise_ids": [],
+            "exercise_performance": [
+                {
+                    "exercise_id": exercise["id"],
+                    "sets_completed": exercise["sets"],
+                    "reps_completed": 10,
+                    "load_kg": 20,
+                    "effort": "easy",
+                }
+            ],
+            "session_rpe": 7,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "workout_performance_not_completed"
+    current_plan = client.get(f"/v1/profiles/{profile_id}/workout-plan").json()
+    assert current_plan["days"][0]["exercises"][0]["progression_action"] == "collect_baseline"
+    assert client.get(f"/v1/profiles/{profile_id}/workout-history").json()["total_sessions"] == 0
+
+
+def test_partial_workout_does_not_advance_next_workout() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    exercise = day["exercises"][0]
+
+    response = client.post(
+        f"/v1/profiles/{profile_id}/workout-sessions",
+        json={
+            "plan_id": plan["id"],
+            "workout_day_id": day["id"],
+            "performed_on": "2026-08-19",
+            "duration_minutes": 30,
+            "completed_exercise_ids": [exercise["id"]],
+            "exercise_performance": [
+                {
+                    "exercise_id": exercise["id"],
+                    "sets_completed": exercise["sets"],
+                    "reps_completed": 8,
+                    "load_kg": 20,
+                    "effort": "on_target",
+                }
+            ],
+            "session_rpe": 7,
+        },
+    )
+    dashboard = client.get(f"/v1/profiles/{profile_id}/dashboard/today").json()
+
+    assert response.status_code == 200
+    assert response.json()["completed"] is False
+    assert dashboard["training"]["completed_sessions"] == 0
+    assert dashboard["training"]["next_workout_title"] == day["title"]
+
+
+def test_confirmed_clarification_nutrition_is_the_saved_snapshot() -> None:
+    profile_id = _create_profile()
+    _, job_id, result_id = _create_analysis(profile_id)
+
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "profile_id": profile_id,
+            "analysis_job_id": job_id,
+            "result_id": result_id,
+            "clarification_value": "large_bowl",
+            "logged_on": "2026-08-26",
+        },
+    )
+    assert save_response.status_code == 200
+    meal_id = save_response.json()["dashboard"]["meals"][0]["id"]
+
+    repeat_response = client.post(
+        f"/v1/profiles/{profile_id}/meal-logs/{meal_id}/repeat",
+        json={"logged_on": "2026-08-26"},
+    )
+
+    assert save_response.json()["dashboard"]["consumed"] == {
+        "calories_kcal": 765,
+        "protein_g": 34,
+        "carbs_g": 101,
+        "fat_g": 22,
+    }
+    assert repeat_response.status_code == 200
+    assert repeat_response.json()["dashboard"]["consumed"] == {
+        "calories_kcal": 1530,
+        "protein_g": 68,
+        "carbs_g": 202,
+        "fat_g": 44,
+    }
+
+
+def test_repeat_meal_rejects_invalid_calendar_date() -> None:
+    profile_id = _create_profile()
+    _, job_id, result_id = _create_analysis(profile_id)
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "profile_id": profile_id,
+            "analysis_job_id": job_id,
+            "result_id": result_id,
+            "clarification_value": "one_bowl",
+            "logged_on": "2026-08-26",
+        },
+    )
+    meal_id = save_response.json()["dashboard"]["meals"][0]["id"]
+
+    response = client.post(
+        f"/v1/profiles/{profile_id}/meal-logs/{meal_id}/repeat",
+        json={"logged_on": "2026-99-99"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_confirmed_meal_can_repeat_without_new_analysis_and_delete_recalculates_totals() -> None:
+    profile_id = _create_profile()
+    _, job_id, result_id = _create_analysis(profile_id)
+    save_response = client.post(
+        "/v1/meal-logs",
+        json={
+            "profile_id": profile_id,
+            "analysis_job_id": job_id,
+            "result_id": result_id,
+            "clarification_value": "unknown",
+            "logged_on": "2026-08-26",
+            "nutrition_override": {
+                "meal_name": "닭가슴살 현미밥",
+                "calories_kcal": 510,
+                "protein_g": 42,
+                "carbs_g": 55,
+                "fat_g": 12,
+            },
+        },
+    )
+    original_id = save_response.json()["dashboard"]["meals"][0]["id"]
+    jobs_before = len(get_persistence_repository().list_analysis_jobs())
+
+    repeat_response = client.post(
+        f"/v1/profiles/{profile_id}/meal-logs/{original_id}/repeat",
+        json={"logged_on": "2026-08-26"},
+    )
+
+    assert repeat_response.status_code == 200
+    repeated_dashboard = repeat_response.json()["dashboard"]
+    assert repeated_dashboard["consumed"] == {
+        "calories_kcal": 1020,
+        "protein_g": 84,
+        "carbs_g": 110,
+        "fat_g": 24,
+    }
+    assert repeated_dashboard["meals"][0]["id"] != original_id
+    assert len(get_persistence_repository().list_analysis_jobs()) == jobs_before
+
+    history = client.get(f"/v1/profiles/{profile_id}/meal-logs").json()
+    assert [meal["name"] for meal in history["meals"]] == ["닭가슴살 현미밥", "닭가슴살 현미밥"]
+
+    delete_response = client.delete(f"/v1/profiles/{profile_id}/meal-logs/{original_id}")
+    dashboard = client.get(f"/v1/profiles/{profile_id}/dashboard/today?logged_on=2026-08-26").json()
+    assert delete_response.status_code == 200
+    assert dashboard["nutrition"]["consumed"]["calories_kcal"] == 510
+    assert dashboard["nutrition"]["consumed"]["protein_g"] == 42
+    assert len(dashboard["meals"]) == 1
+
+
+def test_workout_performance_updates_next_target_and_history() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    exercise = day["exercises"][0]
+
+    first_session = client.post(
+        f"/v1/profiles/{profile_id}/workout-sessions",
+        json={
+            "plan_id": plan["id"],
+            "workout_day_id": day["id"],
+            "performed_on": "2026-08-25",
+            "duration_minutes": 42,
+            "completed_exercise_ids": [exercise["id"]],
+            "exercise_performance": [
+                {
+                    "exercise_id": exercise["id"],
+                    "sets_completed": exercise["sets"],
+                    "reps_completed": 12,
+                    "load_kg": 20,
+                    "effort": "easy",
+                }
+            ],
+            "session_rpe": 7,
+        },
+    )
+    assert first_session.status_code == 200
+
+    updated_plan = client.get(f"/v1/profiles/{profile_id}/workout-plan").json()
+    updated_exercise = updated_plan["days"][0]["exercises"][0]
+    assert updated_exercise["last_performance"]["load_kg"] == 20
+    assert updated_exercise["progression_action"] == "increase"
+    assert updated_exercise["recommended_load_kg"] == 22.5
+    assert "증량" in updated_exercise["recommendation_reason"]
+
+    history = client.get(f"/v1/profiles/{profile_id}/workout-history").json()
+    assert history["total_sessions"] == 1
+    assert history["sessions"][0]["workout_title"] == day["title"]
+    assert history["sessions"][0]["total_volume_kg"] == exercise["sets"] * 12 * 20
+
+
+def test_low_recovery_blocks_workout_load_increase() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    exercise = day["exercises"][0]
+    client.post(
+        f"/v1/profiles/{profile_id}/wellness-check-ins",
+        json={"logged_on": "2026-08-26", "energy": 2, "sleep_quality": 2, "soreness": 4},
+    )
+
+    client.post(
+        f"/v1/profiles/{profile_id}/workout-sessions",
+        json={
+            "plan_id": plan["id"],
+            "workout_day_id": day["id"],
+            "performed_on": "2026-08-26",
+            "duration_minutes": 40,
+            "completed_exercise_ids": [exercise["id"]],
+            "exercise_performance": [
+                {
+                    "exercise_id": exercise["id"],
+                    "sets_completed": exercise["sets"],
+                    "reps_completed": 12,
+                    "load_kg": 20,
+                    "effort": "easy",
+                }
+            ],
+            "session_rpe": 7,
+        },
+    )
+
+    updated = client.get(f"/v1/profiles/{profile_id}/workout-plan").json()["days"][0]["exercises"][0]
+    assert updated["progression_action"] == "hold"
+    assert updated["recommended_load_kg"] == 20
+    assert "회복" in updated["recommendation_reason"]

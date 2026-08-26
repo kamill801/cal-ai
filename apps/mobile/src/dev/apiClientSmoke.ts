@@ -430,13 +430,37 @@ async function expectCoachContractsMap(): Promise<void> {
           goal_type: "recomp",
           days_per_week: 3,
           session_minutes: 60,
-          days: [{ id: "day-1", title: "전신 A", focus: "기본", exercises: [{ id: "exercise-1", name: "스쿼트", sets: 3, reps: "6-10회", target_rir: 2, rest_seconds: 120, rationale: "하체 기본" }] }],
+          days: [{ id: "day-1", title: "전신 A", focus: "기본", exercises: [{ id: "exercise-1", name: "스쿼트", sets: 3, reps: "6-10회", target_rir: 2, rest_seconds: 120, rationale: "하체 기본", last_performance: { sets_completed: 3, reps_completed: 10, load_kg: 60, effort: "easy", performed_on: "2026-07-19" }, progression_action: "increase", recommended_load_kg: 62, recommended_reps: 6, recommendation_reason: "안정적으로 달성했어요." }] }],
           personalization_basis: ["목표: 체성분 개선"],
           progression_rule: "반복 상단 달성 후 증량",
           safety_note: "통증 시 중단",
           generated_at: "2026-07-20T00:00:00+00:00"
         })
       } as Response);
+    }
+    if (path.endsWith("/v1/profiles/profile-1/workout-history?limit=6")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ profile_id: "profile-1", total_sessions: 1, sessions: [{ session_id: "session-1", performed_on: "2026-07-19", workout_title: "전신 A", duration_minutes: 50, session_rpe: 7, completed: true, exercise_count: 4, total_volume_kg: 5400 }], summary: "최근 1회 운동을 기록했어요." })
+      } as Response);
+    }
+    if (path.endsWith("/v1/profiles/profile-1/meal-logs?limit=30")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ profile_id: "profile-1", meals: [{ id: "meal-log-1", profile_id: "profile-1", logged_on: "2026-07-20", name: "닭가슴살 덮밥", meal_type: "lunch", nutrition: { calories_kcal: 510, protein_g: 42, carbs_g: 55, fat_g: 12 }, confidence_label: "manual", created_at: "2026-07-20T00:00:00+00:00" }] })
+      } as Response);
+    }
+    if (path.endsWith("/v1/profiles/profile-1/meal-logs/meal-log-1/repeat") && init?.method === "POST") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ confirmation: "기록했어요", remaining_calories_kcal: 1080, next_meal_suggestion: "단백질을 챙겨요.", dashboard: { date: "2026-07-20", target: { calories_kcal: 2100, protein_g: 150, carbs_g: 240, fat_g: 60 }, consumed: { calories_kcal: 1020, protein_g: 84, carbs_g: 110, fat_g: 24 }, next_meal_guidance: { deficits: [], excesses: [], menu_type_recommendations: [], explanation: "단백질을 챙겨요." }, meals: [] } })
+      } as Response);
+    }
+    if (path.endsWith("/v1/profiles/profile-1/meal-logs/meal-log-1") && init?.method === "DELETE") {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ meal_log_id: "meal-log-1", status: "deleted" }) } as Response);
     }
     if (path.endsWith("/v1/profiles/profile-1") && init?.method === "DELETE") {
       return Promise.resolve({
@@ -451,12 +475,19 @@ async function expectCoachContractsMap(): Promise<void> {
     const client = createCalAiApiClient("http://127.0.0.1:8015", "session-token");
     const dashboard = await client.getCoachDashboard("profile-1");
     const plan = await client.generateWorkoutPlan("profile-1");
+    const history = await client.getWorkoutHistory("profile-1");
+    const meals = await client.getMealLogs("profile-1");
+    const repeated = await client.repeatMealLog("profile-1", "meal-log-1", "2026-07-20");
+    const mealDeletion = await client.deleteMealLog("profile-1", "meal-log-1");
     const deletion = await client.deleteProfile("profile-1");
     if (dashboard.nutrition.remaining.proteinG !== 88 || dashboard.training.nextWorkoutTitle !== "전신 B") {
       throw new Error("coach dashboard response did not map");
     }
-    if (plan.daysPerWeek !== 3 || plan.days[0]?.exercises[0]?.targetRir !== 2) {
+    if (plan.daysPerWeek !== 3 || plan.days[0]?.exercises[0]?.targetRir !== 2 || plan.days[0]?.exercises[0]?.progressionAction !== "increase") {
       throw new Error("workout plan response did not map");
+    }
+    if (history.sessions[0]?.totalVolumeKg !== 5400 || meals.meals[0]?.nutrition.proteinG !== 42 || repeated.dashboard.consumed.proteinG !== 84 || mealDeletion.mealLogId !== "meal-log-1") {
+      throw new Error("history, repeat, or deletion response did not map");
     }
     if (dashboard.meals[0]?.name !== "닭가슴살 덮밥" || deletion.deletedImages !== 2 || deletion.deletedMealLogs !== 4) {
       throw new Error("meal history or profile deletion response did not map");

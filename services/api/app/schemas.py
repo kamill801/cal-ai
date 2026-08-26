@@ -132,6 +132,7 @@ class DashboardMeal(BaseModel):
     meal_type: Literal["breakfast", "lunch", "dinner", "snack"]
     calories_kcal: int
     confidence_label: Literal["high", "medium_high", "medium", "low", "manual"]
+    nutrition: NutritionTarget | None = None
 
 
 class NutrientGap(BaseModel):

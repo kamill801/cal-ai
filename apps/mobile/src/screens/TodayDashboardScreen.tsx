@@ -1,8 +1,12 @@
 import type { CoachDashboard, DashboardTodayResponse } from "@cal-ai/shared";
+import { RotateCcw, Trash2 } from "lucide-react-native";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { ConfidencePill } from "../components/ConfidencePill";
 import { MacroSummary } from "../components/MacroSummary";
 import { TrustBuddy } from "../components/TrustBuddy";
+import { FlowStatusCard } from "../components/FlowStatusCard";
+import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
+import { colors } from "../theme";
 import { styles } from "./TodayDashboardScreen.styles";
 
 export function TodayDashboardScreen({
@@ -10,13 +14,21 @@ export function TodayDashboardScreen({
   coachDashboard,
   onCaptureMeal,
   onPickMeal,
-  onOpenSafety
+  onOpenSafety,
+  onRepeatMeal,
+  onDeleteMeal,
+  status,
+  error
 }: {
   readonly dashboard: DashboardTodayResponse;
   readonly coachDashboard?: CoachDashboard;
   readonly onCaptureMeal: () => void;
   readonly onPickMeal: () => void;
   readonly onOpenSafety: () => void;
+  readonly onRepeatMeal: (mealLogId: string) => void;
+  readonly onDeleteMeal: (mealLogId: string, mealName: string) => void;
+  readonly status: RequestStatus;
+  readonly error?: FlowError;
 }) {
   const target = coachDashboard?.nutrition.target ?? dashboard.target;
   const consumed = coachDashboard?.nutrition.consumed ?? dashboard.consumed;
@@ -48,6 +60,8 @@ export function TodayDashboardScreen({
           <Text style={styles.scanIconText}>+</Text>
         </View>
       </TouchableOpacity>
+
+      {error ? <FlowStatusCard error={error} /> : null}
 
       <View style={styles.heroCard}>
         <View style={styles.spaceBetweenRow}>
@@ -114,7 +128,33 @@ export function TodayDashboardScreen({
                 <ConfidencePill label={meal.confidenceLabel} />
               </View>
             </View>
-            <Text style={styles.mealKcal}>{meal.caloriesKcal}kcal</Text>
+            <View style={styles.mealTrailing}>
+              <Text style={styles.mealKcal}>{meal.caloriesKcal}kcal</Text>
+              <View style={styles.mealActions}>
+                <TouchableOpacity
+                  style={styles.mealActionButton}
+                  disabled={status === "loading"}
+                  onPress={() => onRepeatMeal(meal.id)}
+                  hitSlop={4}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${meal.name} 다시 기록`}
+                  accessibilityState={{ disabled: status === "loading" }}
+                >
+                  <RotateCcw color={colors.leaf} size={16} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteActionButton}
+                  disabled={status === "loading"}
+                  onPress={() => onDeleteMeal(meal.id, meal.name)}
+                  hitSlop={4}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${meal.name} 기록 삭제`}
+                  accessibilityState={{ disabled: status === "loading" }}
+                >
+                  <Trash2 color={colors.muted} size={16} />
+                </TouchableOpacity>
+              </View>
+            </View>
           </View>
         ))}
       </View>
