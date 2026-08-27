@@ -70,6 +70,7 @@ export function ReviewResultScreen({
   }
 
   return (
+    <View style={styles.screen}>
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>분석 결과</Text>
@@ -98,6 +99,9 @@ export function ReviewResultScreen({
         {narrowing ? <RangeNarrowing narrowing={narrowing} /> : null}
         <Text style={styles.explanation}>{analysis.primaryExplanation}</Text>
       </View>
+
+      {isSaving ? <FlowStatusCard title="저장 중" message="식사 기록과 오늘 대시보드를 업데이트하고 있어요." /> : null}
+      {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}
 
       <View style={styles.foodCard}>
         <View style={styles.foodHeader}>
@@ -170,10 +174,8 @@ export function ReviewResultScreen({
         </View>
       ) : null}
 
-      {isSaving ? <FlowStatusCard title="저장 중" message="식사 기록과 오늘 대시보드를 업데이트하고 있어요." /> : null}
-      {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}
-
-      <View style={styles.actionRow}>
+    </ScrollView>
+      <View style={styles.stickyActions}>
         <TouchableOpacity activeOpacity={0.82} style={[styles.secondaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={() => setShowEditor((visible) => !visible)} accessibilityRole="button" accessibilityState={{ disabled: isSaving, expanded: showEditor }}>
           <Text style={styles.secondaryButtonText}>{showEditor ? "수정 닫기" : "수정"}</Text>
         </TouchableOpacity>
@@ -181,7 +183,7 @@ export function ReviewResultScreen({
           <Text style={styles.primaryButtonText}>{isSaving ? "저장 중" : "식사로 기록"}</Text>
         </TouchableOpacity>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -204,10 +206,14 @@ function NutritionInput({ label, unit, value, onChangeText }: { readonly label: 
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.canvasWarm
+  },
   container: {
     gap: spacing.md,
     padding: spacing.lg,
-    paddingBottom: spacing.xxl
+    paddingBottom: 112
   },
   header: {
     alignItems: "center",
@@ -320,9 +326,15 @@ const styles = StyleSheet.create({
   textButtonText: { color: colors.leaf, ...typography.bodyStrong },
   applyButton: { minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leaf, paddingHorizontal: spacing.lg },
   applyButtonText: { color: colors.surface, ...typography.bodyStrong },
-  actionRow: {
+  stickyActions: {
     flexDirection: "row",
-    gap: spacing.sm
+    gap: spacing.sm,
+    borderTopColor: colors.hairline,
+    borderTopWidth: 1,
+    backgroundColor: colors.canvasWarm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md
   },
   primaryButton: {
     flex: 2,

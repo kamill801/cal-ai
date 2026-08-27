@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app import main
+from app.services.auth import AuthenticatedUser
 
 
-client = TestClient(app)
+client = TestClient(main.app)
 
 
 def _create_profile(
@@ -14,6 +16,7 @@ def _create_profile(
     experience_level: str = "beginner",
     available_equipment: list[str] | None = None,
     session_minutes: int = 60,
+    headers: dict[str, str] | None = None,
 ) -> str:
     response = client.post(
         "/v1/onboarding",
@@ -30,12 +33,13 @@ def _create_profile(
             "available_equipment": available_equipment or ["gym"],
             "session_minutes": session_minutes,
         },
+        headers=headers,
     )
     assert response.status_code == 200
     return response.json()["profile_id"]
 
 
-def _upload_body_photo() -> str:
+def _upload_body_photo(headers: dict[str, str] | None = None) -> str:
     response = client.post(
         "/v1/image-uploads",
         json={
@@ -44,6 +48,7 @@ def _upload_body_photo() -> str:
             "content_type": "image/png",
             "byte_size": 420_000,
         },
+        headers=headers,
     )
     assert response.status_code == 200
     return response.json()["image_upload_id"]
@@ -132,12 +137,15 @@ def test_long_advanced_gym_plan_uses_frequency_volume_and_skill_level() -> None:
     assert "세션 시간: 90분" in plan["personalization_basis"]
 
 
-def test_latest_recovery_and_body_focus_reduce_load_and_change_program_content() -> None:
+def test_latest_recovery_and_body_focus_reduce_load_and_change_program_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(main, "authenticate_bearer_token", lambda authorization: AuthenticatedUser(user_id="quality-owner") if authorization else None)
+    headers = {"Authorization": "Bearer quality-owner"}
     profile_id = _create_profile(
         training_frequency="3-4",
         experience_level="intermediate",
         available_equipment=["gym"],
         session_minutes=60,
+        headers=headers,
     )
     wellness_response = client.post(
         f"/v1/profiles/{profile_id}/wellness-check-ins",
@@ -147,20 +155,22 @@ def test_latest_recovery_and_body_focus_reduce_load_and_change_program_content()
             "sleep_quality": 2,
             "soreness": 4,
         },
+        headers=headers,
     )
     assert wellness_response.status_code == 200
     body_response = client.post(
         f"/v1/profiles/{profile_id}/body-check-ins",
         json={
             "captured_on": "2026-08-18",
-            "image_upload_id": _upload_body_photo(),
+            "image_upload_id": _upload_body_photo(headers),
             "view": "front",
             "consent_to_ai_analysis": True,
         },
+        headers=headers,
     )
     assert body_response.status_code == 200
 
-    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate", headers=headers).json()
 
     assert all(len(day["exercises"]) == 3 for day in plan["days"])
     assert all(exercise["target_rir"] >= 3 for day in plan["days"] for exercise in day["exercises"])

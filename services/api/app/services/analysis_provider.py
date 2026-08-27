@@ -170,7 +170,7 @@ class OpenAIAnalysisProvider:
         return {
             "model": self._vision_model,
             "store": False,
-            "max_output_tokens": 1800,
+            "max_output_tokens": 1400,
             "input": [
                 {
                     "role": "user",
@@ -191,7 +191,7 @@ class OpenAIAnalysisProvider:
                         {
                             "type": "input_image",
                             "image_url": image_reference,
-                            "detail": "high",
+                            "detail": "low",
                         },
                     ],
                 }

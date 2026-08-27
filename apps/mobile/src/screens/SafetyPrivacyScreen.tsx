@@ -22,27 +22,25 @@ export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, deletionS
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>개인정보와 안전</Text>
-          <Text style={styles.title}>출시 전 안전 체크</Text>
-          <Text style={styles.subtitle}>사진은 비공개 저장소를 사용하고, 사용자는 앱 기록과 연결된 원본 사진을 직접 삭제할 수 있어요.</Text>
+          <Text style={styles.title}>내 기록은 이렇게 다뤄요</Text>
+          <Text style={styles.subtitle}>사진과 건강 기록을 왜 사용하는지, 어디까지 분석하는지 숨기지 않고 알려드려요.</Text>
         </View>
         <TrustBuddy size={68} accessory="sprout" />
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>현재 연결된 것</Text>
-        <ChecklistItem title="음식 사진 업로드" body="앱이 API에서 presigned URL을 받고 Cloudflare R2 private bucket에 직접 업로드해요." />
-        <ChecklistItem title="음식 분석 결과" body="운영 API가 OpenAI 모드일 때 음식 사진을 범위와 근거 중심으로 분석해요. 결과는 추정치이며 한 번의 확인으로 보정할 수 있어요." />
-        <ChecklistItem title="신체 사진 분석" body="명시적으로 동의한 사진만 제한된 자세·운동 초점 관찰에 사용해요. 운영 provider를 켜기 전에는 안전한 mock 결과를 사용해요." />
-        <ChecklistItem title="저장소" body="Vercel API, Neon Postgres, Cloudflare R2 private bucket을 사용해요." />
-        <ChecklistItem title="내 앱 데이터 삭제" body="식사, 운동, 체중, 회복, 신체 사진 기록과 연결된 원본 이미지를 한 번에 삭제할 수 있어요." />
+        <Text style={styles.sectionTitle}>사진과 기록</Text>
+        <ChecklistItem title="음식 사진" body="선택한 사진은 비공개 저장소에 보관하고, 음식과 영양 범위를 분석하기 위해 OpenAI에 전송해요." />
+        <ChecklistItem title="분석 결과" body="칼로리와 영양값은 사진을 바탕으로 한 추정치예요. 저장 전에 음식 이름과 영양값을 직접 확인하고 수정할 수 있어요." />
+        <ChecklistItem title="건강 기록" body="목표, 식사, 운동, 체중과 회복 기록은 개인화된 오늘 목표와 주간 코칭을 만드는 데만 사용해요." />
+        <ChecklistItem title="신체 사진" body="이번 베타에서는 로그인으로 사진을 보호하는 기능이 준비될 때까지 촬영과 업로드를 제공하지 않아요." />
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>출시 전 승인 필요</Text>
-        <ChecklistItem title="카카오 로그인 활성화" body="Supabase Auth와 Kakao 앱을 연결하고 운영 API의 JWT 검증 설정을 켜야 해요." />
-        <ChecklistItem title="신체 사진 AI 운영 승인" body="전송 범위와 보관 기간을 고지한 뒤 BODY_AI_PROVIDER를 별도로 켜야 해요." />
-        <ChecklistItem title="보관 기간 자동 집행" body="사진 TTL과 매일 실행되는 cleanup 경로는 준비됐어요. 운영 CRON_SECRET 등록과 공개 개인정보 처리방침 연결을 확인해야 해요." />
-        <ChecklistItem title="로그인 계정 자체 삭제" body="앱 데이터 삭제와 별개로 Supabase 로그인 계정 제거를 위한 운영 함수와 재인증 절차가 필요해요." />
+        <Text style={styles.sectionTitle}>보관과 삭제</Text>
+        <ChecklistItem title="비공개 보관" body="원본 사진은 공개 주소로 노출하지 않고 앱의 기록과 연결해서 보관해요." />
+        <ChecklistItem title="내가 직접 삭제" body="아래의 ‘내 앱 데이터 모두 삭제’를 누르면 현재 프로필의 식사, 운동, 체중, 회복 기록과 연결된 원본 사진을 함께 삭제해요." />
+        <ChecklistItem title="민감한 추정 제한" body="사진으로 질환, 신원, 외모 점수 같은 민감한 정보를 추정하지 않아요." />
       </View>
 
       <View style={styles.notice}>

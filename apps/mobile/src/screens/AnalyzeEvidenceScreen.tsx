@@ -1,5 +1,6 @@
 import type { AnalysisResult } from "@cal-ai/shared";
 import { ArrowLeft } from "lucide-react-native";
+import { useEffect, useState } from "react";
 import type { ImageSourcePropType } from "react-native";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { CalorieRange } from "../components/CalorieRange";
@@ -27,8 +28,22 @@ export function AnalyzeEvidenceScreen({
   onCancel: () => void;
 }) {
   const isLoading = status === "loading";
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const canClarify = Boolean(analysis?.clarificationQuestion) && !isLoading && !error;
   const canReview = Boolean(analysis) && !analysis?.clarificationQuestion && !isLoading && !error;
+  const loadingCopy = analysisLoadingCopy(elapsedSeconds);
+
+  useEffect(() => {
+    if (!isLoading) {
+      setElapsedSeconds(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [isLoading]);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -63,7 +78,7 @@ export function AnalyzeEvidenceScreen({
         </View>
       )}
 
-      {isLoading ? <FlowStatusCard title="분석 중" message="사진 확인, 음식 추정, 칼로리 범위 계산을 순서대로 진행하고 있어요." /> : null}
+      {isLoading ? <FlowStatusCard title={loadingCopy.title} message={loadingCopy.message} /> : null}
       {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}
 
       {analysis ? (
@@ -81,18 +96,32 @@ export function AnalyzeEvidenceScreen({
         </View>
       ) : null}
 
-      <TouchableOpacity
-        activeOpacity={0.86}
-        style={[styles.primaryButton, (!canClarify && !canReview) && styles.buttonDisabled]}
-        onPress={onClarify}
-        disabled={!canClarify && !canReview}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !canClarify && !canReview, busy: isLoading }}
-      >
-        <Text style={styles.primaryButtonText}>{canReview ? "결과 확인하기" : "밥 양만 확인하기"}</Text>
-      </TouchableOpacity>
+      {isLoading ? <Text style={styles.loadingHint}>분석이 끝나면 확인 버튼이 열려요.</Text> : null}
+      {canClarify || canReview ? (
+        <TouchableOpacity
+          activeOpacity={0.86}
+          style={styles.primaryButton}
+          onPress={onClarify}
+          accessibilityRole="button"
+        >
+          <Text style={styles.primaryButtonText}>{canReview ? "결과 확인하기" : "밥 양만 확인하기"}</Text>
+        </TouchableOpacity>
+      ) : null}
     </ScrollView>
   );
+}
+
+function analysisLoadingCopy(elapsedSeconds: number): { title: string; message: string } {
+  if (elapsedSeconds < 12) {
+    return { title: "사진을 안전하게 보내고 있어요", message: "업로드가 끝나면 음식 종류와 양을 차례로 확인해요." };
+  }
+  if (elapsedSeconds < 40) {
+    return { title: "음식 종류를 확인하고 있어요", message: "사진에 보이는 음식과 빠진 재료 가능성을 함께 살펴보고 있어요." };
+  }
+  if (elapsedSeconds < 75) {
+    return { title: "영양 범위를 계산하고 있어요", message: "칼로리와 단백질을 한 숫자가 아닌 현실적인 범위로 정리하고 있어요." };
+  }
+  return { title: "결과를 꼼꼼히 정리하고 있어요", message: "음식이 많거나 복잡한 사진은 1분 넘게 걸릴 수 있어요. 조금만 더 기다려 주세요." };
 }
 
 const styles = StyleSheet.create({
@@ -227,8 +256,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md
   },
-  buttonDisabled: {
-    opacity: 0.5
+  loadingHint: {
+    color: colors.muted,
+    textAlign: "center",
+    ...typography.caption
   },
   primaryButtonText: {
     color: colors.surface,

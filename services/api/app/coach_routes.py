@@ -233,9 +233,11 @@ def create_body_photo_check_in(
     uploads: PersistenceRepository = Depends(meal_repository),
 ) -> BodyCheckInResponse:
     try:
-        upload = uploads.get_image_upload(payload.image_upload_id)
         owner_id = getattr(request.state, "user_id", None)
-        if upload is None or (owner_id and upload.owner_id != owner_id):
+        if not owner_id:
+            raise _error(401, "authentication_required", "신체 사진을 기록하려면 로그인이 필요해요.", False, "validation")
+        upload = uploads.get_image_upload(payload.image_upload_id)
+        if upload is None or upload.owner_id != owner_id:
             raise _error(404, "image_upload_not_found", "업로드된 이미지를 찾을 수 없어요.", False, "not_found")
         if upload.upload_status != "ready":
             raise _error(400, "image_upload_not_ready", "이미지 업로드가 아직 완료되지 않았어요.", True, "validation")

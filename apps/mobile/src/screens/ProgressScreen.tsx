@@ -15,7 +15,7 @@ const BODY_PHOTO_VIEWS: ReadonlyArray<{ readonly value: BodyPhotoView; readonly 
   { value: "back", label: "후면", description: "카메라를 등지고 촬영해요" }
 ];
 
-export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onLogWeight, onLogWellness, onCaptureBody, onPickBody }: { readonly progress?: ProgressSummary; readonly latestBodyCheckIn?: BodyCheckIn; readonly status: RequestStatus; readonly error?: FlowError; readonly onLogWeight: (weightKg: number) => void; readonly onLogWellness: (input: { energy: number; sleepQuality: number; soreness: number }) => void; readonly onCaptureBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void; readonly onPickBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void }) {
+export function ProgressScreen({ progress, latestBodyCheckIn, status, error, bodyPhotoEnabled, onOpenSafety, onLogWeight, onLogWellness, onCaptureBody, onPickBody }: { readonly progress?: ProgressSummary; readonly latestBodyCheckIn?: BodyCheckIn; readonly status: RequestStatus; readonly error?: FlowError; readonly bodyPhotoEnabled: boolean; readonly onOpenSafety: () => void; readonly onLogWeight: (weightKg: number) => void; readonly onLogWellness: (input: { energy: number; sleepQuality: number; soreness: number }) => void; readonly onCaptureBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void; readonly onPickBody: (consentToAiAnalysis: true, view: BodyPhotoView) => void }) {
   const [weight, setWeight] = useState(progress?.latestWeightKg?.toString() ?? "");
   const [energy, setEnergy] = useState(3);
   const [sleepQuality, setSleepQuality] = useState(3);
@@ -62,6 +62,14 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onL
         <TouchableOpacity style={styles.primaryButton} disabled={status === "loading"} onPress={() => onLogWellness({ energy, sleepQuality, soreness })} accessibilityRole="button"><Text style={styles.primaryButtonText}>오늘 상태 저장</Text></TouchableOpacity>
       </CoachCard>
 
+      {!bodyPhotoEnabled ? (
+        <CoachCard title="신체 사진은 로그인 보호 후 제공해요" eyebrow="선택 기록">
+          <Text style={styles.body}>이번 베타에서는 체중과 회복 기록을 먼저 사용할 수 있어요. 신체 사진은 로그인으로 사용자를 구분하고 삭제 정책을 확인한 뒤 열 예정이에요.</Text>
+          <TouchableOpacity style={styles.secondaryFullButton} onPress={onOpenSafety} accessibilityRole="button">
+            <Text style={styles.secondaryButtonText}>사진과 기록 처리 방식 보기</Text>
+          </TouchableOpacity>
+        </CoachCard>
+      ) : (
       <CoachCard title="신체 사진 체크인" eyebrow="선택 기록">
         <Text style={styles.body}>같은 조명과 거리, 자세로 찍으면 지난 기록과 비교하기 좋아요. 원하는 촬영 방향을 먼저 골라주세요.</Text>
         <View style={styles.viewSelector} accessibilityRole="radiogroup" accessibilityLabel="신체 사진 촬영 방향">
@@ -95,7 +103,8 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onL
           </View>
           <Text style={styles.consentText}>이 사진을 비공개로 저장하고 AI가 자세와 운동 초점만 제한적으로 관찰하는 데 동의해요.</Text>
         </TouchableOpacity>
-        <Text style={styles.safety}>동의하기 전에는 사진을 촬영하거나 불러올 수 없어요. 체지방률, 질환, 외모 점수, 신원 같은 민감 정보는 추정하지 않아요.</Text>
+        <Text style={styles.safety}>동의하기 전에는 사진을 촬영하거나 불러올 수 없어요. 체지방률, 질환, 외모 점수, 신원 같은 민감 정보는 추정하지 않으며 앱에서 기록과 원본을 삭제할 수 있어요.</Text>
+        <TouchableOpacity onPress={onOpenSafety} accessibilityRole="button"><Text style={styles.privacyLink}>사진과 기록 처리 방식 보기</Text></TouchableOpacity>
         <View style={styles.actionRow}>
           <TouchableOpacity
             style={[styles.primaryButtonHalf, !bodyAnalysisConsent && styles.buttonDisabled]}
@@ -122,6 +131,7 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, onL
         </View>
         {!latestBodyCheckIn ? <Text style={styles.emptyState}>아직 저장된 신체 사진이 없어요. 첫 기록을 남기면 다음 체크인부터 같은 방향의 변화를 비교할 수 있어요.</Text> : null}
       </CoachCard>
+      )}
 
       {latestBodyCheckIn ? (
         <CoachCard title="이번 체크인에서 볼 것" eyebrow="제한된 사진 관찰" tone="leaf">
@@ -183,6 +193,7 @@ const styles = StyleSheet.create({
   primaryButtonHalf: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leaf, padding: spacing.md },
   primaryButtonText: { color: colors.surface, fontSize: 15, lineHeight: 21, fontWeight: "800" },
   secondaryButton: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", borderColor: colors.hairline, borderWidth: 1, borderRadius: radii.control, backgroundColor: colors.surface, padding: spacing.md },
+  secondaryFullButton: { minHeight: 52, alignItems: "center", justifyContent: "center", borderColor: colors.hairline, borderWidth: 1, borderRadius: radii.control, backgroundColor: colors.surface, padding: spacing.md },
   secondaryButtonText: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: "800" },
   actionRow: { flexDirection: "row", gap: spacing.sm },
   viewSelector: { flexDirection: "row", gap: spacing.xs, padding: 4, borderRadius: radii.control, backgroundColor: colors.canvas },
@@ -201,5 +212,6 @@ const styles = StyleSheet.create({
   observationTitle: { color: colors.ink, ...typography.bodyStrong },
   focusTitle: { color: colors.leaf, ...typography.bodyStrong },
   listItem: { color: colors.body, ...typography.body },
-  safety: { color: colors.muted, ...typography.caption }
+  safety: { color: colors.muted, ...typography.caption },
+  privacyLink: { color: colors.leaf, ...typography.bodyStrong }
 });

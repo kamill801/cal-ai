@@ -169,7 +169,7 @@ def test_weight_and_wellness_logs_are_reflected_in_progress() -> None:
     assert body["latest_wellness"]["soreness"] == 2
 
 
-def test_body_check_in_uses_ready_private_upload_and_safe_mock_observations() -> None:
+def test_body_check_in_requires_authentication_for_external_beta() -> None:
     profile_id = create_profile()
     image_upload_id = upload_body_photo()
 
@@ -183,25 +183,11 @@ def test_body_check_in_uses_ready_private_upload_and_safe_mock_observations() ->
         },
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["image_upload_id"] == image_upload_id
-    assert body["analysis"]["provider"] == "mock"
-    assert body["analysis"]["confidence"] == "limited"
-    assert body["analysis"]["training_focus"]
-    assert body["consent"]["provider"] == "mock"
-    assert body["consent"]["model"] == "deterministic-v1"
-    assert body["consent"]["policy_version"]
-    assert body["consent"]["consented_at"]
-    assert "body_fat" not in response.text
-    assert "diagnosis" not in response.text
-
-    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
-    for focus in body["analysis"]["training_focus"]:
-        assert focus in plan["personalization_basis"]
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "authentication_required"
 
 
-def test_body_check_in_rejects_unknown_upload() -> None:
+def test_body_check_in_does_not_inspect_upload_before_authentication() -> None:
     profile_id = create_profile()
 
     response = client.post(
@@ -214,8 +200,8 @@ def test_body_check_in_rejects_unknown_upload() -> None:
         },
     )
 
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "image_upload_not_found"
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "authentication_required"
 
 
 def test_body_check_in_requires_explicit_ai_consent() -> None:

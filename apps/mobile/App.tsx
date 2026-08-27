@@ -617,6 +617,8 @@ export default function App() {
           latestBodyCheckIn={latestBodyCheckIn}
           status={coachStatus}
           error={coachError}
+          bodyPhotoEnabled={auth.enabled && process.env.EXPO_PUBLIC_BODY_PHOTO_ENABLED === "true"}
+          onOpenSafety={() => setAppScreen("safety")}
           onLogWeight={(weightKg) => void logWeight(weightKg)}
           onLogWellness={(input) => void logWellness(input)}
           onCaptureBody={(consent, view) => void startBodyCheckInFromCamera(consent, view)}

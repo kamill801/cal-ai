@@ -65,7 +65,7 @@ def test_openai_request_payload_uses_responses_image_and_json_schema_shape() -> 
     payload = provider.build_responses_payload(image_reference="data:image/jpeg;base64,abc", meal_type="lunch")
 
     assert payload["input"][0]["content"][1]["type"] == "input_image"
-    assert payload["input"][0]["content"][1]["detail"] == "high"
+    assert payload["input"][0]["content"][1]["detail"] == "low"
     assert payload["text"]["format"]["type"] == "json_schema"
     assert payload["text"]["format"]["strict"] is True
     assert payload["store"] is False

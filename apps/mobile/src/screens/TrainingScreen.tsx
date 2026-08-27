@@ -1,7 +1,8 @@
 import type { CoachDashboard, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { Check } from "lucide-react-native";
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { TrustBuddy } from "../components/TrustBuddy";
@@ -118,26 +119,18 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
       {plan && nextDay ? (
         <>
           <CoachCard title={nextDay.title} eyebrow={`다음 운동 · ${nextDay.focus}`} tone="warm">
+            <Text style={styles.sessionHelp}>완료한 종목의 이름이나 체크박스를 눌러주세요. 현재 {completedExerciseIds.length}개 선택했어요.</Text>
             {nextDay.exercises.map((exercise) => {
               const isCompleted = completedExerciseIds.includes(exercise.id);
               const values = performance[exercise.id] ?? { sets: String(exercise.sets), reps: "", load: "", effort: "on_target" };
               return (
               <View key={exercise.id} style={[styles.exerciseRow, isCompleted && styles.exerciseRowCompleted]}>
                 <View style={styles.exerciseHeader}>
-                  <TouchableOpacity
-                    style={[styles.exerciseCheck, isCompleted && styles.exerciseCheckSelected]}
-                    onPress={() => toggleExercise(exercise.id)}
-                    hitSlop={8}
-                    accessibilityRole="checkbox"
-                    accessibilityLabel={`${exercise.name} 수행 완료`}
-                    accessibilityState={{ checked: isCompleted }}
-                  >
-                    {isCompleted ? <Check color={colors.surface} size={18} strokeWidth={3} /> : null}
-                  </TouchableOpacity>
-                  <View style={styles.exerciseHeading}>
+                  <ExerciseCheckbox checked={isCompleted} label={`${exercise.name} 수행 완료`} onChange={() => toggleExercise(exercise.id)} />
+                  <TouchableOpacity style={styles.exerciseHeading} onPress={() => toggleExercise(exercise.id)} accessibilityRole="button" accessibilityLabel={`${exercise.name} ${isCompleted ? "완료 취소" : "완료 체크"}`}>
                     <Text style={styles.exerciseName}>{exercise.name}</Text>
                     <Text style={styles.exerciseMeta}>{exercise.sets}세트 · {exercise.reps} · RIR {exercise.targetRir}</Text>
-                  </View>
+                  </TouchableOpacity>
                   <Text style={styles.rest}>{exercise.restSeconds}초</Text>
                 </View>
                 <View style={styles.exerciseBody}>
@@ -222,6 +215,33 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
         </>
       ) : null}
     </ScrollView>
+  );
+}
+
+const webCheckboxStyle: CSSProperties = {
+  width: 28,
+  height: 28,
+  flexShrink: 0,
+  margin: 0,
+  accentColor: colors.leaf,
+  cursor: "pointer"
+};
+
+function ExerciseCheckbox({ checked, label, onChange }: { readonly checked: boolean; readonly label: string; readonly onChange: () => void }) {
+  if (Platform.OS === "web") {
+    return <input type="checkbox" checked={checked} aria-label={label} onChange={onChange} style={webCheckboxStyle} />;
+  }
+  return (
+    <TouchableOpacity
+      style={[styles.exerciseCheck, checked && styles.exerciseCheckSelected]}
+      onPress={onChange}
+      hitSlop={8}
+      accessibilityRole="checkbox"
+      accessibilityLabel={label}
+      accessibilityState={{ checked }}
+    >
+      {checked ? <Check color={colors.surface} size={18} strokeWidth={3} /> : null}
+    </TouchableOpacity>
   );
 }
 
