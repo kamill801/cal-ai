@@ -44,11 +44,11 @@ export function TodayDashboardScreen({
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.topBar}>
-        <View>
+        <View style={styles.topBarCopy}>
           <Text style={styles.greeting}>오늘의 식단</Text>
           <Text style={styles.title}>{hasRecords ? "기록한 만큼 더 정확해져요" : "첫 식사를 기록해볼까요?"}</Text>
         </View>
-        <TrustBuddy size={52} accessory="sprout" />
+        <TrustBuddy size={80} pose="meal" />
       </View>
 
       <TouchableOpacity style={styles.scanButton} activeOpacity={0.86} onPress={onCaptureMeal} accessibilityRole="button" accessibilityLabel="카메라로 음식 사진 찍기" accessibilityHint="촬영한 사진을 분석해 식사 기록을 시작합니다">
@@ -101,7 +101,7 @@ export function TodayDashboardScreen({
 
       <View style={styles.guidanceCard}>
         <View style={styles.coachRow}>
-          <TrustBuddy size={52} accessory="spoon" />
+          <TrustBuddy size={84} pose="coach" />
           <View style={styles.coachCopy}>
             <Text style={styles.warningLabel}>지금 가장 좋은 다음 행동</Text>
             <Text style={styles.guidanceTitle}>{coachDashboard?.nextAction.title ?? dashboard.nextMealGuidance.explanation}</Text>

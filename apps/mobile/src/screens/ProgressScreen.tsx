@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
 import { FlowStatusCard } from "../components/FlowStatusCard";
+import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
@@ -28,9 +29,12 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, bod
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>변화 기록</Text>
-        <Text style={styles.title}>작은 기록이 몸의 변화를 보여줘요</Text>
-        <Text style={styles.subtitle}>체중과 회복 상태, 같은 조건의 사진을 함께 보면 다음 운동을 더 현실적으로 조절할 수 있어요.</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>변화 기록</Text>
+          <Text style={styles.title}>작은 기록이 몸의 변화를 보여줘요</Text>
+          <Text style={styles.subtitle}>체중과 회복 상태, 같은 조건의 사진을 함께 보면 다음 운동을 더 현실적으로 조절할 수 있어요.</Text>
+        </View>
+        <TrustBuddy size={104} pose="progress" />
       </View>
       {error ? <FlowStatusCard error={error} /> : null}
 
@@ -171,7 +175,8 @@ function ScoreRow({ label, value, onChange, lowLabel, highLabel }: { readonly la
 
 const styles = StyleSheet.create({
   container: { gap: spacing.lg, padding: spacing.lg, paddingBottom: 112 },
-  header: { gap: spacing.xs, paddingTop: spacing.sm },
+  header: { alignItems: "center", flexDirection: "row", gap: spacing.md, paddingTop: spacing.sm },
+  headerCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
   eyebrow: { color: colors.leaf, ...typography.caption },
   title: { color: colors.ink, ...typography.screenTitle },
   subtitle: { color: colors.body, ...typography.body },

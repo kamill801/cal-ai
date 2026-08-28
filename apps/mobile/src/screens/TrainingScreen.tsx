@@ -95,10 +95,10 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>오늘의 운동</Text>
-          <Text style={styles.title}>{nextDay ? "오늘 할 운동을 준비했어요" : "내 상황에 맞는 루틴을 만들어요"}</Text>
+          <Text style={styles.title}>{nextDay ? "오늘 할 운동을\n준비했어요" : "내 상황에 맞는\n루틴을 만들어요"}</Text>
           <Text style={styles.subtitle}>목표, 운동 빈도, 회복 기록을 함께 보고 다음 세션을 정리해요.</Text>
         </View>
-        <TrustBuddy size={64} accessory="sprout" />
+        <TrustBuddy size={104} pose="workout" />
       </View>
 
       {error ? <FlowStatusCard error={error} /> : null}

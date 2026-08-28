@@ -14,6 +14,10 @@ export const styles = StyleSheet.create({
     gap: spacing.md,
     paddingTop: spacing.sm
   },
+  topBarCopy: {
+    flex: 1,
+    minWidth: 0
+  },
   greeting: {
     color: colors.body,
     ...typography.bodyStrong

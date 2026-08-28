@@ -58,7 +58,7 @@ export function OnboardingScreen({ status, error, target, warnings, onSubmit, on
           <Text style={styles.title}>사진 한 장으로 식단 기록을 시작해요</Text>
           <Text style={styles.subtitle}>필요한 정보만 짧게 받고, 나중에 체중 변화와 기록이 쌓이면 목표를 다시 조정해요.</Text>
         </View>
-        <TrustBuddy size={88} accessory="spoon" />
+        <TrustBuddy size={112} pose="meal" />
       </View>
 
       {rangeWarning ? <Text style={styles.validationText} accessibilityRole="alert">{rangeWarning}</Text> : null}

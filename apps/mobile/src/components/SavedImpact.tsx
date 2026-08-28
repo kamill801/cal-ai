@@ -10,7 +10,7 @@ export function SavedImpact({ impact }: { impact: SavedImpactViewModel }) {
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{impact.confirmation}</Text>
         </View>
-        <TrustBuddy size={58} accessory="sprout" />
+        <TrustBuddy size={96} pose="celebrate" />
       </View>
       <Text style={styles.title}>오늘 남은 칼로리는 {impact.remainingCaloriesKcal.toLocaleString()}kcal예요.</Text>
       <Text style={styles.body}>{impact.nextMealSuggestion}</Text>

@@ -73,8 +73,11 @@ export function ReviewResultScreen({
     <View style={styles.screen}>
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>분석 결과</Text>
-        <Text style={styles.subtitle}>{isSaving ? "식사 기록으로 저장하고 있어요" : "사진 한 장으로 믿을 수 있는 범위를 만들었어요"}</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.title}>분석 결과</Text>
+          <Text style={styles.subtitle}>{isSaving ? "식사 기록으로 저장하고 있어요" : "사진 한 장으로 믿을 수 있는 범위를 만들었어요"}</Text>
+        </View>
+        <TrustBuddy size={104} pose="analysis" />
       </View>
 
       <View style={styles.photoStage}>
@@ -84,9 +87,6 @@ export function ReviewResultScreen({
           confidenceLabel={analysis.summary.confidenceLabel}
           confidenceGroup={analysis.summary.confidenceGroup}
         />
-        <View style={styles.buddyOverlay}>
-          <TrustBuddy size={72} accessory="magnifier" />
-        </View>
       </View>
 
       <View style={styles.resultCard}>
@@ -138,7 +138,7 @@ export function ReviewResultScreen({
               <Text style={styles.sectionTitle}>직접 확인한 값으로 수정</Text>
               <Text style={styles.editorHelp}>음식 이름이나 영양값이 다르면 저장 전에 고칠 수 있어요.</Text>
             </View>
-            <TrustBuddy size={48} accessory="sprout" />
+            <TrustBuddy size={80} pose="coach" />
           </View>
           <TextInput
             style={styles.nameInput}
@@ -217,8 +217,14 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: "center",
+    flexDirection: "row",
     gap: spacing.xs,
     paddingTop: spacing.sm
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs
   },
   title: {
     color: colors.ink,
@@ -226,18 +232,11 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     color: colors.body,
-    textAlign: "center",
     ...typography.body
   },
   photoStage: {
     position: "relative",
     marginTop: spacing.sm
-  },
-  buddyOverlay: {
-    position: "absolute",
-    right: spacing.md,
-    bottom: 62,
-    zIndex: 4
   },
   resultCard: {
     gap: spacing.md,

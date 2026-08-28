@@ -18,7 +18,7 @@ export function WeeklyCoachScreen({ report, status, error }: { readonly report?:
           <Text style={styles.title}>{hasEvidence ? "이번 주 결론부터 간단히 볼게요" : "기록이 쌓이면 함께 돌아봐요"}</Text>
           <Text style={styles.subtitle}>식사, 운동, 체중, 회복 기록을 함께 보고 다음 주에 바꿀 한두 가지만 골라요.</Text>
         </View>
-        <TrustBuddy size={68} accessory="spoon" />
+        <TrustBuddy size={104} pose="coach" />
       </View>
       {error ? <FlowStatusCard error={error} /> : null}
       {status === "loading" && !report ? <CoachCard title="이번 주 기록을 정리하고 있어요" eyebrow="잠시만요"><Text style={styles.body}>반복된 패턴과 회복 신호를 함께 확인해요.</Text></CoachCard> : null}

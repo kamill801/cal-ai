@@ -25,7 +25,7 @@ export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, deletionS
           <Text style={styles.title}>내 기록은 이렇게 다뤄요</Text>
           <Text style={styles.subtitle}>사진과 건강 기록을 왜 사용하는지, 어디까지 분석하는지 숨기지 않고 알려드려요.</Text>
         </View>
-        <TrustBuddy size={68} accessory="sprout" />
+        <TrustBuddy size={104} pose="coach" />
       </View>
 
       <View style={styles.card}>
