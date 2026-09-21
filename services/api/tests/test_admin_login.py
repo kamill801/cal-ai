@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -12,6 +13,11 @@ from app.services.persistence import PersistenceError
 
 client = TestClient(app)
 PAYLOAD = {"username": "owner-test", "password": "fixture-password-only"}
+
+
+def test_vercel_requirements_include_admin_login_http_client():
+    requirements = Path(__file__).resolve().parents[3] / "requirements.txt"
+    assert any(line.startswith("httpx") for line in requirements.read_text().splitlines())
 
 
 @pytest.fixture(autouse=True)
