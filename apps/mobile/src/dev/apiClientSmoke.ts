@@ -118,6 +118,33 @@ async function expectOnboardingMapsResponse(): Promise<void> {
   }
 }
 
+async function expectAuthenticatedProfileMapsResponse(): Promise<void> {
+  const calls: { url: string; authorization?: string }[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = ((url, init) => {
+    calls.push({ url: String(url), authorization: init?.headers && "Authorization" in init.headers ? String(init.headers.Authorization) : undefined });
+    if (String(url).endsWith("/v1/profiles/me") && init?.method !== "POST") {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ profile_id: "server-profile-1" })
+      } as Response);
+    }
+    return Promise.reject(new Error("unexpected request"));
+  }) as typeof fetch;
+  try {
+    const profile = await createCalAiApiClient("http://127.0.0.1:8015", "session-token").getAuthenticatedProfile();
+    if (profile.profileId !== "server-profile-1") {
+      throw new Error("authenticated profile response did not map");
+    }
+    if (calls[0]?.authorization !== "Bearer session-token") {
+      throw new Error("authenticated profile discovery must include the session bearer token");
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 async function expectPresignedUploadContract(): Promise<void> {
   const calls: string[] = [];
   const originalFetch = globalThis.fetch;
@@ -499,6 +526,7 @@ async function expectCoachContractsMap(): Promise<void> {
 
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
+  await expectAuthenticatedProfileMapsResponse();
   await expectOnboardingMapsResponse();
   await expectImageUploadMapsResponse();
   await expectPresignedUploadContract();

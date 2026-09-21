@@ -1,9 +1,10 @@
 import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, ProgressSummary, WeeklyCoachReport, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { ApiClientError, createCalAiApiClient } from "./src/api";
-import { useAuthSession } from "./src/auth/useAuthSession";
+import { ApiClientError, createCalAiApiClient, type BillingStatus } from "./src/api";
+import { createAnalyticsEventClient, createForegroundHeartbeat, type AnalyticsEventName, type AnalyticsProperties } from "./src/analytics";
+import { useAuthSession, type AuthSessionState } from "./src/auth/useAuthSession";
 import { onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
 import { uploadImageToStorage } from "./src/api/imageUpload";
 import { AppBottomNav, type MainTab } from "./src/components/AppBottomNav";
@@ -13,6 +14,7 @@ import { captureMealImageWithCamera, pickMealImageFromLibrary, type MealImagePic
 import { AnalyzeEvidenceScreen } from "./src/screens/AnalyzeEvidenceScreen";
 import { ClarificationScreen } from "./src/screens/ClarificationScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
+import { PlanScreen } from "./src/screens/PlanScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { ReviewResultScreen } from "./src/screens/ReviewResultScreen";
 import { SafetyPrivacyScreen } from "./src/screens/SafetyPrivacyScreen";
@@ -22,13 +24,20 @@ import { TrainingScreen } from "./src/screens/TrainingScreen";
 import { ProgressScreen } from "./src/screens/ProgressScreen";
 import { WeeklyCoachScreen } from "./src/screens/WeeklyCoachScreen";
 import { clearProfileId, loadProfileId, saveProfileId } from "./src/session/profileSession";
-import { profileRestoreAction, type ProfileRefreshResult } from "./src/session/profileRestore";
+import { profileIdForRestore, profileRestoreAction, type ProfileRefreshResult } from "./src/session/profileRestore";
+import { ownerScope } from "./src/session/ownerScope";
 import { colors } from "./src/theme";
 
-type AppScreen = "onboarding" | "safety" | MainTab;
+type AppScreen = "onboarding" | "safety" | "plan" | MainTab;
 
 export default function App() {
   const auth = useAuthSession();
+  const scope = ownerScope(auth.enabled, auth.session?.user.id);
+  // Remount all owner-bound state so late responses cannot populate another account.
+  return <OwnerApp key={scope} auth={auth} scope={scope} />;
+}
+
+function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const [state, dispatch] = useReducer(scanToSaveReducer, undefined, createInitialScanToSaveState);
   const [appScreen, setAppScreen] = useState<AppScreen>("onboarding");
   const [onboardingStatus, setOnboardingStatus] = useState<RequestStatus>("idle");
@@ -36,6 +45,8 @@ export default function App() {
   const [onboardingResult, setOnboardingResult] = useState<OnboardingResponse | undefined>(undefined);
   const [profileId, setProfileId] = useState<string | undefined>(undefined);
   const [sessionReady, setSessionReady] = useState(false);
+  const [sessionRestoreError, setSessionRestoreError] = useState<string | undefined>(undefined);
+  const [sessionRestoreAttempt, setSessionRestoreAttempt] = useState(0);
   const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | undefined>(undefined);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | undefined>(undefined);
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistory | undefined>(undefined);
@@ -46,8 +57,32 @@ export default function App() {
   const [coachError, setCoachError] = useState<FlowError | undefined>(undefined);
   const [deletionStatus, setDeletionStatus] = useState<RequestStatus>("idle");
   const [deletionError, setDeletionError] = useState<string | undefined>(undefined);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | undefined>(undefined);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | undefined>(undefined);
   const apiClient = useMemo(() => createCalAiApiClient(undefined, auth.session?.access_token), [auth.session?.access_token]);
+  const analyticsClient = useMemo(() => createAnalyticsEventClient(undefined, auth.session?.access_token, scope), [auth.session?.access_token, scope]);
   const photoSource = state.selectedImageUri ? { uri: state.selectedImageUri } : undefined;
+  const analyticsScreen = state.screen === "today" ? appScreen : state.screen;
+  const appOpenedRef = useRef(false);
+  const lastLoginUserIdRef = useRef<string | undefined>(undefined);
+  const lastViewEventRef = useRef<string | undefined>(undefined);
+  const lastClarificationRef = useRef<string | undefined>(undefined);
+
+  const trackEvent = useCallback(
+    (
+      eventName: AnalyticsEventName,
+      screen: string,
+      properties?: AnalyticsProperties,
+      activeProfileId = profileId
+    ): void => {
+      if (deletionStatus === "loading" || deletionStatus === "success") return;
+      void analyticsClient
+        .trackEvent({ eventName, screen, profileId: activeProfileId, properties })
+        .catch(() => undefined);
+    },
+    [analyticsClient, profileId, deletionStatus]
+  );
 
   useEffect(() => {
     let isCurrent = true;
@@ -63,12 +98,28 @@ export default function App() {
         return;
       }
       try {
-        const storedProfileId = await loadProfileId();
-        if (!storedProfileId || !isCurrent) {
+        setSessionRestoreError(undefined);
+        const serverProfileId = auth.enabled ? (await apiClient.getAuthenticatedProfile()).profileId : undefined;
+        const cachedProfileId = auth.enabled ? undefined : await loadProfileId(scope);
+        const restoredProfileId = profileIdForRestore({ authEnabled: auth.enabled, cachedProfileId, serverProfileId });
+        if (!isCurrent) {
           return;
         }
-        setProfileId(storedProfileId);
-        const restored = await refreshCoachData(storedProfileId);
+        if (!restoredProfileId) {
+          await clearProfileId(scope);
+          setProfileId(undefined);
+          setCoachDashboard(undefined);
+          setWorkoutPlan(undefined);
+          setWorkoutHistory(undefined);
+          setProgress(undefined);
+          setWeeklyCoach(undefined);
+          setLatestBodyCheckIn(undefined);
+          setOnboardingResult(undefined);
+          setAppScreen("onboarding");
+          return;
+        }
+        setProfileId(restoredProfileId);
+        const restored = await refreshCoachData(restoredProfileId);
         if (!isCurrent) {
           return;
         }
@@ -76,13 +127,15 @@ export default function App() {
         if (action === "open") {
           setAppScreen("today");
         } else if (action === "clear") {
-          await clearProfileId();
+          await clearProfileId(scope);
           setProfileId(undefined);
         } else {
           setAppScreen("today");
         }
       } catch {
-        setAppScreen("onboarding");
+        if (isCurrent) {
+          setSessionRestoreError("기록을 잠시 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+        }
       } finally {
         if (isCurrent) {
           setSessionReady(true);
@@ -94,13 +147,106 @@ export default function App() {
     return () => {
       isCurrent = false;
     };
-  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient]);
+  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient, sessionRestoreAttempt]);
 
   useEffect(() => {
     if (profileId) {
-      void saveProfileId(profileId);
+      void saveProfileId(profileId, scope);
     }
-  }, [profileId]);
+  }, [profileId, scope]);
+
+  useEffect(() => {
+    if (!auth.ready || !sessionReady || (auth.enabled && !auth.session) || appOpenedRef.current) {
+      return;
+    }
+    appOpenedRef.current = true;
+    trackEvent("app_opened", analyticsScreen);
+  }, [analyticsScreen, auth.enabled, auth.ready, auth.session, sessionReady, trackEvent]);
+
+  useEffect(() => {
+    const userId = auth.session?.user.id;
+    if (!userId || lastLoginUserIdRef.current === userId) {
+      return;
+    }
+    lastLoginUserIdRef.current = userId;
+    const provider = auth.session?.user.app_metadata?.provider;
+    trackEvent("login_completed", analyticsScreen, {
+      provider: typeof provider === "string" ? provider : "supabase"
+    });
+  }, [analyticsScreen, auth.session?.user.id, trackEvent]);
+
+  useEffect(() => {
+    if (!sessionReady || (auth.enabled && !auth.session) || deletionStatus === "loading" || deletionStatus === "success") {
+      return undefined;
+    }
+    const heartbeat = createForegroundHeartbeat(analyticsClient, {
+      screen: analyticsScreen,
+      profileId
+    });
+    heartbeat.start();
+    return () => heartbeat.stop();
+  }, [analyticsClient, analyticsScreen, auth.enabled, auth.session, profileId, sessionReady, deletionStatus]);
+
+  useEffect(() => {
+    if (state.screen !== "today") {
+      return;
+    }
+    const viewEvents: Partial<Record<AppScreen, AnalyticsEventName>> = {
+      training: "workout_plan_viewed",
+      progress: "progress_viewed",
+      coach: "coach_viewed",
+      plan: "plan_viewed"
+    };
+    const eventName = viewEvents[appScreen];
+    if (!eventName) {
+      return;
+    }
+    const viewKey = `${eventName}:${appScreen}`;
+    if (lastViewEventRef.current === viewKey) {
+      return;
+    }
+    lastViewEventRef.current = viewKey;
+    trackEvent(eventName, appScreen);
+  }, [appScreen, state.screen, trackEvent]);
+
+  useEffect(() => {
+    if (state.screen !== "clarifying" || !state.analysis || lastClarificationRef.current === state.analysis.id) {
+      return;
+    }
+    lastClarificationRef.current = state.analysis.id;
+    trackEvent("clarification_shown", "clarifying", {
+      question_key: state.analysis.clarificationQuestion?.questionKey ?? "unknown"
+    });
+  }, [state.analysis, state.screen, trackEvent]);
+
+  useEffect(() => {
+    if (appScreen !== "plan") {
+      return;
+    }
+    let isCurrent = true;
+    setBillingLoading(true);
+    setBillingError(undefined);
+    void apiClient
+      .getBillingStatus()
+      .then((status) => {
+        if (isCurrent) {
+          setBillingStatus(status);
+        }
+      })
+      .catch((error: unknown) => {
+        if (isCurrent) {
+          setBillingError(error instanceof ApiClientError ? error.userMessage : "플랜 상태를 불러오지 못했어요.");
+        }
+      })
+      .finally(() => {
+        if (isCurrent) {
+          setBillingLoading(false);
+        }
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [apiClient, appScreen]);
 
   useEffect(() => {
     const command = state.pendingCommand;
@@ -127,6 +273,7 @@ export default function App() {
             return;
           }
           case "CREATE_ANALYSIS_JOB": {
+            trackEvent("analysis_started", "analyzing", { source: "meal_photo" });
             const created = await apiClient.createAnalysisJob({
               imageUploadId: activeCommand.imageUploadId,
               profileId,
@@ -140,6 +287,12 @@ export default function App() {
           case "FETCH_ANALYSIS_JOB": {
             const job = await apiClient.getAnalysisJob(activeCommand.jobId);
             if (isCurrent) {
+              if ((job.status === "completed" || job.status === "needs_clarification") && job.result) {
+                trackEvent("analysis_completed", "analyzing", {
+                  status: job.status,
+                  confidence: job.result.summary.confidence
+                });
+              }
               dispatch({ type: "ANALYSIS_JOB_LOADED", job });
             }
             return;
@@ -151,6 +304,10 @@ export default function App() {
               value: activeCommand.value
             });
             if (isCurrent) {
+              trackEvent("clarification_answered", "clarifying", {
+                question_key: activeCommand.questionKey,
+                answer: activeCommand.value
+              });
               dispatch({ type: "CLARIFICATION_SUBMITTED", analysis: clarified.result, rangeNarrowing: clarified.rangeNarrowing });
             }
             return;
@@ -165,6 +322,10 @@ export default function App() {
               loggedOn: todayIso()
             });
             if (isCurrent) {
+              trackEvent("meal_saved", "review", {
+                result_id: activeCommand.resultId,
+                clarification: activeCommand.clarificationValue
+              });
               dispatch({ type: "MEAL_SAVED", impact });
             }
             return;
@@ -173,6 +334,12 @@ export default function App() {
       } catch (error) {
         if (!isCurrent) {
           return;
+        }
+        if (["CREATE_ANALYSIS_JOB", "FETCH_ANALYSIS_JOB"].includes(activeCommand.type)) {
+          trackEvent("analysis_failed", "analyzing", {
+            stage: activeCommand.type.toLowerCase(),
+            code: error instanceof ApiClientError ? error.code : "unknown_error"
+          });
         }
         dispatch({
           type: "COMMAND_FAILED",
@@ -191,7 +358,7 @@ export default function App() {
     return () => {
       isCurrent = false;
     };
-  }, [apiClient, profileId, state.pendingCommand]);
+  }, [apiClient, profileId, state.pendingCommand, trackEvent]);
 
   useEffect(() => {
     if (state.screen === "saved" && profileId) {
@@ -200,10 +367,17 @@ export default function App() {
   }, [profileId, state.screen]);
 
   async function submitOnboarding(input: OnboardingRequest): Promise<void> {
+    trackEvent("onboarding_started", "onboarding", { goal_type: input.goalType });
     setOnboardingStatus("loading");
     setOnboardingError(undefined);
     try {
       const created = await apiClient.createOnboarding(input);
+      trackEvent(
+        "onboarding_completed",
+        "onboarding",
+        { goal_type: input.goalType, training_frequency: input.trainingFrequency ?? "none" },
+        created.profileId
+      );
       setOnboardingResult(created);
       setOnboardingStatus("success");
     } catch (error) {
@@ -256,15 +430,8 @@ export default function App() {
   }
 
   async function retrySessionRestore(): Promise<void> {
-    if (!profileId) {
-      return;
-    }
-    const restored = await refreshCoachData(profileId);
-    if (restored === "not_found") {
-      await clearProfileId();
-      setProfileId(undefined);
-      setAppScreen("onboarding");
-    }
+    setSessionReady(false);
+    setSessionRestoreAttempt((attempt) => attempt + 1);
   }
 
   async function generatePlan(activeProfileId = profileId): Promise<void> {
@@ -306,6 +473,11 @@ export default function App() {
         completedExerciseIds: input.completedExerciseIds,
         exercisePerformance: input.exercisePerformance,
         sessionRpe: input.sessionRpe
+      });
+      trackEvent("workout_completed", "training", {
+        workout_day_id: input.workoutDayId,
+        duration_minutes: input.durationMinutes,
+        session_rpe: input.sessionRpe
       });
       await refreshCoachData(profileId);
     } catch (error) {
@@ -456,16 +628,10 @@ export default function App() {
   }
 
   async function signOut(): Promise<void> {
-    await clearProfileId();
-    setProfileId(undefined);
-    setCoachDashboard(undefined);
-    setWorkoutPlan(undefined);
-    setWorkoutHistory(undefined);
-    setProgress(undefined);
-    setWeeklyCoach(undefined);
-    setLatestBodyCheckIn(undefined);
-    setAppScreen("onboarding");
-    await auth.signOut();
+    const signedOut = await auth.signOut();
+    if (!signedOut) {
+      setSessionRestoreError("로그아웃하지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+    }
   }
 
   async function deleteAppData(): Promise<void> {
@@ -476,7 +642,7 @@ export default function App() {
     setDeletionError(undefined);
     try {
       await apiClient.deleteProfile(profileId);
-      await clearProfileId();
+      await clearProfileId(scope);
       setProfileId(undefined);
       setCoachDashboard(undefined);
       setWorkoutPlan(undefined);
@@ -499,6 +665,10 @@ export default function App() {
   function handleMealImageResult(result: MealImagePickerResult): void {
     switch (result.status) {
       case "selected":
+        trackEvent("meal_photo_selected", "today", {
+          content_type: result.image.contentType,
+          byte_size: result.image.byteSize
+        });
         dispatch({ type: "START_SCAN", image: result.image });
         return;
       case "permission_denied":
@@ -547,6 +717,28 @@ export default function App() {
     );
   }
 
+  if (sessionRestoreError) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View style={styles.sessionLoading} accessibilityLabel="프로필 연결 재시도">
+          <Text style={styles.sessionErrorTitle}>기록을 잠시 불러오지 못했어요</Text>
+          <Text style={styles.sessionLoadingText}>{sessionRestoreError}</Text>
+          <View style={styles.sessionActions}>
+            <TouchableOpacity style={styles.sessionRetryButton} onPress={() => void retrySessionRestore()} accessibilityRole="button">
+              <Text style={styles.sessionRetryText}>다시 불러오기</Text>
+            </TouchableOpacity>
+            {auth.enabled ? (
+              <TouchableOpacity style={styles.sessionSignOutButton} onPress={() => void signOut()} accessibilityRole="button">
+                <Text style={styles.sessionSignOutText}>로그아웃</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   if (profileId && !coachDashboard && coachStatus === "error") {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -554,9 +746,16 @@ export default function App() {
         <View style={styles.sessionLoading} accessibilityLabel="프로필 연결 재시도">
           <Text style={styles.sessionErrorTitle}>기록을 잠시 불러오지 못했어요</Text>
           <Text style={styles.sessionLoadingText}>프로필은 기기에 안전하게 남아 있어요. 연결을 확인하고 다시 시도해 주세요.</Text>
-          <TouchableOpacity style={styles.sessionRetryButton} onPress={() => void retrySessionRestore()} accessibilityRole="button">
-            <Text style={styles.sessionRetryText}>다시 불러오기</Text>
-          </TouchableOpacity>
+          <View style={styles.sessionActions}>
+            <TouchableOpacity style={styles.sessionRetryButton} onPress={() => void retrySessionRestore()} accessibilityRole="button">
+              <Text style={styles.sessionRetryText}>다시 불러오기</Text>
+            </TouchableOpacity>
+            {auth.enabled ? (
+              <TouchableOpacity style={styles.sessionSignOutButton} onPress={() => void signOut()} accessibilityRole="button">
+                <Text style={styles.sessionSignOutText}>로그아웃</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -591,6 +790,19 @@ export default function App() {
           deletionError={deletionError}
         />
       ) : null}
+      {state.screen === "today" && appScreen === "plan" ? (
+        <PlanScreen
+          onBack={() => setAppScreen("today")}
+          configured={billingStatus?.checkoutAvailable ?? false}
+          loading={billingLoading}
+          error={billingError}
+          statusMessage={billingStatus?.message}
+          onCheckout={() => {
+            trackEvent("checkout_started", "plan", { provider: billingStatus?.provider ?? "unconfigured" });
+            Alert.alert("결제 준비 중", "안전한 주문 생성과 결제 결과 확인을 연결한 뒤 Pro 결제를 열 예정이에요.");
+          }}
+        />
+      ) : null}
       {state.screen === "today" && appScreen === "today" ? (
         <TodayDashboardScreen
           dashboard={state.dashboard}
@@ -602,6 +814,7 @@ export default function App() {
             void startScanFromLibrary();
           }}
           onOpenSafety={() => setAppScreen("safety")}
+          onOpenPlan={() => setAppScreen("plan")}
           status={coachStatus}
           error={coachError}
           onRepeatMeal={(mealLogId) => void repeatMeal(mealLogId)}
@@ -609,7 +822,7 @@ export default function App() {
         />
       ) : null}
       {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onComplete={(input) => void completeWorkout(input)} />
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen
@@ -719,6 +932,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800"
   },
+  sessionActions: {
+    gap: 10,
+    alignItems: "center"
+  },
   sessionRetryButton: {
     minHeight: 48,
     paddingHorizontal: 24,
@@ -730,6 +947,17 @@ const styles = StyleSheet.create({
   sessionRetryText: {
     color: colors.surface,
     fontSize: 15,
+    fontWeight: "800"
+  },
+  sessionSignOutButton: {
+    minHeight: 44,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  sessionSignOutText: {
+    color: colors.muted,
+    fontSize: 14,
     fontWeight: "800"
   }
 });

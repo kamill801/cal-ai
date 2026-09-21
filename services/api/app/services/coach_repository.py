@@ -35,6 +35,8 @@ class CoachRepository(Protocol):
 
     def get_profile(self, profile_id: str) -> CoachProfile | None: ...
 
+    def list_profiles_for_owner(self, owner_id: str) -> list[CoachProfile]: ...
+
     def save_weight_log(self, value: WeightLogResponse) -> WeightLogResponse: ...
 
     def list_weight_logs(self, profile_id: str) -> list[WeightLogResponse]: ...
@@ -79,6 +81,19 @@ class SqlCoachRepository:
         with self._connection() as conn:
             row = conn.execute(self._sql("select payload_json from coach_profiles where profile_id = ?"), (profile_id,)).fetchone()
         return CoachProfile.model_validate_json(row["payload_json"]) if row else None
+
+    def list_profiles_for_owner(self, owner_id: str) -> list[CoachProfile]:
+        owner_filter = (
+            "payload_json::jsonb ->> 'owner_id' = ?"
+            if self._postgres
+            else "json_extract(payload_json, '$.owner_id') = ?"
+        )
+        with self._connection() as conn:
+            rows = conn.execute(
+                self._sql(f"select payload_json from coach_profiles where {owner_filter} order by created_at, profile_id"),
+                (owner_id,),
+            ).fetchall()
+        return [CoachProfile.model_validate_json(row["payload_json"]) for row in rows]
 
     def save_weight_log(self, value: WeightLogResponse) -> WeightLogResponse:
         return self._save_event("weight", value)

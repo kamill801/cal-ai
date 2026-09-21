@@ -25,7 +25,7 @@ interface PerformanceDraft {
   effort: WorkoutEffort;
 }
 
-export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onComplete }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onComplete: (input: WorkoutCompletionInput) => void }) {
+export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void }) {
   const proteinTarget = dashboard?.nutrition.target.proteinG ?? 0;
   const proteinConsumed = dashboard?.nutrition.consumed.proteinG ?? 0;
   const proteinProgress = proteinTarget ? Math.min(1, proteinConsumed / proteinTarget) : 0;
@@ -36,18 +36,24 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   const [performance, setPerformance] = useState<Record<string, PerformanceDraft>>({});
   const [durationMinutes, setDurationMinutes] = useState(String(plan?.sessionMinutes ?? 60));
   const [sessionRpe, setSessionRpe] = useState(7);
+  const [startTracked, setStartTracked] = useState(false);
 
   useEffect(() => {
     setCompletedExerciseIds([]);
     setPerformance(Object.fromEntries((nextDay?.exercises ?? []).map((exercise) => [exercise.id, { sets: String(exercise.sets), reps: exercise.recommendedReps ? String(exercise.recommendedReps) : "", load: exercise.recommendedLoadKg ? String(exercise.recommendedLoadKg) : "", effort: "on_target" }])));
     setDurationMinutes(String(plan?.sessionMinutes ?? 60));
     setSessionRpe(7);
+    setStartTracked(false);
   }, [nextDay?.id, plan?.sessionMinutes]);
 
   const parsedDuration = Number(durationMinutes);
   const canSaveSession = completedExerciseIds.length > 0 && Number.isInteger(parsedDuration) && parsedDuration >= 5 && parsedDuration <= 240;
 
   function toggleExercise(exerciseId: string): void {
+    if (!completedExerciseIds.includes(exerciseId) && !startTracked && nextDay) {
+      setStartTracked(true);
+      onStart(nextDay.id);
+    }
     setCompletedExerciseIds((current) => current.includes(exerciseId) ? current.filter((id) => id !== exerciseId) : [...current, exerciseId]);
   }
 

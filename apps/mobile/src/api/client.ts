@@ -9,6 +9,7 @@ import type {
   ApiImageUploadResponse,
   ApiMealLogDeleteResult,
   ApiMealLogHistory,
+  ApiAuthenticatedProfileResponse,
   ApiOnboardingResponse,
   OnboardingRequest,
   ApiSavedImpactResponse,
@@ -33,6 +34,7 @@ import {
   mapApiImageUpload,
   mapApiMealLogDeleteResult,
   mapApiMealLogHistory,
+  mapApiAuthenticatedProfile,
   mapApiOnboardingResponse,
   mapApiSavedImpactResponse,
   mapApiBodyCheckIn,
@@ -51,6 +53,7 @@ import {
   type ImageUploadViewModel,
   type MealLogDeleteResult,
   type MealLogHistory,
+  type AuthenticatedProfile,
   type OnboardingResponse,
   type RangeNarrowingResult,
   type SavedImpactViewModel,
@@ -102,8 +105,17 @@ export class ApiClientError extends Error {
   }
 }
 
+export interface BillingStatus {
+  plan: string;
+  status: string;
+  checkoutAvailable: boolean;
+  provider?: string;
+  message: string;
+}
+
 export interface CalAiApiClient {
   getTodayDashboard(): Promise<DashboardTodayResponse>;
+  getAuthenticatedProfile(): Promise<AuthenticatedProfile>;
   createOnboarding(input: OnboardingRequest): Promise<OnboardingResponse>;
   uploadImage(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number; simulateFailure?: boolean }): Promise<ImageUploadViewModel>;
   presignImageUpload(input: { localAssetId: string; fileName: string; contentType: ImageContentType; byteSize: number }): Promise<ImageUploadPresignViewModel>;
@@ -133,6 +145,7 @@ export interface CalAiApiClient {
   getWorkoutHistory(profileId: string, limit?: number): Promise<WorkoutHistory>;
   getProgress(profileId: string): Promise<ProgressSummary>;
   getWeeklyCoach(profileId: string): Promise<WeeklyCoachReport>;
+  getBillingStatus(): Promise<BillingStatus>;
   deleteProfile(profileId: string): Promise<ProfileDeletionResult>;
 }
 
@@ -143,6 +156,9 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
   return {
     async getTodayDashboard() {
       return mapApiDashboardToday(await call<ApiDashboardTodayResponse>("/v1/dashboard/today"));
+    },
+    async getAuthenticatedProfile() {
+      return mapApiAuthenticatedProfile(await call<ApiAuthenticatedProfileResponse>("/v1/profiles/me"));
     },
     async createOnboarding(input) {
       return mapApiOnboardingResponse(
@@ -341,6 +357,22 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
     },
     async getWeeklyCoach(profileId) {
       return mapApiWeeklyCoach(await call<ApiWeeklyCoachReport>(`/v1/profiles/${encodeURIComponent(profileId)}/weekly-coach`));
+    },
+    async getBillingStatus() {
+      const response = await call<{
+        plan: string;
+        status: string;
+        checkout_available: boolean;
+        provider?: string | null;
+        message: string;
+      }>("/v1/billing/status");
+      return {
+        plan: response.plan,
+        status: response.status,
+        checkoutAvailable: response.checkout_available,
+        provider: response.provider ?? undefined,
+        message: response.message
+      };
     },
     async deleteProfile(profileId) {
       return mapApiProfileDeletionResult(

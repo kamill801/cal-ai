@@ -419,6 +419,20 @@ OpenAI food-vision integration summary — 2026-07-22:
 - [ ] Supabase Auth identity deletion after re-authentication.
 - [ ] Production deployment verification and Android real-device E2E.
 
+### Session 9: Private Admin and Product Operations
+
+- [x] Separate `apps/admin` deployment unit with no route or link from the consumer app.
+- [x] Dedicated Supabase email/password login with no public signup or reset flow.
+- [x] Server-side asymmetric JWT verification plus `ADMIN_USER_IDS` subject allowlist.
+- [x] Five-minute foreground heartbeat and 30-minute bounded analytics sessions.
+- [x] Product event funnel for onboarding, meal analysis/save, workout, coach, and plan views.
+- [x] Neon/local persistence for users, sessions, events, billing placeholders, and admin audit reads.
+- [x] Admin overview, activity, user detail, funnel/dropoff, payment, and AI success summaries.
+- [x] Honest free-beta plan page; Groble checkout remains disabled until signed order and webhook APIs exist.
+- [ ] Create the owner's dedicated Supabase account and set production admin environment variables.
+- [ ] Sync exact Supabase account creation timestamps through a trusted Auth event integration.
+- [ ] Deploy the separate admin Vercel project and perform authenticated production E2E.
+
 ## Risks
 
 ### Product Risks

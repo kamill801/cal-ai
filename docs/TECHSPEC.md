@@ -1262,12 +1262,19 @@ AI_MODEL_TEXT=
 AUTH_PROVIDER=disabled
 SUPABASE_URL=
 SUPABASE_JWT_ALGORITHM=ES256
+ADMIN_DASHBOARD_ENABLED=false
+ADMIN_SUPABASE_URL=
+ADMIN_SUPABASE_JWT_ALGORITHM=ES256
+ADMIN_USER_IDS=
+ANALYTICS_TIMEZONE=Asia/Seoul
+PAYMENT_PROVIDER=disabled
+GROBLE_PRODUCT_ID=
+GROBLE_WEBHOOK_SECRET=
 POSTHOG_KEY=
 SENTRY_DSN=
-REVENUECAT_API_KEY=
 ```
 
-RevenueCat variables may remain unset until billing work starts.
+Groble variables remain unset until signed order creation and webhook verification are implemented.
 
 ## 19. Design Integration Contract
 
@@ -1303,7 +1310,18 @@ Until then, implementation should use replaceable tokens aligned to `DESIGN.md`.
 - Exact AI provider/model names
 - Whether MVP is Expo mobile app only or also web/PWA
 - Billing launch timing
-## 21. Repeat Logging and Adaptive Workout Targets
+
+## 21. Separate Admin, Analytics, and Billing Foundation
+
+`apps/admin` is a standalone Vite application deployed from its own Vercel project and domain. The consumer Expo app contains no admin route or link. Admin authentication uses a manually created Supabase email/password account; the browser receives only the publishable key. FastAPI verifies the asymmetric Supabase JWT and then requires the token subject to match `ADMIN_USER_IDS`. Disabled admin routes return `404`, valid non-admin users receive `403`, and responses use `Cache-Control: no-store`.
+
+Neon Postgres remains canonical in production, with sqlite fallback locally. The operational tables are `app_users`, `app_sessions`, `product_events`, `billing_subscriptions`, `billing_payments`, and `admin_audit_logs`. Mobile analytics are non-blocking and use an event-name whitelist, a property-key allowlist, 30-minute sessions, and one-minute foreground heartbeats. “Realtime” means activity within five minutes, not a socket connection.
+
+The admin API exposes `GET /internal/admin/overview` and `GET /internal/admin/users/{user_id}`. Funnel stages are sequential within a 30-day window. User first-seen time is the first authenticated event observed by Cal AI; exact Supabase signup time requires a trusted Auth event integration.
+
+`GET /v1/billing/status` powers an honest free-beta plan screen. Billing tables and UI are present, but `checkout_available` stays false until Groble order creation, signature verification, idempotent webhook handling, and entitlement updates are implemented and approved.
+
+## 22. Repeat Logging and Adaptive Workout Targets
 
 ### Meal record operations
 

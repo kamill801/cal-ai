@@ -69,6 +69,7 @@ class ReadyResponse(BaseModel):
     ai: ReadyDependencyResponse
     body_ai: ReadyDependencyResponse
     auth: ReadyDependencyResponse
+    admin: ReadyDependencyResponse
 
 
 class RetentionCleanupResponse(BaseModel):

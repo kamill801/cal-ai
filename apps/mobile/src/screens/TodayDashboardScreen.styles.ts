@@ -176,6 +176,30 @@ export const styles = StyleSheet.create({
     color: colors.muted,
     ...typography.caption
   },
+  planAction: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+    borderColor: colors.hairline,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    ...shadows.card
+  },
+  planActionIcon: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radii.control,
+    backgroundColor: colors.leafTint
+  },
+  planActionCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs
+  },
   guidanceCard: {
     gap: spacing.sm,
     borderColor: colors.warningBorder,

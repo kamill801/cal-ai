@@ -1,5 +1,5 @@
 import type { CoachDashboard, DashboardTodayResponse } from "@cal-ai/shared";
-import { RotateCcw, Trash2 } from "lucide-react-native";
+import { ChevronRight, CreditCard, RotateCcw, Trash2 } from "lucide-react-native";
 import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import { ConfidencePill } from "../components/ConfidencePill";
 import { MacroSummary } from "../components/MacroSummary";
@@ -15,6 +15,7 @@ export function TodayDashboardScreen({
   onCaptureMeal,
   onPickMeal,
   onOpenSafety,
+  onOpenPlan,
   onRepeatMeal,
   onDeleteMeal,
   status,
@@ -25,6 +26,7 @@ export function TodayDashboardScreen({
   readonly onCaptureMeal: () => void;
   readonly onPickMeal: () => void;
   readonly onOpenSafety: () => void;
+  readonly onOpenPlan: () => void;
   readonly onRepeatMeal: (mealLogId: string) => void;
   readonly onDeleteMeal: (mealLogId: string, mealName: string) => void;
   readonly status: RequestStatus;
@@ -98,6 +100,17 @@ export function TodayDashboardScreen({
           <Text style={styles.secondaryActionBody}>저장과 분석 원칙 확인</Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity style={styles.planAction} activeOpacity={0.82} onPress={onOpenPlan} accessibilityRole="button" accessibilityLabel="플랜과 결제 준비 상태 보기">
+        <View style={styles.planActionIcon} accessible={false}>
+          <CreditCard color={colors.leaf} size={18} />
+        </View>
+        <View style={styles.planActionCopy}>
+          <Text style={styles.secondaryActionTitle}>플랜·결제</Text>
+          <Text style={styles.secondaryActionBody}>무료 베타와 Pro 준비 상태 확인</Text>
+        </View>
+        <ChevronRight color={colors.muted} size={18} />
+      </TouchableOpacity>
 
       <View style={styles.guidanceCard}>
         <View style={styles.coachRow}>

@@ -41,6 +41,10 @@ export interface OnboardingResponse {
   warnings: string[];
 }
 
+export interface AuthenticatedProfile {
+  profileId: string | null;
+}
+
 export interface NutrientGap {
   nutrient: "protein_g" | "carbs_g" | "fat_g" | "calories_kcal";
   amount: number;
@@ -197,6 +201,10 @@ export interface ApiOnboardingResponse {
   profile_id: string;
   target: ApiNutritionTarget;
   warnings: string[];
+}
+
+export interface ApiAuthenticatedProfileResponse {
+  profile_id: string | null;
 }
 
 export interface ApiNutrientGap {
@@ -402,6 +410,10 @@ export function mapApiOnboardingResponse(response: ApiOnboardingResponse): Onboa
     target: mapApiNutritionTarget(response.target),
     warnings: response.warnings
   };
+}
+
+export function mapApiAuthenticatedProfile(response: ApiAuthenticatedProfileResponse): AuthenticatedProfile {
+  return { profileId: response.profile_id };
 }
 
 export function mapApiDashboardToday(response: ApiDashboardTodayResponse): DashboardTodayResponse {

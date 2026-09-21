@@ -35,6 +35,8 @@ from app.schemas import (
     SavedImpactResponse,
 )
 from app.coach_routes import router as coach_router
+from app.admin_routes import router as admin_router
+from app.analytics_routes import billing_router, router as analytics_router
 from app.services.analysis_provider import (
     AnalysisProviderConfigurationError,
     AnalysisProviderDryRunError,
@@ -44,6 +46,7 @@ from app.services.analysis_provider import (
     get_analysis_provider,
 )
 from app.services.analysis_results import apply_manual_nutrition_override, apply_persisted_clarification, save_persisted_meal
+from app.services.analytics_repository import get_analytics_repository
 from app.services.image_uploads import ImageUploadError, complete_presigned_image_upload, create_mock_image_upload, create_presigned_image_upload, resolve_analysis_image_reference, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
@@ -51,18 +54,30 @@ from app.services.storage import StorageConfigurationError, get_storage_adapter,
 from app.services.targets import calculate_initial_target
 from app.services.coach import CoachNotFoundError, create_profile, merge_profile_meal_impact
 from app.services.coach_repository import get_coach_repository
-from app.services.auth import AuthConfigurationError, AuthenticationError, authenticate_bearer_token
+from app.services.auth import AuthConfigurationError, AuthenticationError, authenticate_bearer_token, authentication_required
 
 ApiErrorKind = Literal["provider", "validation", "not_found", "server", "unknown"]
-DEFAULT_CORS_ALLOWED_ORIGINS = ("http://localhost:8081", "http://127.0.0.1:8081")
+DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:3016",
+    "http://127.0.0.1:3016",
+    "http://localhost:3017",
+    "http://127.0.0.1:3017",
+)
 
 
 def get_cors_allowed_origins(environ: Mapping[str, str] | None = None) -> list[str]:
     env = environ if environ is not None else os.environ
     raw_value = env.get("CORS_ALLOWED_ORIGINS")
-    if not raw_value:
-        return list(DEFAULT_CORS_ALLOWED_ORIGINS)
-    return [origin for origin in (value.strip() for value in raw_value.split(",")) if origin]
+    origins = (
+        [origin for origin in (value.strip() for value in raw_value.split(",")) if origin]
+        if raw_value else list(DEFAULT_CORS_ALLOWED_ORIGINS)
+    )
+    admin_origin = (env.get("ADMIN_FRONTEND_ORIGIN") or "").strip().rstrip("/")
+    if admin_origin and admin_origin not in origins:
+        origins.append(admin_origin)
+    return origins
 
 
 app = FastAPI(
@@ -76,6 +91,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(coach_router)
+app.include_router(analytics_router)
+app.include_router(billing_router)
+app.include_router(admin_router)
 
 
 @app.middleware("http")
@@ -86,6 +104,7 @@ async def optional_authentication(request: Request, call_next):
     try:
         user = authenticate_bearer_token(request.headers.get("Authorization"))
         request.state.user_id = user.user_id if user else None
+        request.state.auth_user = user
     except AuthenticationError:
         detail = ApiErrorDetail(code="authentication_required", message="로그인이 필요해요.", retryable=False, kind="validation")
         return JSONResponse(status_code=401, content={"detail": detail.model_dump()})
@@ -200,6 +219,7 @@ def ready() -> ReadyResponse:
     database_status = ReadyDependencyResponse(status="ok", provider="sqlite-or-postgres")
     try:
         get_persistence_repository().check_ready()
+        get_analytics_repository().check_ready()
     except PersistenceError:
         database_status = ReadyDependencyResponse(status="degraded", provider="sqlite-or-postgres", message="database unavailable")
 
@@ -243,7 +263,11 @@ def ready() -> ReadyResponse:
     auth_provider = os.environ.get("AUTH_PROVIDER", "disabled").strip().lower() or "disabled"
     auth_algorithm = (os.environ.get("SUPABASE_JWT_ALGORITHM") or "").strip().upper()
     if auth_provider == "disabled":
-        auth_status = ReadyDependencyResponse(status="disabled", provider="disabled", message="anonymous MVP mode")
+        auth_status = ReadyDependencyResponse(
+            status="misconfigured" if authentication_required() else "disabled",
+            provider="disabled",
+            message="production authentication is required" if authentication_required() else "anonymous MVP mode",
+        )
     elif (
         auth_provider == "supabase"
         and (os.environ.get("SUPABASE_URL") or "").startswith("https://")
@@ -262,9 +286,31 @@ def ready() -> ReadyResponse:
         )
     else:
         auth_status = ReadyDependencyResponse(status="misconfigured", provider=auth_provider, message="unsupported auth provider")
+    admin_enabled = os.environ.get("ADMIN_DASHBOARD_ENABLED", "false").strip().lower() == "true"
+    admin_url = (os.environ.get("ADMIN_SUPABASE_URL") or "").strip()
+    admin_algorithm = (os.environ.get("ADMIN_SUPABASE_JWT_ALGORITHM") or "").strip().upper()
+    if not admin_enabled:
+        admin_status = ReadyDependencyResponse(status="disabled", provider="disabled", message="separate admin app is disabled")
+    elif (
+        admin_url.startswith("https://")
+        and admin_algorithm in {"RS256", "ES256"}
+        and (os.environ.get("ADMIN_USER_IDS") or "").strip()
+        and (os.environ.get("ADMIN_LOGIN_USERNAME") or "").strip()
+        and (os.environ.get("ADMIN_LOGIN_EMAIL") or "").strip()
+        and (os.environ.get("ADMIN_SUPABASE_PUBLISHABLE_KEY") or "").strip()
+    ):
+        admin_status = ReadyDependencyResponse(status="ok", provider="supabase", message="dedicated admin allowlist configured")
+    else:
+        admin_status = ReadyDependencyResponse(
+            status="misconfigured",
+            provider="supabase",
+            message="admin auth, owner allowlist, and server-side login configuration are required",
+        )
     dependencies = (database_status, storage_status, ai_status, body_ai_status)
-    if auth_provider != "disabled":
+    if auth_provider != "disabled" or authentication_required():
         dependencies += (auth_status,)
+    if admin_enabled:
+        dependencies += (admin_status,)
     overall_status = "ok" if all(item.status == "ok" for item in dependencies) else "degraded"
     return ReadyResponse(
         status=overall_status,
@@ -274,6 +320,7 @@ def ready() -> ReadyResponse:
         ai=ai_status,
         body_ai=body_ai_status,
         auth=auth_status,
+        admin=admin_status,
     )
 
 

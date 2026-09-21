@@ -4,6 +4,7 @@ import os
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from app.coach_schemas import (
     BodyAnalysisConsent,
@@ -43,6 +44,7 @@ from app.services.coach import (
     workout_history,
 )
 from app.services.coach_repository import CoachRepository, get_coach_repository
+from app.services.analytics_repository import get_analytics_repository
 from app.services.analysis_provider import AnalysisProviderConfigurationError, AnalysisProviderUnavailableError, StructuredOutputMalformedError
 from app.services.body_analysis_provider import get_body_analysis_provider
 from app.services.image_uploads import ImageUploadError, resolve_analysis_image_reference
@@ -51,6 +53,10 @@ from app.services.storage import StorageConfigurationError, get_storage_adapter
 
 
 router = APIRouter(prefix="/v1/profiles", tags=["coach"])
+
+
+class CurrentProfileResponse(BaseModel):
+    profile_id: str | None
 
 
 def coach_repository() -> CoachRepository:
@@ -78,6 +84,24 @@ def authorized_coach_repository(
         if profile is not None and profile.owner_id != user_id:
             raise _error(404, "profile_not_found", "프로필을 찾을 수 없어요.", False, "not_found")
     return repository
+
+
+@router.get("/me", response_model=CurrentProfileResponse)
+def get_current_profile(
+    request: Request,
+    repository: CoachRepository = Depends(coach_repository),
+) -> CurrentProfileResponse:
+    owner_id = getattr(request.state, "user_id", None)
+    if not owner_id:
+        return CurrentProfileResponse(profile_id=None)
+
+    try:
+        profile = next(reversed(repository.list_profiles_for_owner(owner_id)), None)
+    except PersistenceError as exc:
+        raise _persistence_error() from exc
+    if profile is None:
+        return CurrentProfileResponse(profile_id=None)
+    return CurrentProfileResponse(profile_id=profile.profile_id)
 
 
 @router.delete("/{profile_id}", response_model=ProfileDeletionResponse)
@@ -113,6 +137,7 @@ def delete_profile_data(
             owner_id=owner_id,
             additional_image_upload_ids=body_image_ids,
         )
+        get_analytics_repository().delete_profile_data(profile_id, owner_id=profile.owner_id)
         repository.delete_profile(profile_id)
         return ProfileDeletionResponse(
             profile_id=profile_id,

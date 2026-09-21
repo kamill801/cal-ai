@@ -2,7 +2,7 @@ import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { makeRedirectUri } from "expo-auth-session";
 import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { createSupabaseAuthClient, isSupabaseAuthEnabled } from "./supabase";
 
 WebBrowser.maybeCompleteAuthSession();
@@ -15,7 +15,7 @@ export interface AuthSessionState {
   session?: Session;
   error?: string;
   signInWithKakao(): Promise<void>;
-  signOut(): Promise<void>;
+  signOut(): Promise<boolean>;
 }
 
 export function useAuthSession(): AuthSessionState {
@@ -35,6 +35,11 @@ export function useAuthSession(): AuthSessionState {
     void client.auth.getSession().then(({ data }) => {
       if (mounted) {
         setSession(data.session ?? undefined);
+        setReady(true);
+      }
+    }).catch(() => {
+      if (mounted) {
+        setError("로그인 상태를 불러오지 못했어요. 다시 로그인해 주세요.");
         setReady(true);
       }
     });
@@ -93,7 +98,7 @@ export function useAuthSession(): AuthSessionState {
     },
     async signOut() {
       if (!client) {
-        return;
+        return true;
       }
       setLoading(true);
       setError(undefined);
@@ -102,8 +107,10 @@ export function useAuthSession(): AuthSessionState {
         if (signOutError) {
           throw signOutError;
         }
+        return true;
       } catch {
         setError("로그아웃하지 못했어요. 다시 시도해 주세요.");
+        return false;
       } finally {
         setLoading(false);
       }
@@ -113,6 +120,17 @@ export function useAuthSession(): AuthSessionState {
 
 async function openKakaoLogin(client: SupabaseClient): Promise<void> {
   const redirectTo = makeRedirectUri({ scheme: "trustfirstnutrition", path: "auth/callback" });
+  if (Platform.OS === "web") {
+    const { error } = await client.auth.signInWithOAuth({
+      provider: "kakao",
+      options: { redirectTo }
+    });
+    if (error) {
+      throw error;
+    }
+    return;
+  }
+
   const { data, error } = await client.auth.signInWithOAuth({
     provider: "kakao",
     options: { redirectTo, skipBrowserRedirect: true }

@@ -8,10 +8,12 @@
   ],
   "scripts": {
     "dev:api": "services/api/.venv/bin/uvicorn app.main:app --reload --app-dir services/api --port 8015",
+    "dev:admin": "npm --prefix apps/admin run dev",
     "dev:mobile": "npm --workspace apps/mobile run start",
     "setup:api": "python3 -m venv services/api/.venv && services/api/.venv/bin/pip install -r services/api/requirements.txt",
     "test:api": "services/api/.venv/bin/python -m pytest services/api/tests",
     "typecheck:mobile": "npm --workspace apps/mobile run typecheck",
+    "typecheck:admin": "npm --prefix apps/admin run typecheck",
     "typecheck:shared": "npm --workspace packages/shared run typecheck"
   },
   "overrides": {
