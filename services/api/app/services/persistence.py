@@ -6,7 +6,7 @@ import sqlite3
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
@@ -98,6 +98,13 @@ class PersistenceError(RuntimeError):
     """Raised when local persistence cannot read or write safely."""
 
 
+def _equipment_replay_cleanup_deadline(upload: ImageUploadRecord) -> str | None:
+    if upload.storage_provider != "r2" or not upload.object_key or not upload.upload_expires_at or upload.file_name not in {"equipment-guide.jpg", "equipment-guide.png", "equipment-guide.webp"}:
+        return None
+    deadline = datetime.fromisoformat(upload.upload_expires_at) + timedelta(hours=1)
+    return deadline.isoformat(timespec="seconds") if deadline > datetime.now(UTC) else None
+
+
 class PersistenceRepository(Protocol):
     def save_image_upload(
         self,
@@ -125,6 +132,14 @@ class PersistenceRepository(Protocol):
     def mark_image_upload_deleting(self, image_upload_id: str) -> None: ...
 
     def mark_image_upload_deleted(self, image_upload_id: str) -> None: ...
+
+    def claim_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool: ...
+
+    def cancel_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool: ...
+
+    def complete_pending_image_upload(self, image_upload_id: str, owner_id: str | None, cleanup_after: str) -> ImageUploadRecord | None: ...
+
+    def retain_transient_image_cleanup(self, image_upload_id: str, cleanup_after: str) -> None: ...
 
     def save_analysis_job(
         self,
@@ -289,7 +304,7 @@ class SQLitePersistenceRepository:
             rows = conn.execute(
                 """
                 select * from image_uploads
-                 where upload_status in ('ready', 'deleting')
+                 where upload_status in ('pending', 'ready', 'deleting')
                    and cleanup_after is not null
                    and cleanup_after <= ?
                  order by cleanup_after, image_upload_id
@@ -303,6 +318,29 @@ class SQLitePersistenceRepository:
             conn.execute(
                 "update image_uploads set upload_status = 'deleting' where image_upload_id = ? and upload_status != 'deleted'",
                 (image_upload_id,),
+            )
+
+    def claim_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'deleting' where image_upload_id = ? and owner_id = ? and upload_status = 'ready'",
+                (image_upload_id, owner_id),
+            )
+        return cursor.rowcount == 1
+
+    def complete_pending_image_upload(self, image_upload_id: str, owner_id: str | None, cleanup_after: str) -> ImageUploadRecord | None:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'ready', cleanup_after = coalesce(cleanup_after, ?) where image_upload_id = ? and upload_status = 'pending' and (owner_id = ? or (owner_id is null and ? is null))",
+                (cleanup_after, image_upload_id, owner_id, owner_id),
+            )
+        return self.get_image_upload(image_upload_id) if cursor.rowcount == 1 else None
+
+    def retain_transient_image_cleanup(self, image_upload_id: str, cleanup_after: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "update image_uploads set image_reference = ?, upload_status = 'deleting', cleanup_after = ? where image_upload_id = ? and upload_status != 'deleted'",
+                (f"deleted://{image_upload_id}", cleanup_after, image_upload_id),
             )
 
     def mark_image_upload_deleted(self, image_upload_id: str) -> None:
@@ -514,6 +552,14 @@ class SQLitePersistenceRepository:
             cursor = conn.execute("delete from meal_logs where meal_log_id = ?", (meal_log_id,))
         return cursor.rowcount > 0
 
+    def cancel_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'deleting' where image_upload_id = ? and owner_id = ? and upload_status in ('pending', 'ready')",
+                (image_upload_id, owner_id),
+            )
+        return cursor.rowcount > 0
+
     def delete_profile_artifacts(
         self,
         profile_id: str,
@@ -533,15 +579,18 @@ class SQLitePersistenceRepository:
             if record.request.profile_id == profile_id or (owner_id is not None and record.owner_id == owner_id)
         ]
         job_ids = {record.analysis_job_id for record in profile_logs} | {record.analysis_job_id for record in profile_jobs}
-        upload_ids = {record.image_upload_id for record in uploads}
 
         with self._connection() as conn:
             for job_id in job_ids:
                 conn.execute("delete from clarifications where analysis_job_id = ?", (job_id,))
                 conn.execute("delete from meal_logs where analysis_job_id = ?", (job_id,))
                 conn.execute("delete from analysis_jobs where analysis_job_id = ?", (job_id,))
-            for upload_id in upload_ids:
-                conn.execute("delete from image_uploads where image_upload_id = ?", (upload_id,))
+            for upload in uploads:
+                deadline = _equipment_replay_cleanup_deadline(upload)
+                if deadline:
+                    conn.execute("update image_uploads set owner_id = null, local_asset_id = 'deleted', file_name = 'deleted', image_reference = ?, upload_status = 'deleting', cleanup_after = ?, upload_expires_at = null where image_upload_id = ?", (f"deleted://{upload.image_upload_id}", deadline, upload.image_upload_id))
+                else:
+                    conn.execute("delete from image_uploads where image_upload_id = ?", (upload.image_upload_id,))
         return uploads
 
     def list_profile_image_uploads(
@@ -826,7 +875,7 @@ class PostgresPersistenceRepository:
             rows = conn.execute(
                 """
                 select * from image_uploads
-                 where upload_status in ('ready', 'deleting')
+                 where upload_status in ('pending', 'ready', 'deleting')
                    and cleanup_after is not null
                    and cleanup_after <= %s
                  order by cleanup_after, image_upload_id
@@ -840,6 +889,29 @@ class PostgresPersistenceRepository:
             conn.execute(
                 "update image_uploads set upload_status = 'deleting' where image_upload_id = %s and upload_status != 'deleted'",
                 (image_upload_id,),
+            )
+
+    def claim_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'deleting' where image_upload_id = %s and owner_id = %s and upload_status = 'ready'",
+                (image_upload_id, owner_id),
+            )
+        return cursor.rowcount == 1
+
+    def complete_pending_image_upload(self, image_upload_id: str, owner_id: str | None, cleanup_after: str) -> ImageUploadRecord | None:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'ready', cleanup_after = coalesce(cleanup_after, %s) where image_upload_id = %s and upload_status = 'pending' and owner_id is not distinct from %s",
+                (cleanup_after, image_upload_id, owner_id),
+            )
+        return self.get_image_upload(image_upload_id) if cursor.rowcount == 1 else None
+
+    def retain_transient_image_cleanup(self, image_upload_id: str, cleanup_after: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                "update image_uploads set image_reference = %s, upload_status = 'deleting', cleanup_after = %s where image_upload_id = %s and upload_status != 'deleted'",
+                (f"deleted://{image_upload_id}", cleanup_after, image_upload_id),
             )
 
     def mark_image_upload_deleted(self, image_upload_id: str) -> None:
@@ -1054,6 +1126,14 @@ class PostgresPersistenceRepository:
             cursor = conn.execute("delete from meal_logs where meal_log_id = %s", (meal_log_id,))
         return cursor.rowcount > 0
 
+    def cancel_transient_image_upload(self, image_upload_id: str, owner_id: str) -> bool:
+        with self._connection() as conn:
+            cursor = conn.execute(
+                "update image_uploads set upload_status = 'deleting' where image_upload_id = %s and owner_id = %s and upload_status in ('pending', 'ready')",
+                (image_upload_id, owner_id),
+            )
+        return cursor.rowcount > 0
+
     def delete_profile_artifacts(
         self,
         profile_id: str,
@@ -1073,15 +1153,18 @@ class PostgresPersistenceRepository:
             if record.request.profile_id == profile_id or (owner_id is not None and record.owner_id == owner_id)
         ]
         job_ids = {record.analysis_job_id for record in profile_logs} | {record.analysis_job_id for record in profile_jobs}
-        upload_ids = {record.image_upload_id for record in uploads}
 
         with self._connection() as conn:
             for job_id in job_ids:
                 conn.execute("delete from clarifications where analysis_job_id = %s", (job_id,))
                 conn.execute("delete from meal_logs where analysis_job_id = %s", (job_id,))
                 conn.execute("delete from analysis_jobs where analysis_job_id = %s", (job_id,))
-            for upload_id in upload_ids:
-                conn.execute("delete from image_uploads where image_upload_id = %s", (upload_id,))
+            for upload in uploads:
+                deadline = _equipment_replay_cleanup_deadline(upload)
+                if deadline:
+                    conn.execute("update image_uploads set owner_id = null, local_asset_id = 'deleted', file_name = 'deleted', image_reference = %s, upload_status = 'deleting', cleanup_after = %s, upload_expires_at = null where image_upload_id = %s", (f"deleted://{upload.image_upload_id}", deadline, upload.image_upload_id))
+                else:
+                    conn.execute("delete from image_uploads where image_upload_id = %s", (upload.image_upload_id,))
         return uploads
 
     def list_profile_image_uploads(

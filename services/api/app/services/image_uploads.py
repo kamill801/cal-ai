@@ -53,6 +53,8 @@ def create_mock_image_upload(
 def create_presigned_image_upload(
     payload: ImageUploadPresignRequest,
     owner_id: str | None = None,
+    *,
+    expires_seconds: int = DEFAULT_PRESIGN_EXPIRES_SECONDS,
 ) -> ImageUploadPresignResponse:
     _validate_image_metadata(content_type=payload.content_type, byte_size=payload.byte_size)
     try:
@@ -72,7 +74,7 @@ def create_presigned_image_upload(
         presigned = adapter.presign_put(
             object_key=object_key,
             content_type=payload.content_type,
-            expires_seconds=DEFAULT_PRESIGN_EXPIRES_SECONDS,
+            expires_seconds=expires_seconds,
         )
         image_reference = adapter.image_reference(object_key=object_key)
         repository.save_image_upload(
@@ -87,6 +89,7 @@ def create_presigned_image_upload(
             storage_provider=adapter.provider,
             object_key=object_key,
             upload_status="pending",
+            cleanup_after=_cleanup_after_iso(get_image_ttl_days()),
             upload_expires_at=presigned.expires_at,
             owner_id=owner_id,
         )
@@ -129,6 +132,8 @@ def complete_presigned_image_upload(
             )
 
         adapter = get_storage_adapter()
+        if adapter.provider != existing.storage_provider:
+            raise StorageConfigurationError("image_storage_provider_mismatch")
         if adapter.provider == "r2":
             stored_object = adapter.stat_object(object_key=payload.object_key)
             if stored_object is None:
@@ -144,24 +149,13 @@ def complete_presigned_image_upload(
                     retryable=False,
                 )
             _validate_image_metadata(content_type=stored_object.content_type, byte_size=stored_object.byte_size)
-        image_reference = adapter.image_reference(object_key=payload.object_key)
-        cleanup_after = _cleanup_after_iso(get_image_ttl_days())
-        record = persistence.save_image_upload(
-            payload=ImageUploadRequest(
-                local_asset_id=payload.local_asset_id,
-                file_name=payload.file_name,
-                content_type=payload.content_type,
-                byte_size=payload.byte_size,
-            ),
-            image_upload_id=payload.image_upload_id,
-            image_reference=image_reference,
-            storage_provider=adapter.provider,
-            object_key=payload.object_key,
-            upload_status="ready",
-            cleanup_after=cleanup_after,
-            upload_expires_at=existing.upload_expires_at,
-            owner_id=owner_id,
-        )
+        cleanup_after = existing.cleanup_after or _cleanup_after_iso(get_image_ttl_days())
+        record = persistence.complete_pending_image_upload(payload.image_upload_id, existing.owner_id, cleanup_after)
+        if record is None:
+            record = persistence.get_image_upload(payload.image_upload_id)
+            if record is None or record.upload_status != "ready" or not _is_owned_by(record.owner_id, owner_id):
+                raise ImageUploadError("image_upload_state_changed", "이미 사용 중이거나 정리된 사진이에요. 새로 업로드해 주세요.")
+            _validate_presigned_upload_record(record, payload)
         return ImageUploadResponse(image_upload_id=record.image_upload_id, image_reference=record.image_reference, status="ready")
     except StorageConfigurationError as exc:
         raise ImageUploadError("storage_unavailable", "이미지 저장소 설정을 확인해 주세요.", retryable=True) from exc

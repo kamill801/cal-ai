@@ -1112,3 +1112,4 @@ export function mapApiWeeklyCoach(value: ApiWeeklyCoachReport): WeeklyCoachRepor
     safetyNote: value.safety_note
   };
 }
+export * from "./equipment";

@@ -4,6 +4,8 @@ import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
+import { EquipmentGuidePanel } from "../components/EquipmentGuidePanel";
+import type { EquipmentGuideActions } from "../api/equipmentGuide";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
@@ -25,7 +27,7 @@ interface PerformanceDraft {
   effort: WorkoutEffort;
 }
 
-export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void }) {
+export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete, equipmentActions }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void; readonly equipmentActions: EquipmentGuideActions }) {
   const proteinTarget = dashboard?.nutrition.target.proteinG ?? 0;
   const proteinConsumed = dashboard?.nutrition.consumed.proteinG ?? 0;
   const proteinProgress = proteinTarget ? Math.min(1, proteinConsumed / proteinTarget) : 0;
@@ -108,6 +110,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
       </View>
 
       {error ? <FlowStatusCard error={error} /> : null}
+      <EquipmentGuidePanel actions={equipmentActions} exercises={nextDay?.exercises} />
       <CoachCard title={proteinTarget > 0 ? `단백질 ${proteinConsumed} / ${proteinTarget}g` : "단백질 목표를 준비하고 있어요"} eyebrow="운동을 위한 오늘의 연료" tone="leaf">
         <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 단백질 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: proteinProgressPercent }}><View style={[styles.progressFill, { width: `${proteinProgressPercent}%` }]} /></View>
         <Text style={styles.body}>{dashboard?.nutrition.guidance ?? "식사를 기록하면 운동일 단백질 섭취량과 남은 양을 보여드려요."}</Text>

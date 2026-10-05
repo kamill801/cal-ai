@@ -7,6 +7,7 @@ import { createAnalyticsEventClient, createForegroundHeartbeat, type AnalyticsEv
 import { useAuthSession, type AuthSessionState } from "./src/auth/useAuthSession";
 import { onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
 import { uploadImageToStorage } from "./src/api/imageUpload";
+import { createEquipmentGuideActions } from "./src/api/equipmentGuide";
 import { AppBottomNav, type MainTab } from "./src/components/AppBottomNav";
 import { createInitialScanToSaveState, scanToSaveReducer, type FlowError, type RequestStatus, type ScanToSaveCommand } from "./src/flow/scanToSaveFlow";
 import { delay } from "./src/flow/scanToSavePolling";
@@ -61,6 +62,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | undefined>(undefined);
   const apiClient = useMemo(() => createCalAiApiClient(undefined, auth.session?.access_token), [auth.session?.access_token]);
+  const equipmentActions = useMemo(() => createEquipmentGuideActions(apiClient, profileId), [apiClient, profileId]);
   const analyticsClient = useMemo(() => createAnalyticsEventClient(undefined, auth.session?.access_token, scope), [auth.session?.access_token, scope]);
   const photoSource = state.selectedImageUri ? { uri: state.selectedImageUri } : undefined;
   const analyticsScreen = state.screen === "today" ? appScreen : state.screen;
@@ -822,7 +824,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         />
       ) : null}
       {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} equipmentActions={equipmentActions} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen

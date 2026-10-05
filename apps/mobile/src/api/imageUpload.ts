@@ -3,20 +3,24 @@ import type { ScanToSaveCommand } from "../flow/scanToSaveFlow";
 import { MealImageReadError, readMealImageBlob } from "../media/mealImageFile";
 import { ApiClientError, type CalAiApiClient } from "./client";
 
-export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveCommand, { type: "UPLOAD_IMAGE" }>, apiClient: CalAiApiClient): Promise<ImageUploadViewModel> {
+export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveCommand, { type: "UPLOAD_IMAGE" }>, apiClient: CalAiApiClient, presign = apiClient.presignImageUpload, options: { signal?: AbortSignal; onPresigned?: (uploadId: string) => void } = {}): Promise<ImageUploadViewModel> {
   const imageBlob = await readUploadBlob(activeCommand.uri);
-  const presigned = await apiClient.presignImageUpload({
+  throwIfUploadCancelled(options.signal);
+  const presigned = await presign({
     localAssetId: activeCommand.localAssetId,
     fileName: activeCommand.fileName,
     contentType: activeCommand.contentType,
     byteSize: activeCommand.byteSize
   });
+  options.onPresigned?.(presigned.imageUploadId);
+  throwIfUploadCancelled(options.signal);
   let etag: string | undefined;
   if (!presigned.uploadUrl.startsWith("local-upload://")) {
     const uploadResponse = await fetch(presigned.uploadUrl, {
       method: "PUT",
       headers: presigned.headers,
-      body: imageBlob
+      body: imageBlob,
+      signal: options.signal
     });
 
     if (!uploadResponse.ok) {
@@ -31,7 +35,8 @@ export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveComm
     etag = uploadResponse.headers.get("etag") ?? undefined;
   }
 
-  return apiClient.completeImageUpload({
+  throwIfUploadCancelled(options.signal);
+  const uploaded = await apiClient.completeImageUpload({
     imageUploadId: presigned.imageUploadId,
     objectKey: presigned.objectKey,
     localAssetId: activeCommand.localAssetId,
@@ -40,6 +45,12 @@ export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveComm
     byteSize: activeCommand.byteSize,
     etag
   });
+  throwIfUploadCancelled(options.signal);
+  return uploaded;
+}
+
+export function throwIfUploadCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error("image_upload_cancelled");
 }
 
 async function readUploadBlob(uri: string): Promise<Blob> {

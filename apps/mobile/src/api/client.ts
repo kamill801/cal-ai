@@ -72,6 +72,7 @@ import {
   type WorkoutSession
 } from "@cal-ai/shared";
 import { getApiBaseUrl } from "./config";
+import { mapApiEquipmentCatalog, mapApiEquipmentGuide, mapApiEquipmentIdentification, type ApiEquipmentCatalog, type ApiEquipmentGuide, type ApiEquipmentIdentification, type EquipmentCatalog, type EquipmentGuide, type EquipmentIdentification, type EquipmentId } from "@cal-ai/shared";
 
 const API_ERROR_KINDS: ApiErrorDetail["kind"][] = ["provider", "validation", "not_found", "server", "unknown"];
 
@@ -114,6 +115,11 @@ export interface BillingStatus {
 }
 
 export interface CalAiApiClient {
+  getEquipmentCatalog(): Promise<EquipmentCatalog>;
+  presignEquipmentImage(profileId: string, input: { contentType: ImageContentType; byteSize: number }): Promise<ImageUploadPresignViewModel>;
+  identifyEquipment(profileId: string, imageUploadId: string, signal?: AbortSignal): Promise<EquipmentIdentification>;
+  discardEquipmentImage(profileId: string, imageUploadId: string): Promise<void>;
+  getEquipmentGuide(equipmentId: EquipmentId): Promise<EquipmentGuide>;
   getTodayDashboard(): Promise<DashboardTodayResponse>;
   getAuthenticatedProfile(): Promise<AuthenticatedProfile>;
   createOnboarding(input: OnboardingRequest): Promise<OnboardingResponse>;
@@ -151,9 +157,28 @@ export interface CalAiApiClient {
 
 export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: string): CalAiApiClient {
   const root = baseUrl.replace(/\/+$/, "");
-  const call = <T>(path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}) => request<T>(root, path, options, accessToken);
+  const call = <T>(path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal } = {}) => request<T>(root, path, options, accessToken);
 
   return {
+    async getEquipmentCatalog() {
+      return mapApiEquipmentCatalog(await call<ApiEquipmentCatalog>("/v1/equipment-guides/catalog"));
+    },
+    async presignEquipmentImage(profileId, input) {
+      return mapApiImageUploadPresign(await call<ApiImageUploadPresignResponse>(`/v1/profiles/${encodeURIComponent(profileId)}/equipment-image-uploads/presign`, {
+        method: "POST", body: { content_type: input.contentType, byte_size: input.byteSize }
+      }));
+    },
+    async identifyEquipment(profileId, imageUploadId, signal) {
+      return mapApiEquipmentIdentification(await call<ApiEquipmentIdentification>(`/v1/profiles/${encodeURIComponent(profileId)}/equipment-identifications`, {
+        method: "POST", body: { image_upload_id: imageUploadId }, signal
+      }));
+    },
+    async discardEquipmentImage(profileId, imageUploadId) {
+      await call(`/v1/profiles/${encodeURIComponent(profileId)}/equipment-image-uploads/${encodeURIComponent(imageUploadId)}`, { method: "DELETE" });
+    },
+    async getEquipmentGuide(equipmentId) {
+      return mapApiEquipmentGuide(await call<ApiEquipmentGuide>(`/v1/equipment-guides/${encodeURIComponent(equipmentId)}`));
+    },
     async getTodayDashboard() {
       return mapApiDashboardToday(await call<ApiDashboardTodayResponse>("/v1/dashboard/today"));
     },
@@ -382,7 +407,7 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
   };
 }
 
-async function request<T>(root: string, path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}, accessToken?: string): Promise<T> {
+async function request<T>(root: string, path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown; signal?: AbortSignal } = {}, accessToken?: string): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${root}${path}`, {
@@ -391,7 +416,8 @@ async function request<T>(root: string, path: string, options: { method?: "GET" 
         ...(options.body ? { "Content-Type": "application/json" } : {}),
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
       },
-      body: options.body ? JSON.stringify(options.body) : undefined
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal
     });
   } catch {
     throw new ApiClientError({

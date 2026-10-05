@@ -254,7 +254,7 @@ def parse_with_retry(
     raise StructuredOutputMalformedError("openai_output_malformed") from last_error
 
 
-def call_openai_responses(payload: dict[str, object], api_key: str) -> str:
+def call_openai_responses(payload: dict[str, object], api_key: str, *, timeout: float = 45) -> str:
     request = Request(
         "https://api.openai.com/v1/responses",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -265,7 +265,7 @@ def call_openai_responses(payload: dict[str, object], api_key: str) -> str:
         method="POST",
     )
     try:
-        with urlopen(request, timeout=45) as response:
+        with urlopen(request, timeout=timeout) as response:
             envelope = _OpenAIResponseEnvelope.model_validate_json(response.read())
     except HTTPError as exc:
         if exc.code in {401, 403}:

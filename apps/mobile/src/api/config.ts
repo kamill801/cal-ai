@@ -10,6 +10,11 @@ export function getApiBaseUrl(): string {
     return trimTrailingSlash(envValue.trim());
   }
 
+  const browserLocation = (globalThis as { location?: { origin: string } }).location;
+  if (Platform.OS === "web" && browserLocation && !/^https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/.test(browserLocation.origin)) {
+    return browserLocation.origin;
+  }
+
   if (Platform.OS === "android") {
     return "http://10.0.2.2:8015";
   }

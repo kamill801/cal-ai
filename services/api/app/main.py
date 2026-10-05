@@ -35,6 +35,7 @@ from app.schemas import (
     SavedImpactResponse,
 )
 from app.coach_routes import router as coach_router
+from app.equipment_routes import router as equipment_router
 from app.admin_routes import router as admin_router
 from app.analytics_routes import billing_router, router as analytics_router
 from app.services.analysis_provider import (
@@ -91,6 +92,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(coach_router)
+app.include_router(equipment_router)
 app.include_router(analytics_router)
 app.include_router(billing_router)
 app.include_router(admin_router)
@@ -350,6 +352,7 @@ def cleanup_expired_images(
                 repository.mark_image_upload_deleting(image_record.image_upload_id)
                 storage.delete_object(object_key=image_record.object_key)
             repository.mark_image_upload_deleted(image_record.image_upload_id)
+        get_coach_repository().prune_equipment_receipts()
         return RetentionCleanupResponse(status="ok", deleted_images=len(expired))
     except StorageConfigurationError as exc:
         raise api_error(

@@ -11,7 +11,7 @@
       "schedule": "0 18 * * *"
     }
   ],
-  "buildCommand": "EXPO_PUBLIC_API_BASE_URL=https://cal-ai-api.vercel.app npm --workspace apps/mobile run export:web:vercel",
+  "buildCommand": "EXPO_PUBLIC_API_BASE_URL= npm --workspace apps/mobile run export:web:vercel",
   "routes": [
     {
       "src": "/v1/(.*)",
