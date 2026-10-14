@@ -1,7 +1,7 @@
 import type { CoachDashboard, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { Check } from "lucide-react-native";
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
 import { EquipmentGuidePanel } from "../components/EquipmentGuidePanel";
@@ -10,6 +10,7 @@ import { FlowStatusCard } from "../components/FlowStatusCard";
 import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
+import { parseNumericInput } from "../validation/numericInput";
 
 interface WorkoutCompletionInput {
   readonly plan: WorkoutPlan;
@@ -27,7 +28,7 @@ interface PerformanceDraft {
   effort: WorkoutEffort;
 }
 
-export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete, equipmentActions }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void; readonly equipmentActions: EquipmentGuideActions }) {
+export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete, equipmentActions, active = true }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => Promise<boolean>; readonly equipmentActions: EquipmentGuideActions; readonly active?: boolean }) {
   const proteinTarget = dashboard?.nutrition.target.proteinG ?? 0;
   const proteinConsumed = dashboard?.nutrition.consumed.proteinG ?? 0;
   const proteinProgress = proteinTarget ? Math.min(1, proteinConsumed / proteinTarget) : 0;
@@ -39,19 +40,37 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   const [durationMinutes, setDurationMinutes] = useState(String(plan?.sessionMinutes ?? 60));
   const [sessionRpe, setSessionRpe] = useState(7);
   const [startTracked, setStartTracked] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const resetDraftRef = useRef(() => {});
 
-  useEffect(() => {
+  // Acknowledgement may arrive after the parent refreshes the recommendations.
+  resetDraftRef.current = () => {
     setCompletedExerciseIds([]);
-    setPerformance(Object.fromEntries((nextDay?.exercises ?? []).map((exercise) => [exercise.id, { sets: String(exercise.sets), reps: exercise.recommendedReps ? String(exercise.recommendedReps) : "", load: exercise.recommendedLoadKg ? String(exercise.recommendedLoadKg) : "", effort: "on_target" }])));
+    setPerformance(Object.fromEntries((nextDay?.exercises ?? []).map((exercise) => [exercise.id, { sets: String(exercise.sets), reps: String(exercise.recommendedReps ?? ""), load: String(exercise.recommendedLoadKg ?? ""), effort: "on_target" }])));
     setDurationMinutes(String(plan?.sessionMinutes ?? 60));
     setSessionRpe(7);
     setStartTracked(false);
+  };
+  useEffect(() => {
+    resetDraftRef.current();
   }, [nextDay?.id, plan?.sessionMinutes]);
 
-  const parsedDuration = Number(durationMinutes);
-  const canSaveSession = completedExerciseIds.length > 0 && Number.isInteger(parsedDuration) && parsedDuration >= 5 && parsedDuration <= 240;
+  const parsedDuration = parseNumericInput(durationMinutes, "duration");
+  const parsedPerformance = completedExerciseIds.map((exerciseId) => {
+    const values = performance[exerciseId] ?? { sets: String(nextDay?.exercises.find((exercise) => exercise.id === exerciseId)?.sets ?? 0), reps: "", load: "", effort: "on_target" as const };
+    return {
+      exerciseId,
+      effort: values.effort,
+      sets: parseNumericInput(values.sets, "sets"),
+      reps: parseNumericInput(values.reps, "reps"),
+      load: parseNumericInput(values.load, "load")
+    };
+  });
+  const canSaveSession = parsedDuration.status === "valid" && parsedPerformance.length > 0 && parsedPerformance.every((item) => item.sets.status === "valid" && item.reps.status !== "invalid" && item.load.status !== "invalid");
 
   function toggleExercise(exerciseId: string): void {
+    if (submittingRef.current) return;
     if (!completedExerciseIds.includes(exerciseId) && !startTracked && nextDay) {
       setStartTracked(true);
       onStart(nextDay.id);
@@ -60,6 +79,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   }
 
   function updatePerformance(exerciseId: string, field: "sets" | "reps" | "load", value: string): void {
+    if (submittingRef.current) return;
     setPerformance((current) => ({
       ...current,
       [exerciseId]: { ...(current[exerciseId] ?? { sets: "", reps: "", load: "", effort: "on_target" }), [field]: value }
@@ -67,35 +87,46 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   }
 
   function updateEffort(exerciseId: string, effort: WorkoutEffort): void {
+    if (submittingRef.current) return;
     setPerformance((current) => ({
       ...current,
       [exerciseId]: { ...(current[exerciseId] ?? { sets: "", reps: "", load: "", effort: "on_target" }), effort }
     }));
   }
 
-  function saveSession(): void {
-    if (!plan || !nextDay || !canSaveSession) {
+  async function saveSession(): Promise<void> {
+    if (submittingRef.current || !plan || !nextDay || status === "loading" || !canSaveSession || parsedDuration.status !== "valid") {
       return;
     }
-    onComplete({
-      plan,
-      workoutDayId: nextDay.id,
-      durationMinutes: parsedDuration,
-      completedExerciseIds,
-      exercisePerformance: completedExerciseIds.map((exerciseId) => {
-        const item = performance[exerciseId] ?? { sets: "0", reps: "", load: "", effort: "on_target" };
-        const reps = item.reps.trim() ? Number(item.reps) : undefined;
-        const load = item.load.trim() ? Number(item.load) : undefined;
-        return {
-          exerciseId,
-          setsCompleted: Math.max(0, Math.min(20, Number(item.sets) || 0)),
-          repsCompleted: Number.isFinite(reps) ? reps : undefined,
-          loadKg: Number.isFinite(load) ? load : undefined,
-          effort: item.effort
-        };
-      }),
-      sessionRpe
-    });
+    const exercisePerformance: WorkoutCompletionInput["exercisePerformance"] = [];
+    for (const item of parsedPerformance) {
+      if (item.sets.status !== "valid" || item.reps.status === "invalid" || item.load.status === "invalid") return;
+      exercisePerformance.push({
+        exerciseId: item.exerciseId,
+        setsCompleted: item.sets.value,
+        repsCompleted: item.reps.status === "valid" ? item.reps.value : undefined,
+        loadKg: item.load.status === "valid" ? item.load.value : undefined,
+        effort: item.effort
+      });
+    }
+    submittingRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const acknowledged = await onComplete({
+        plan,
+        workoutDayId: nextDay.id,
+        durationMinutes: parsedDuration.value,
+        completedExerciseIds,
+        exercisePerformance,
+        sessionRpe
+      });
+      if (acknowledged) resetDraftRef.current();
+    } catch {
+      // Save errors are surfaced by the parent; retain the draft on rejection.
+    } finally {
+      submittingRef.current = false;
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -110,7 +141,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
       </View>
 
       {error ? <FlowStatusCard error={error} /> : null}
-      <EquipmentGuidePanel actions={equipmentActions} exercises={nextDay?.exercises} />
+      <EquipmentGuidePanel actions={equipmentActions} exercises={nextDay?.exercises} active={active} />
       <CoachCard title={proteinTarget > 0 ? `단백질 ${proteinConsumed} / ${proteinTarget}g` : "단백질 목표를 준비하고 있어요"} eyebrow="운동을 위한 오늘의 연료" tone="leaf">
         <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 단백질 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: proteinProgressPercent }}><View style={[styles.progressFill, { width: `${proteinProgressPercent}%` }]} /></View>
         <Text style={styles.body}>{dashboard?.nutrition.guidance ?? "식사를 기록하면 운동일 단백질 섭취량과 남은 양을 보여드려요."}</Text>
@@ -135,8 +166,8 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
               return (
               <View key={exercise.id} style={[styles.exerciseRow, isCompleted && styles.exerciseRowCompleted]}>
                 <View style={styles.exerciseHeader}>
-                  <ExerciseCheckbox checked={isCompleted} label={`${exercise.name} 수행 완료`} onChange={() => toggleExercise(exercise.id)} />
-                  <TouchableOpacity style={styles.exerciseHeading} onPress={() => toggleExercise(exercise.id)} accessibilityRole="button" accessibilityLabel={`${exercise.name} ${isCompleted ? "완료 취소" : "완료 체크"}`}>
+                  <ExerciseCheckbox checked={isCompleted} disabled={isSubmitting} label={`${exercise.name} 수행 완료`} onChange={() => toggleExercise(exercise.id)} />
+                  <TouchableOpacity style={styles.exerciseHeading} disabled={isSubmitting} onPress={() => toggleExercise(exercise.id)} accessibilityRole="button" accessibilityLabel={`${exercise.name} ${isCompleted ? "완료 취소" : "완료 체크"}`} accessibilityState={{ disabled: isSubmitting }}>
                     <Text style={styles.exerciseName}>{exercise.name}</Text>
                     <Text style={styles.exerciseMeta}>{exercise.sets}세트 · {exercise.reps} · RIR {exercise.targetRir}</Text>
                   </TouchableOpacity>
@@ -159,13 +190,13 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
                   {isCompleted ? (
                     <View style={styles.performanceEditor}>
                       <View style={styles.performanceRow}>
-                        <PerformanceInput label="세트" value={values.sets} onChangeText={(value) => updatePerformance(exercise.id, "sets", value)} />
-                        <PerformanceInput label="반복" value={values.reps} onChangeText={(value) => updatePerformance(exercise.id, "reps", value)} />
-                        <PerformanceInput label="kg" value={values.load} onChangeText={(value) => updatePerformance(exercise.id, "load", value)} decimal />
+                        <PerformanceInput label="세트" value={values.sets} disabled={isSubmitting} onChangeText={(value) => updatePerformance(exercise.id, "sets", value)} error={parseNumericInput(values.sets, "sets").status === "invalid" ? "0~20 정수" : undefined} />
+                        <PerformanceInput label="반복" value={values.reps} disabled={isSubmitting} onChangeText={(value) => updatePerformance(exercise.id, "reps", value)} error={parseNumericInput(values.reps, "reps").status === "invalid" ? "0~100 정수" : undefined} />
+                        <PerformanceInput label="kg" value={values.load} disabled={isSubmitting} onChangeText={(value) => updatePerformance(exercise.id, "load", value)} error={parseNumericInput(values.load, "load").status === "invalid" ? "0~500kg 범위" : undefined} decimal />
                       </View>
                       <View style={styles.effortRow} accessibilityRole="radiogroup">
                         {(["easy", "on_target", "hard"] as const).map((effort) => (
-                          <TouchableOpacity key={effort} style={[styles.effortButton, values.effort === effort && styles.effortButtonSelected]} onPress={() => updateEffort(exercise.id, effort)} hitSlop={4} accessibilityRole="radio" accessibilityLabel={`${exercise.name} 체감 ${effortLabel(effort)}`} accessibilityState={{ selected: values.effort === effort }}>
+                          <TouchableOpacity key={effort} style={[styles.effortButton, values.effort === effort && styles.effortButtonSelected]} disabled={isSubmitting} onPress={() => updateEffort(exercise.id, effort)} hitSlop={4} accessibilityRole="radio" accessibilityLabel={`${exercise.name} 체감 ${effortLabel(effort)}`} accessibilityState={{ selected: values.effort === effort, disabled: isSubmitting }}>
                             <Text style={[styles.effortText, values.effort === effort && styles.effortTextSelected]}>{effortLabel(effort)}</Text>
                           </TouchableOpacity>
                         ))}
@@ -178,16 +209,17 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
             <View style={styles.sessionFields}>
               <View style={styles.durationField}>
                 <Text style={styles.fieldLabel}>운동 시간</Text>
-                <View style={styles.durationInputShell}>
-                  <TextInput style={styles.durationInput} value={durationMinutes} onChangeText={setDurationMinutes} keyboardType="number-pad" accessibilityLabel="운동 시간, 분" />
+                <View style={[styles.durationInputShell, parsedDuration.status === "invalid" && styles.inputInvalid]}>
+                  <TextInput style={styles.durationInput} value={durationMinutes} editable={!isSubmitting} onChangeText={(value) => { if (!submittingRef.current) setDurationMinutes(value); }} keyboardType="number-pad" accessibilityLabel="운동 시간, 분" accessibilityState={{ disabled: isSubmitting }} />
                   <Text style={styles.inputUnit}>분</Text>
                 </View>
+                {parsedDuration.status === "invalid" ? <Text style={styles.fieldError} accessibilityLiveRegion="polite">5~240분의 정수를 입력해 주세요.</Text> : null}
               </View>
               <View style={styles.rpeField}>
                 <Text style={styles.fieldLabel}>오늘 체감 강도 RPE</Text>
                 <View style={styles.rpeRow} accessibilityRole="radiogroup">
                   {[5, 6, 7, 8, 9, 10].map((value) => (
-                    <TouchableOpacity key={value} style={[styles.rpeButton, sessionRpe === value && styles.rpeButtonSelected]} onPress={() => setSessionRpe(value)} accessibilityRole="radio" accessibilityLabel={`체감 강도 ${value}`} accessibilityState={{ selected: sessionRpe === value }}>
+                    <TouchableOpacity key={value} style={[styles.rpeButton, sessionRpe === value && styles.rpeButtonSelected]} disabled={isSubmitting} onPress={() => { if (!submittingRef.current) setSessionRpe(value); }} accessibilityRole="radio" accessibilityLabel={`체감 강도 ${value}`} accessibilityState={{ selected: sessionRpe === value, disabled: isSubmitting }}>
                       <Text style={[styles.rpeText, sessionRpe === value && styles.rpeTextSelected]}>{value}</Text>
                     </TouchableOpacity>
                   ))}
@@ -195,8 +227,8 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
               </View>
             </View>
             <Text style={styles.sessionHelp}>완료한 종목만 체크해도 저장돼요. 중량과 반복은 다음 증량 판단에 사용합니다.</Text>
-            <TouchableOpacity style={[styles.primaryButton, (status === "loading" || !canSaveSession) && styles.buttonDisabled]} disabled={status === "loading" || !canSaveSession} onPress={saveSession} accessibilityRole="button" accessibilityLabel="오늘 운동 수행 기록 저장" accessibilityState={{ disabled: status === "loading" || !canSaveSession, busy: status === "loading" }}>
-              <Text style={styles.primaryButtonText}>{status === "loading" ? "기록 중" : `${completedExerciseIds.length}개 종목 기록 저장`}</Text>
+            <TouchableOpacity style={[styles.primaryButton, (isSubmitting || status === "loading" || !canSaveSession) && styles.buttonDisabled]} disabled={isSubmitting || status === "loading" || !canSaveSession} onPress={saveSession} accessibilityRole="button" accessibilityLabel="오늘 운동 수행 기록 저장" accessibilityState={{ disabled: isSubmitting || status === "loading" || !canSaveSession, busy: isSubmitting || status === "loading" }}>
+              <Text style={styles.primaryButtonText}>{isSubmitting || status === "loading" ? "기록 중" : `${completedExerciseIds.length}개 종목 기록 저장`}</Text>
             </TouchableOpacity>
           </CoachCard>
 
@@ -236,18 +268,19 @@ const webCheckboxStyle: CSSProperties = {
   cursor: "pointer"
 };
 
-function ExerciseCheckbox({ checked, label, onChange }: { readonly checked: boolean; readonly label: string; readonly onChange: () => void }) {
+function ExerciseCheckbox({ checked, label, onChange, disabled = false }: { readonly checked: boolean; readonly label: string; readonly onChange: () => void; readonly disabled?: boolean }) {
   if (Platform.OS === "web") {
-    return <input type="checkbox" checked={checked} aria-label={label} onChange={onChange} style={webCheckboxStyle} />;
+    return <input type="checkbox" checked={checked} disabled={disabled} aria-label={label} onChange={onChange} style={webCheckboxStyle} />;
   }
   return (
     <TouchableOpacity
       style={[styles.exerciseCheck, checked && styles.exerciseCheckSelected]}
       onPress={onChange}
+      disabled={disabled}
       hitSlop={8}
       accessibilityRole="checkbox"
       accessibilityLabel={label}
-      accessibilityState={{ checked }}
+      accessibilityState={{ checked, disabled }}
     >
       {checked ? <Check color={colors.surface} size={18} strokeWidth={3} /> : null}
     </TouchableOpacity>
@@ -284,11 +317,14 @@ function recommendationTone(action: "collect_baseline" | "increase" | "hold" | "
   return styles.recommendationNeutral;
 }
 
-function PerformanceInput({ label, value, onChangeText, decimal = false }: { readonly label: string; readonly value: string; readonly onChangeText: (value: string) => void; readonly decimal?: boolean }) {
+function PerformanceInput({ label, value, onChangeText, decimal = false, error, disabled = false }: { readonly label: string; readonly value: string; readonly onChangeText: (value: string) => void; readonly decimal?: boolean; readonly error?: string; readonly disabled?: boolean }) {
   return (
-    <View style={styles.performanceInputShell}>
-      <TextInput style={styles.performanceInput} value={value} onChangeText={onChangeText} keyboardType={decimal ? "decimal-pad" : "number-pad"} accessibilityLabel={`${label} 수행값`} />
-      <Text style={styles.performanceUnit}>{label}</Text>
+    <View style={styles.performanceField}>
+      <View style={[styles.performanceInputShell, error && styles.inputInvalid]}>
+        <TextInput style={styles.performanceInput} value={value} editable={!disabled} onChangeText={onChangeText} keyboardType={decimal ? "decimal-pad" : "number-pad"} accessibilityLabel={`${label} 수행값`} accessibilityState={{ disabled }} />
+        <Text style={styles.performanceUnit}>{label}</Text>
+      </View>
+      {error ? <Text style={styles.fieldError} accessibilityLiveRegion="polite">{error}</Text> : null}
     </View>
   );
 }
@@ -324,9 +360,12 @@ const styles = StyleSheet.create({
   recommendationTarget: { color: colors.leaf, ...typography.bodyStrong },
   recommendationReason: { color: colors.muted, ...typography.caption },
   rest: { color: colors.muted, ...typography.caption },
-  performanceRow: { flexDirection: "row", gap: spacing.xs, marginTop: spacing.xs },
+  performanceRow: { alignItems: "flex-start", flexDirection: "row", gap: spacing.xs, marginTop: spacing.xs },
   performanceEditor: { gap: spacing.sm },
-  performanceInputShell: { flex: 1, minWidth: 0, minHeight: 42, alignItems: "center", flexDirection: "row", borderColor: colors.hairline, borderRadius: 10, borderWidth: 1, backgroundColor: colors.canvas, paddingHorizontal: spacing.xs },
+  performanceField: { flex: 1, minWidth: 0, gap: spacing.xs },
+  performanceInputShell: { minWidth: 0, minHeight: 42, alignItems: "center", flexDirection: "row", borderColor: colors.hairline, borderRadius: 10, borderWidth: 1, backgroundColor: colors.canvas, paddingHorizontal: spacing.xs },
+  inputInvalid: { borderColor: colors.warningBorder },
+  fieldError: { color: colors.warningText, ...typography.caption },
   performanceInput: { flex: 1, minWidth: 24, color: colors.ink, paddingVertical: spacing.xs, textAlign: "center", ...typography.bodyStrong },
   performanceUnit: { color: colors.muted, ...typography.caption },
   effortRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },

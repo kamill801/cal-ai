@@ -58,6 +58,7 @@ export function ReviewResultScreen({
     fatG: Number(fat)
   };
   const canApply = mealName.trim().length > 0
+    && [calories, protein, carbs, fat].every((value) => value.trim().length > 0)
     && Number.isInteger(parsed.caloriesKcal) && parsed.caloriesKcal > 0 && parsed.caloriesKcal <= 5000
     && [parsed.proteinG, parsed.carbsG, parsed.fatG].every((value) => Number.isInteger(value) && value >= 0 && value <= 500);
 
@@ -69,9 +70,18 @@ export function ReviewResultScreen({
     setShowEditor(false);
   }
 
+  function toggleEditor(): void {
+    setMealName(analysis.mealName);
+    setCalories(String(analysis.summary.caloriesKcal));
+    setProtein(String(analysis.summary.proteinG));
+    setCarbs(String(analysis.summary.carbsG));
+    setFat(String(analysis.summary.fatG));
+    setShowEditor((visible) => !visible);
+  }
+
   return (
     <View style={styles.screen}>
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
       <View style={styles.header}>
         <View style={styles.headerCopy}>
           <Text style={styles.title}>분석 결과</Text>
@@ -101,7 +111,7 @@ export function ReviewResultScreen({
       </View>
 
       {isSaving ? <FlowStatusCard title="저장 중" message="식사 기록과 오늘 대시보드를 업데이트하고 있어요." /> : null}
-      {error ? <FlowStatusCard error={error} onRetry={onRetry} /> : null}
+      {error ? <FlowStatusCard error={error} onRetry={!showEditor && !isSaving ? onRetry : undefined} /> : null}
 
       <View style={styles.foodCard}>
         <View style={styles.foodHeader}>
@@ -154,7 +164,7 @@ export function ReviewResultScreen({
             <NutritionInput label="탄수화물" unit="g" value={carbs} onChangeText={setCarbs} />
             <NutritionInput label="지방" unit="g" value={fat} onChangeText={setFat} />
           </View>
-          {!canApply ? <Text style={styles.validationText}>칼로리는 1~5000, 영양소는 0~500 사이의 정수로 입력해 주세요.</Text> : null}
+          {!canApply ? <Text style={styles.validationText}>모든 값을 입력해 주세요. 칼로리는 1~5000, 영양소는 0~500 사이의 정수예요.</Text> : null}
           <View style={styles.editorActions}>
             {analysis.clarificationQuestion ? (
               <TouchableOpacity style={styles.textButton} onPress={onEdit} accessibilityRole="button">
@@ -176,10 +186,10 @@ export function ReviewResultScreen({
 
     </ScrollView>
       <View style={styles.stickyActions}>
-        <TouchableOpacity activeOpacity={0.82} style={[styles.secondaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={() => setShowEditor((visible) => !visible)} accessibilityRole="button" accessibilityState={{ disabled: isSaving, expanded: showEditor }}>
-          <Text style={styles.secondaryButtonText}>{showEditor ? "수정 닫기" : "수정"}</Text>
+        <TouchableOpacity activeOpacity={0.82} style={[styles.secondaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={toggleEditor} accessibilityRole="button" accessibilityState={{ disabled: isSaving, expanded: showEditor }}>
+          <Text style={styles.secondaryButtonText}>{showEditor ? "수정 취소" : "수정"}</Text>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.86} style={[styles.primaryButton, isSaving && styles.buttonDisabled]} disabled={isSaving} onPress={onSave} accessibilityRole="button" accessibilityState={{ disabled: isSaving, busy: isSaving }}>
+        <TouchableOpacity activeOpacity={0.86} style={[styles.primaryButton, (isSaving || showEditor) && styles.buttonDisabled]} disabled={isSaving || showEditor} onPress={onSave} accessibilityRole="button" accessibilityState={{ disabled: isSaving || showEditor, busy: isSaving }}>
           <Text style={styles.primaryButtonText}>{isSaving ? "저장 중" : "식사로 기록"}</Text>
         </TouchableOpacity>
       </View>

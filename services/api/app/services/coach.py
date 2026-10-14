@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date
+from datetime import datetime, date, timedelta, timezone
 from uuid import uuid4
 
 from app.coach_schemas import (
@@ -39,6 +39,9 @@ from app.coach_schemas import (
 from app.schemas import DashboardMeal, DashboardTodayResponse, MealLogRequest, NextMealGuidance, NutrientGap, NutritionTarget, OnboardingRequest, SavedImpactResponse
 from app.services.coach_repository import CoachRepository, now_iso
 from app.services.persistence import MealLogRecord, PersistenceRepository
+
+
+KOREA_SERVICE_TZ = timezone(timedelta(hours=9))
 
 
 class CoachNotFoundError(RuntimeError):
@@ -391,12 +394,18 @@ def weekly_coach(
     meal_repository: PersistenceRepository,
 ) -> WeeklyCoachResponse:
     profile = require_profile(profile_id, repository)
-    meals = [record for record in meal_repository.list_meal_logs() if record.request.profile_id == profile_id]
-    sessions = repository.list_workout_sessions(profile_id)
+    week_start, week_end = _current_calendar_week_window()
+    meals = [
+        record
+        for record in meal_repository.list_meal_logs()
+        if record.request.profile_id == profile_id and _recorded_date_in_week(_meal_logged_on(record), week_start, week_end)
+    ]
+    sessions = [session for session in repository.list_workout_sessions(profile_id) if _recorded_date_in_week(session.performed_on, week_start, week_end)]
     completed_sessions = [session for session in sessions if session.completed]
-    weights = repository.list_weight_logs(profile_id)
-    wellness = repository.list_wellness(profile_id)
-    bodies = repository.list_body_check_ins(profile_id)
+    partial_sessions = [session for session in sessions if not session.completed]
+    weights = [record for record in repository.list_weight_logs(profile_id) if _recorded_date_in_week(record.logged_on, week_start, week_end)]
+    wellness = [record for record in repository.list_wellness(profile_id) if _recorded_date_in_week(record.logged_on, week_start, week_end)]
+    bodies = [record for record in repository.list_body_check_ins(profile_id) if _recorded_date_in_week(record.captured_on, week_start, week_end)]
     evidence = WeeklyCoachEvidence(
         meals_logged=len(meals), workouts_completed=len(completed_sessions), weight_logs=len(weights), wellness_check_ins=len(wellness), body_check_ins=len(bodies)
     )
@@ -409,7 +418,7 @@ def weekly_coach(
     }.get(profile.onboarding.training_frequency or "none", 2)
     score = _weekly_evidence_score(evidence, planned_sessions)
     latest_wellness = wellness[-1] if wellness else None
-    total_records = sum(evidence.model_dump().values())
+    total_records = sum(evidence.model_dump().values()) + len(partial_sessions)
     has_baseline = len(meals) >= 3 and (len(completed_sessions) >= 1 or len(wellness) >= 2 or len(weights) >= 2)
     if total_records == 0:
         headline = "아직 주간 코칭을 만들 기록이 없어요. 먼저 기준선을 만들어요."
@@ -419,6 +428,8 @@ def weekly_coach(
         headline = "이번 주 기록에서 다음 행동을 정할 만큼의 패턴이 보이기 시작했어요."
 
     wins = _weekly_evidence_facts(evidence)
+    if partial_sessions:
+        wins.append(f"부분 운동 기록 {len(partial_sessions)}회를 확인했어요.")
     focus_items = _weekly_focus_items(evidence, latest_wellness)
     next_week_actions = _weekly_next_actions(evidence, planned_sessions)
     return WeeklyCoachResponse(
@@ -548,7 +559,7 @@ def _meal_nutrition(record: MealLogRecord, meal_repository: PersistenceRepositor
 
 def _meal_log_summary(record: MealLogRecord, meal_repository: PersistenceRepository) -> MealLogSummary:
     source = record.response.dashboard.meals[0]
-    logged_on = record.request.logged_on.isoformat() if record.request.logged_on else record.response.dashboard.date
+    logged_on = _meal_logged_on(record)
     return MealLogSummary(
         id=record.meal_log_id,
         profile_id=record.request.profile_id or "",
@@ -561,14 +572,34 @@ def _meal_log_summary(record: MealLogRecord, meal_repository: PersistenceReposit
     )
 
 
+def _meal_logged_on(record: MealLogRecord) -> str:
+    if record.request.logged_on:
+        return record.request.logged_on.isoformat()
+    return record.response.dashboard.date
+
+
 def _profile_meals_for_day(meal_logs: list[MealLogRecord], profile_id: str, logged_on: date) -> list[MealLogRecord]:
     expected_date = logged_on.isoformat()
     return [
         record
         for record in meal_logs
         if record.request.profile_id == profile_id
-        and (record.request.logged_on.isoformat() if record.request.logged_on else record.response.dashboard.date) == expected_date
+        and _meal_logged_on(record) == expected_date
     ]
+
+
+def _current_calendar_week_window() -> tuple[date, date]:
+    today = datetime.now(KOREA_SERVICE_TZ).date()
+    start = today - timedelta(days=today.weekday())
+    return start, start + timedelta(days=7)
+
+
+def _recorded_date_in_week(recorded_on: date | str, start: date, end: date) -> bool:
+    try:
+        recorded_date = date.fromisoformat(recorded_on) if isinstance(recorded_on, str) else recorded_on
+    except ValueError:
+        return False
+    return start <= recorded_date < end
 
 
 def _nutrition_guidance(remaining: NutritionTarget) -> str:
@@ -946,7 +977,7 @@ def _weekly_evidence_facts(evidence: WeeklyCoachEvidence) -> list[str]:
     if evidence.meals_logged:
         facts.append(f"식사 기록 {evidence.meals_logged}회를 확인했어요.")
     if evidence.workouts_completed:
-        facts.append(f"운동 기록 {evidence.workouts_completed}회를 확인했어요.")
+        facts.append(f"완료한 운동 기록 {evidence.workouts_completed}회를 확인했어요.")
     if evidence.weight_logs:
         facts.append(f"체중 기록 {evidence.weight_logs}회를 확인했어요.")
     if evidence.wellness_check_ins:
@@ -966,7 +997,7 @@ def _weekly_focus_items(
     else:
         items.append("식사 기록을 이어가며 단백질이 부족해지는 시간대를 확인해요.")
     if evidence.workouts_completed == 0:
-        items.append("운동 수행 기록이 없어 운동 강도나 진행 속도는 아직 평가하지 않아요.")
+        items.append("완료한 운동 세션이 아직 없어 주간 진행 속도는 더 기록한 뒤 평가해요.")
     if latest_wellness and (latest_wellness.soreness >= 4 or latest_wellness.sleep_quality <= 2 or latest_wellness.energy <= 2):
         items.append("최근 회복 신호가 낮아 중량보다 수면과 동작 품질을 우선해요.")
     return items[:3]

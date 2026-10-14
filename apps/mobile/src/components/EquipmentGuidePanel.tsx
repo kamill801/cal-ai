@@ -5,10 +5,10 @@ import { ActivityIndicator, Image, Linking, Modal, SafeAreaView, ScrollView, Sty
 import { ApiClientError } from "../api/client";
 import { isYoutubeGuideUrl, type EquipmentGuideActions } from "../api/equipmentGuide";
 import { captureMealImageWithCamera, pickMealImageFromLibrary } from "../media/mealImagePicker";
-import { colors, spacing, typography } from "../theme";
+import { colors, radii, spacing, typography } from "../theme";
 import { TrustBuddy } from "./TrustBuddy";
 
-export function EquipmentGuidePanel({ actions, exercises = [] }: { readonly actions: EquipmentGuideActions; readonly exercises?: WorkoutExercise[] }) {
+export function EquipmentGuidePanel({ actions, exercises = [], active = true }: { readonly actions: EquipmentGuideActions; readonly exercises?: WorkoutExercise[]; readonly active?: boolean }) {
   const [open, setOpen] = useState(false);
   const [catalog, setCatalog] = useState<EquipmentCatalog>();
   const [catalogAttempt, setCatalogAttempt] = useState(0);
@@ -72,6 +72,10 @@ export function EquipmentGuidePanel({ actions, exercises = [] }: { readonly acti
     setError(undefined);
   }
 
+  useEffect(() => {
+    if (!active) close();
+  }, [active]);
+
   async function choosePhoto(source: "camera" | "library"): Promise<void> {
     if (busy || !consent) return;
     const version = ++requestVersion.current;
@@ -133,25 +137,35 @@ export function EquipmentGuidePanel({ actions, exercises = [] }: { readonly acti
     catch { setError("YouTube를 열지 못했어요. 잠시 뒤 다시 시도해 주세요."); }
   }
 
+  function findAnotherEquipment(): void {
+    setGuide(undefined);
+    setSelectedId(undefined);
+    setShowAll(true);
+    setIdentification(undefined);
+    disposePhoto();
+    setQuery("");
+    setError(undefined);
+  }
+
   const options = (catalog?.items ?? []).filter((item) =>
     (showAll || item.id === selectedId) && (!query.trim() || `${item.name} ${item.exercises.join(" ")}`.replace(/\s/g, "").includes(query.trim().replace(/\s/g, "")))
   );
   const matchedExercises = guide ? exercises.filter((exercise) => guide.exercises.includes(exercise.name)) : [];
 
   return <>
-    <TouchableOpacity style={styles.entry} onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="운동 기구 사용법 찾기">
+    <TouchableOpacity style={styles.entry} onPress={() => { if (active) setOpen(true); }} accessibilityRole="button" accessibilityLabel="운동 기구 사용법 찾기">
       <View style={styles.entryIcon}><Camera color={colors.leaf} size={24} /></View>
       <View style={styles.flex}><Text style={styles.entryTitle}>처음 보는 기구인가요?</Text><Text style={styles.caption}>기구 이름과 사용법을 함께 확인해요</Text></View>
       <ChevronRight size={20} color={colors.muted} />
     </TouchableOpacity>
-    <Modal visible={open} animationType="slide" onRequestClose={close}>
+    <Modal visible={open && active} animationType="slide" onRequestClose={close}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.topBar}>
           <TouchableOpacity style={styles.iconButton} onPress={close} accessibilityRole="button" accessibilityLabel="운동 화면으로 돌아가기"><ArrowLeft size={24} color={colors.ink} /></TouchableOpacity>
           <Text style={styles.topTitle}>기구 사용법</Text>
           <TouchableOpacity style={styles.iconButton} onPress={close} accessibilityRole="button" accessibilityLabel="기구 가이드 닫기"><X size={22} color={colors.ink} /></TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {guide ? <>
             <View style={styles.header}>
               <View style={styles.flex}><Text style={styles.eyebrow}>사용법을 확인하고 시작해요</Text><Text style={styles.title}>{guide.name}</Text></View>
@@ -169,7 +183,7 @@ export function EquipmentGuidePanel({ actions, exercises = [] }: { readonly acti
               <Text style={styles.caption}>외부 영상은 제작자마다 설명이 달라요. 기구의 안내판을 함께 확인하고, 통증이 있으면 멈춰 주세요.</Text>
             </View>
             <TouchableOpacity style={styles.primary} onPress={close} accessibilityRole="button"><Text style={styles.primaryText}>운동 기록으로 돌아가기</Text></TouchableOpacity>
-            <TouchableOpacity style={styles.textButton} onPress={() => { setGuide(undefined); setShowAll(true); setIdentification(undefined); disposePhoto(); setQuery(""); setError(undefined); }} accessibilityRole="button"><Text style={styles.secondaryText}>다른 기구 찾기</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.textButton} onPress={findAnotherEquipment} accessibilityRole="button"><Text style={styles.secondaryText}>다른 기구 찾기</Text></TouchableOpacity>
           </> : <>
             <View style={styles.header}><View style={styles.flex}><Text style={styles.eyebrow}>낯선 기구도 차근차근</Text><Text style={styles.title}>어떤 기구인지{ "\n" }함께 찾아봐요</Text></View><TrustBuddy pose="workout" size={86} /></View>
             {busy === "catalog" ? <ActivityIndicator color={colors.leaf} accessibilityLabel="기구 목록 불러오는 중" /> : null}
@@ -191,8 +205,8 @@ export function EquipmentGuidePanel({ actions, exercises = [] }: { readonly acti
               {identification.cleanupPending ? <Text style={styles.caption}>분석은 완료됐고 서버 사진 정리는 재시도 중이에요.</Text> : null}
             </View> : null}
             {catalog ? <View style={styles.section}>
-              <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{selectedId && !showAll ? "확인할 기구" : "기구 이름으로 찾기"}</Text>{!showAll ? <TouchableOpacity onPress={() => setShowAll(true)} style={styles.smallButton} accessibilityRole="button"><Text style={styles.secondaryText}>다른 기구</Text></TouchableOpacity> : null}</View>
-              {showAll ? <View style={styles.search}><Search color={colors.muted} size={18} /><TextInput style={styles.searchInput} value={query} onChangeText={setQuery} placeholder="기구 또는 운동 이름" placeholderTextColor={colors.muted} accessibilityLabel="기구 또는 운동 이름 검색" /></View> : null}
+              <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>{selectedId && !showAll ? "확인할 기구" : "기구 이름으로 찾기"}</Text>{!showAll ? <TouchableOpacity onPress={() => { setSelectedId(undefined); setShowAll(true); }} style={styles.smallButton} accessibilityRole="button"><Text style={styles.secondaryText}>다른 기구</Text></TouchableOpacity> : null}</View>
+              {showAll ? <View style={styles.search}><Search color={colors.muted} size={18} /><TextInput style={styles.searchInput} value={query} onChangeText={(value) => { setQuery(value); setSelectedId(undefined); }} placeholder="기구 또는 운동 이름" placeholderTextColor={colors.muted} accessibilityLabel="기구 또는 운동 이름 검색" /></View> : null}
               {options.map((item) => <TouchableOpacity key={item.id} style={styles.option} onPress={() => { setSelectedId(item.id); setShowAll(false); setQuery(""); setError(undefined); }} disabled={Boolean(busy)} accessibilityRole="radio" accessibilityLabel={item.name} accessibilityState={{ checked: selectedId === item.id, disabled: Boolean(busy) }}>
                 <View style={[styles.radio, selectedId === item.id && styles.radioSelected]}>{selectedId === item.id ? <View style={styles.radioDot} /> : null}</View>
                 <View style={styles.flex}><Text style={styles.rowTitle}>{item.name}</Text>{item.exercises.length ? <Text style={styles.caption} numberOfLines={1}>{item.exercises.slice(0, 2).join(" · ")}</Text> : null}</View>
@@ -215,46 +229,46 @@ function errorMessage(value: unknown): string {
 
 const styles = StyleSheet.create({
   entry: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.md, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.hairline },
-  entryIcon: { width: 46, height: 46, borderRadius: 12, backgroundColor: colors.skySoft, alignItems: "center", justifyContent: "center" },
+  entryIcon: { width: 46, height: 46, borderRadius: radii.control, backgroundColor: colors.skySoft, alignItems: "center", justifyContent: "center" },
   entryTitle: { color: colors.ink, ...typography.bodyStrong },
   flex: { flex: 1, minWidth: 0, gap: spacing.xs },
-  safeArea: { flex: 1, backgroundColor: colors.canvas },
+  safeArea: { flex: 1, backgroundColor: colors.canvasWarm },
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: spacing.sm, borderBottomWidth: 1, borderColor: colors.hairline },
   iconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   topTitle: { color: colors.ink, ...typography.sectionTitle },
   content: { gap: spacing.lg, padding: spacing.lg, paddingBottom: 36, width: "100%", maxWidth: 640, alignSelf: "center" },
   header: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   eyebrow: { color: colors.leaf, ...typography.caption },
-  title: { color: colors.ink, fontSize: 24, lineHeight: 32, fontWeight: "800" },
+  title: { color: colors.ink, ...typography.screenTitle },
   body: { color: colors.body, ...typography.body },
   caption: { color: colors.muted, ...typography.caption },
   consentRow: { flexDirection: "row", gap: spacing.md, alignItems: "center", minHeight: 48 },
   checkbox: { width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 6, borderWidth: 1, borderColor: colors.muted },
   checkboxChecked: { borderColor: colors.leaf, backgroundColor: colors.leaf },
   photoButtons: { flexDirection: "row", gap: spacing.md },
-  photoButton: { flex: 1, minHeight: 64, alignItems: "center", justifyContent: "center", gap: spacing.xs, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surface, borderRadius: 8 },
-  photo: { width: "100%", aspectRatio: 4 / 3, borderRadius: 8, backgroundColor: colors.surfaceSoft },
+  photoButton: { flex: 1, minHeight: 64, alignItems: "center", justifyContent: "center", gap: spacing.xs, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surface, borderRadius: radii.control },
+  photo: { width: "100%", aspectRatio: 4 / 3, borderRadius: radii.photo, backgroundColor: colors.surfaceSoft },
   loading: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
   result: { paddingVertical: spacing.md, gap: spacing.sm, borderBottomWidth: 1, borderColor: colors.hairline },
   section: { gap: spacing.md, paddingTop: spacing.md },
   sectionHeading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   sectionTitle: { color: colors.ink, ...typography.sectionTitle },
   smallButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: spacing.sm },
-  search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderColor: colors.hairline, borderRadius: 8, paddingHorizontal: spacing.md, backgroundColor: colors.surface },
+  search: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.control, paddingHorizontal: spacing.md, backgroundColor: colors.surface },
   searchInput: { flex: 1, minWidth: 0, minHeight: 48, color: colors.ink, ...typography.body },
   option: { flexDirection: "row", gap: spacing.md, alignItems: "center", minHeight: 62, paddingVertical: spacing.sm, borderBottomWidth: 1, borderColor: colors.hairline },
   radio: { width: 22, height: 22, borderWidth: 1.5, borderRadius: 11, borderColor: colors.muted, alignItems: "center", justifyContent: "center" },
   radioSelected: { borderColor: colors.leaf },
   radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.leaf },
   rowTitle: { color: colors.ink, ...typography.bodyStrong },
-  primary: { minHeight: 52, alignItems: "center", justifyContent: "center", padding: spacing.md, backgroundColor: colors.leaf, borderRadius: 8 },
+  primary: { minHeight: 52, alignItems: "center", justifyContent: "center", padding: spacing.md, backgroundColor: colors.leaf, borderRadius: radii.control },
   primaryText: { color: colors.surface, ...typography.bodyStrong },
-  secondary: { flexDirection: "row", flexWrap: "wrap", minHeight: 50, gap: spacing.sm, alignItems: "center", justifyContent: "center", padding: spacing.md, borderWidth: 1, borderColor: colors.hairline, borderRadius: 8, backgroundColor: colors.surface },
+  secondary: { flexDirection: "row", flexWrap: "wrap", minHeight: 50, gap: spacing.sm, alignItems: "center", justifyContent: "center", padding: spacing.md, borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.control, backgroundColor: colors.surface },
   secondaryText: { color: colors.leaf, ...typography.bodyStrong },
   textButton: { minHeight: 44, alignItems: "center", justifyContent: "center" },
   disabled: { opacity: 0.45 },
-  notice: { flexDirection: "row", gap: spacing.sm, alignItems: "center", backgroundColor: colors.leafTint, padding: spacing.md, borderRadius: 8 },
+  notice: { flexDirection: "row", gap: spacing.sm, alignItems: "center", backgroundColor: colors.leafTint, padding: spacing.md, borderRadius: radii.control },
   videoRow: { flexDirection: "row", gap: spacing.md, alignItems: "center", minHeight: 76, borderBottomWidth: 1, borderColor: colors.hairline, paddingVertical: spacing.md },
-  videoIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: colors.fatSoft },
+  videoIcon: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.fatSoft },
   error: { color: colors.danger, ...typography.body }
 });

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas import ApiErrorDetail, ImageUploadPresignRequest, ImageUploadPresignResponse
 from app.services.analysis_provider import AnalysisProviderConfigurationError, AnalysisProviderUnavailableError, StructuredOutputMalformedError
-from app.services.coach_repository import EquipmentUsageLimitError, get_coach_repository
+from app.services.coach_repository import CoachRepository, EquipmentUsageLimitError, get_coach_repository
 from app.services.equipment_guide import (
     CATALOG, EQUIPMENT_BY_ID, Equipment, EquipmentGuide, EquipmentIdentification,
     EquipmentProviderDisabledError, get_equipment_guide, get_equipment_provider,
@@ -70,6 +70,33 @@ def _cleanup_without_losing_result(upload: ImageUploadRecord, repository: Persis
     except (StorageConfigurationError, PersistenceError):
         if result is not None:
             result.cleanup_pending = True
+
+
+def _finish_equipment_receipt(
+    coach: CoachRepository,
+    profile_id: str,
+    upload_id: str,
+    result: EquipmentIdentification | None,
+) -> EquipmentIdentification | None:
+    # Retry the receipt write, never the paid provider; read back ambiguous commits.
+    payload = result.model_dump() if result is not None else None
+    for _ in range(2):
+        try:
+            coach.finish_equipment_analysis(profile_id, upload_id, payload)
+        except PersistenceError:
+            pass
+        try:
+            receipt = coach.get_equipment_receipt(profile_id, upload_id)
+        except PersistenceError:
+            continue
+        if receipt is not None:
+            if receipt["status"] == "complete":
+                return EquipmentIdentification.model_validate(receipt["result"])
+            if receipt["status"] == "failed":
+                if result is None:
+                    return None
+                raise _error(409, "equipment_image_already_used", "이미 사용한 사진이에요. 사진을 다시 선택해 주세요.")
+    raise _error(503, "equipment_result_unconfirmed", "분석 결과 저장을 확인하지 못했어요. 새 사진을 선택하거나 기구 이름을 직접 선택해 주세요.", kind="server")
 
 
 def _daily_limit(name: str, default: int, maximum: int) -> int:
@@ -135,6 +162,12 @@ def identify_equipment(profile_id: str, payload: EquipmentIdentifyRequest, reque
                 result = EquipmentIdentification.model_validate(receipt["result"])
                 _cleanup_without_losing_result(upload, repository, result)
                 return result
+            # Cleanup's tombstone proves provider work has ended, even if finalization failed.
+            if receipt["status"] == "running" and upload.image_reference.startswith("deleted://"):
+                result = _finish_equipment_receipt(coach, profile_id, payload.image_upload_id, None)
+                if result is not None:
+                    _cleanup_without_losing_result(upload, repository, result)
+                    return result
             raise _error(409, "equipment_image_already_used", "이미 분석 중이거나 사용한 사진이에요. 사진을 다시 선택해 주세요.")
         provider = get_equipment_provider()
         if upload.cleanup_after and datetime.fromisoformat(upload.cleanup_after) <= datetime.now(UTC):
@@ -148,20 +181,12 @@ def identify_equipment(profile_id: str, payload: EquipmentIdentifyRequest, reque
             if not repository.claim_transient_image_upload(payload.image_upload_id, owner_id):
                 raise _error(409, "equipment_image_already_used", "이미 분석 중이거나 사용한 사진이에요. 사진을 다시 선택해 주세요.")
             result = provider.identify(image_reference)
-            coach.finish_equipment_analysis(profile_id, payload.image_upload_id, result.model_dump())
-            return result
-        except PersistenceError:
-            if result is not None:
-                receipt = coach.get_equipment_receipt(profile_id, payload.image_upload_id)
-                if receipt and receipt["status"] == "complete":
-                    result = EquipmentIdentification.model_validate(receipt["result"])
-                    return result
-            else:
-                coach.finish_equipment_analysis(profile_id, payload.image_upload_id, None)
-            raise
         except Exception:
-            coach.finish_equipment_analysis(profile_id, payload.image_upload_id, None)
+            _finish_equipment_receipt(coach, profile_id, payload.image_upload_id, None)
             raise
+        else:
+            result = _finish_equipment_receipt(coach, profile_id, payload.image_upload_id, result)
+            return result
         finally:
             _cleanup_without_losing_result(upload, repository, result)
     except EquipmentUsageLimitError as exc:
@@ -193,7 +218,14 @@ def discard_equipment_image(profile_id: str, image_upload_id: str, request: Requ
         if upload.upload_status == "deleted":
             return {"status": "deleted"}
         if not repository.cancel_transient_image_upload(image_upload_id, owner_id):
-            return {"status": "cleanup_after_analysis"}
+            upload = repository.get_image_upload(image_upload_id)
+            if upload is None or upload.owner_id != owner_id:
+                raise _error(404, "image_upload_not_found", "기구 사진을 찾을 수 없어요.", kind="not_found")
+            if upload.upload_status == "deleted":
+                return {"status": "deleted"}
+            # A deleting upload cannot be claimed again. Check all of this owner's profiles.
+            if not upload.image_reference.startswith("deleted://") and get_coach_repository().is_equipment_analysis_running(image_upload_id):
+                return {"status": "cleanup_after_analysis"}
         _remove_transient_image(upload, repository)
         return {"status": "deleted"}
     except (StorageConfigurationError, PersistenceError) as exc:

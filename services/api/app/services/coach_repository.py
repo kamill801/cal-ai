@@ -68,6 +68,8 @@ class CoachRepository(Protocol):
 
     def get_equipment_receipt(self, profile_id: str, upload_id: str) -> dict | None: ...
 
+    def is_equipment_analysis_running(self, upload_id: str) -> bool: ...
+
     def reserve_equipment_analysis(self, profile_id: str, owner_id: str, upload_id: str, owner_limit: int, global_limit: int) -> str: ...
 
     def finish_equipment_analysis(self, profile_id: str, upload_id: str, result: dict | None) -> None: ...
@@ -167,6 +169,11 @@ class SqlCoachRepository:
         with self._connection() as conn:
             row = conn.execute(self._sql("select payload_json from coach_events where event_id = ? and profile_id = ? and event_type = 'equipment'"), (f"equipment-{upload_id}", profile_id)).fetchone()
         return json.loads(row["payload_json"]) if row else None
+
+    def is_equipment_analysis_running(self, upload_id: str) -> bool:
+        with self._connection() as conn:
+            row = conn.execute(self._sql("select status from equipment_usage where upload_id = ?"), (upload_id,)).fetchone()
+        return row is not None and row["status"] == "running"
 
     def reserve_equipment_analysis(self, profile_id: str, owner_id: str, upload_id: str, owner_limit: int, global_limit: int) -> str:
         now = datetime.now(UTC)

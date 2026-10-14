@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+from datetime import datetime
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.services import coach as coach_service
 
 
 client = TestClient(app)
+
+
+def freeze_service_now(monkeypatch: pytest.MonkeyPatch, now: datetime) -> None:
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None) -> datetime:
+            return now.astimezone(tz) if tz else now
+
+    monkeypatch.setattr(coach_service, "datetime", FrozenDateTime)
 
 
 def create_profile(goal_type: str = "recomp") -> str:
@@ -247,7 +260,8 @@ def test_workout_plan_and_session_logging_form_a_complete_loop() -> None:
     assert dashboard_response.json()["training"]["completed_sessions"] == 1
 
 
-def test_weekly_coach_combines_nutrition_training_recovery_and_body_context() -> None:
+def test_weekly_coach_combines_nutrition_training_recovery_and_body_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    freeze_service_now(monkeypatch, datetime.fromisoformat("2026-07-22T12:00:00+09:00"))
     profile_id = create_profile()
     plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
     client.post(

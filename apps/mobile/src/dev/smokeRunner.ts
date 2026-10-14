@@ -9,6 +9,12 @@ async function main() {
   const { runApiClientSmoke } = require("./apiClientSmoke") as { runApiClientSmoke: () => Promise<void> };
   const { runSessionRestoreSmoke } = require("./sessionRestoreSmoke") as { runSessionRestoreSmoke: () => void };
   const { runEquipmentGuideSmoke } = require("./equipmentGuideSmoke") as { runEquipmentGuideSmoke: () => Promise<void> };
+  const { runNumericValidationSmoke } = require("./numericValidationSmoke") as { runNumericValidationSmoke: () => void };
+  const { runErrorMappingSmoke } = require("./errorMappingSmoke") as { runErrorMappingSmoke: () => void };
+  const { runWorkoutAnalyticsSmoke } = require("./workoutAnalyticsSmoke") as { runWorkoutAnalyticsSmoke: () => void };
+  runWorkoutAnalyticsSmoke();
+  runErrorMappingSmoke();
+  runNumericValidationSmoke();
   runAsyncFlowSmoke();
   runSessionRestoreSmoke();
   await runApiClientSmoke();

@@ -4,6 +4,7 @@ import io
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from threading import Event
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
@@ -365,6 +366,7 @@ def test_cancellation_and_analysis_claim_compete_atomically(client, monkeypatch)
     second = ready_image(client, pid, monkeypatch)
     cancel = repo.cancel_transient_image_upload
     def claim_before_cancel(upload_id, owner):
+        assert get_coach_repository().reserve_equipment_analysis(pid, owner, upload_id, 10, 100) == "reserved"
         assert repo.claim_transient_image_upload(upload_id, owner)
         return cancel(upload_id, owner)
     monkeypatch.setattr(repo, "cancel_transient_image_upload", claim_before_cancel)
@@ -409,3 +411,236 @@ def test_terminal_receipt_is_monotonic(client):
     repo.finish_equipment_analysis(pid, "monotonic-failed", None)
     repo.finish_equipment_analysis(pid, "monotonic-failed", result)
     assert repo.get_equipment_receipt(pid, "monotonic-failed")["status"] == "failed"
+
+
+@pytest.mark.parametrize("failed_ack", [False, True])
+@pytest.mark.parametrize("failed_readback", [False, True])
+def test_result_save_recovers_before_commit_without_repeating_provider(client, monkeypatch, failed_ack, failed_readback):
+    monkeypatch.setenv("EQUIPMENT_DAILY_LIMIT", "1")
+    pid = profile(client)
+    upload_id = ready_image(client, pid, monkeypatch)
+    repo = get_coach_repository()
+    finish = repo.finish_equipment_analysis
+    read = repo.get_equipment_receipt
+    provider_calls = []
+    writes = []
+    failed_reads = []
+
+    class Provider:
+        def identify(self, reference):
+            provider_calls.append(reference)
+            return EquipmentIdentification(equipment_id="leg_press", confidence="medium", visible_evidence=[])
+
+    def fail_first_write(profile_id, image_id, result):
+        writes.append(result)
+        if len(writes) == 1:
+            raise PersistenceError("fixture-before-commit")
+        finish(profile_id, image_id, result)
+        if failed_ack:
+            raise PersistenceError("fixture-after-commit")
+
+    def fail_first_readback(profile_id, image_id):
+        if failed_readback and len(writes) == 1 and not failed_reads:
+            failed_reads.append(image_id)
+            raise PersistenceError("fixture-readback-unavailable")
+        return read(profile_id, image_id)
+
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: Provider())
+    monkeypatch.setattr(repo, "finish_equipment_analysis", fail_first_write)
+    monkeypatch.setattr(repo, "get_equipment_receipt", fail_first_readback)
+    url = f"/v1/profiles/{pid}/equipment-identifications"
+    headers = {"Authorization": "Bearer owner-a"}
+    response = client.post(url, headers=headers, json={"image_upload_id": upload_id})
+    assert response.status_code == 200
+    assert response.json()["equipment_id"] == "leg_press"
+    assert len(writes) == 2 and writes[0] == writes[1]
+    assert len(provider_calls) == 1
+    assert repo.get_equipment_receipt(pid, upload_id)["status"] == "complete"
+    assert get_persistence_repository().get_image_upload(upload_id).upload_status == "deleted"
+    assert client.post(url, headers=headers, json={"image_upload_id": upload_id}).json() == response.json()
+    second = ready_image(client, pid, monkeypatch)
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: Provider())
+    assert client.post(url, headers=headers, json={"image_upload_id": second}).status_code == 429
+    assert len(provider_calls) == 1 and len(writes) == 2
+
+
+def test_exhausted_result_save_is_bounded_and_reconciles_after_recovery(client, monkeypatch):
+    monkeypatch.setenv("EQUIPMENT_DAILY_LIMIT", "1")
+    pid = profile(client)
+    upload_id = ready_image(client, pid, monkeypatch)
+    repo = get_coach_repository()
+    finish = repo.finish_equipment_analysis
+    provider_calls = []
+    writes = []
+
+    class Provider:
+        def identify(self, reference):
+            provider_calls.append(reference)
+            return EquipmentIdentification(equipment_id="leg_press", confidence="medium", visible_evidence=[])
+
+    def unavailable(profile_id, image_id, result):
+        writes.append(result)
+        raise PersistenceError("fixture-unavailable")
+
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: Provider())
+    monkeypatch.setattr(repo, "finish_equipment_analysis", unavailable)
+    url = f"/v1/profiles/{pid}/equipment-identifications"
+    headers = {"Authorization": "Bearer owner-a"}
+    response = client.post(url, headers=headers, json={"image_upload_id": upload_id})
+    assert response.status_code == 503 and response.json()["detail"]["retryable"] is False
+    assert response.json()["detail"]["code"] == "equipment_result_unconfirmed"
+    assert len(writes) == 2 and len(provider_calls) == 1
+    assert get_persistence_repository().get_image_upload(upload_id).upload_status == "deleted"
+    monkeypatch.setattr(repo, "finish_equipment_analysis", finish)
+    response = client.post(url, headers=headers, json={"image_upload_id": upload_id})
+    assert response.status_code == 409 and response.json()["detail"]["retryable"] is False
+    assert repo.get_equipment_receipt(pid, upload_id)["status"] == "failed"
+    second = ready_image(client, pid, monkeypatch)
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: Provider())
+    assert client.post(url, headers=headers, json={"image_upload_id": second}).status_code == 429
+    assert len(provider_calls) == 1
+
+
+def test_failed_terminal_receipt_does_not_become_false_success(client, monkeypatch):
+    pid = profile(client)
+    upload_id = ready_image(client, pid, monkeypatch)
+    repo = get_coach_repository()
+    finish = repo.finish_equipment_analysis
+    writes = []
+
+    def fail_instead_of_complete(profile_id, image_id, result):
+        writes.append(result)
+        finish(profile_id, image_id, None)
+
+    monkeypatch.setattr(repo, "finish_equipment_analysis", fail_instead_of_complete)
+    response = client.post(f"/v1/profiles/{pid}/equipment-identifications", headers={"Authorization": "Bearer owner-a"}, json={"image_upload_id": upload_id})
+    assert response.status_code == 409
+    assert len(writes) == 1
+    assert repo.get_equipment_receipt(pid, upload_id)["status"] == "failed"
+    assert get_persistence_repository().get_image_upload(upload_id).upload_status == "deleted"
+
+
+def test_committed_result_survives_two_failed_readbacks_without_provider_retry(client, monkeypatch):
+    pid = profile(client)
+    upload_id = ready_image(client, pid, monkeypatch)
+    repo = get_coach_repository()
+    finish = repo.finish_equipment_analysis
+    read = repo.get_equipment_receipt
+    writes = []
+
+    def commit(profile_id, image_id, result):
+        writes.append(result)
+        finish(profile_id, image_id, result)
+
+    def unavailable_readback(profile_id, image_id):
+        if writes:
+            raise PersistenceError("fixture-readback-unavailable")
+        return read(profile_id, image_id)
+
+    monkeypatch.setattr(repo, "finish_equipment_analysis", commit)
+    monkeypatch.setattr(repo, "get_equipment_receipt", unavailable_readback)
+    url = f"/v1/profiles/{pid}/equipment-identifications"
+    headers = {"Authorization": "Bearer owner-a"}
+    response = client.post(url, headers=headers, json={"image_upload_id": upload_id})
+    assert response.status_code == 503 and response.json()["detail"]["retryable"] is False
+    assert response.json()["detail"]["code"] == "equipment_result_unconfirmed"
+    assert len(writes) == 2
+    monkeypatch.setattr(repo, "get_equipment_receipt", read)
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: pytest.fail("receipt replay must not call provider"))
+    response = client.post(url, headers=headers, json={"image_upload_id": upload_id})
+    assert response.status_code == 200 and response.json()["equipment_id"] == "lat_pulldown"
+    assert len(writes) == 2 and read(pid, upload_id)["status"] == "complete"
+
+
+@pytest.mark.parametrize("upload_status", ["pending", "ready"])
+def test_discard_retries_r2_deletion_after_storage_recovers(client, monkeypatch, upload_status):
+    pid = profile(client)
+    repo = get_persistence_repository()
+    expires = datetime.now(UTC) + timedelta(minutes=2)
+    upload = repo.save_image_upload(
+        payload=ImageUploadRequest(local_asset_id="discard-retry", file_name="equipment-guide.jpg", content_type="image/jpeg", byte_size=100),
+        image_upload_id="discard-retry", image_reference="r2://private/discard-retry", storage_provider="r2",
+        object_key="uploads/discard-retry/equipment-guide.jpg", owner_id="owner-a", upload_status=upload_status,
+        upload_expires_at=expires.isoformat(), cleanup_after=(expires + timedelta(days=30)).isoformat(),
+    )
+
+    class Storage:
+        provider = "r2"
+        available = False
+        calls = []
+        object_present = True
+
+        def delete_object(self, *, object_key):
+            self.calls.append(object_key)
+            if not self.available:
+                raise StorageConfigurationError("fixture-delete-failure")
+            self.object_present = False
+
+    storage = Storage()
+    monkeypatch.setattr(equipment_routes, "get_storage_adapter", lambda: storage)
+    url = f"/v1/profiles/{pid}/equipment-image-uploads/{upload.image_upload_id}"
+    headers = {"Authorization": "Bearer owner-a"}
+    response = client.delete(url, headers=headers)
+    assert response.status_code == 503
+    assert "fixture-delete-failure" not in response.text
+    assert storage.object_present and repo.get_image_upload(upload.image_upload_id).upload_status == "deleting"
+    storage.available = True
+    assert client.delete(url, headers=headers).json() == {"status": "deleted"}
+    assert storage.calls == [upload.object_key, upload.object_key] and not storage.object_present
+    tombstone = repo.get_image_upload(upload.image_upload_id)
+    assert tombstone.upload_status == "deleting" and tombstone.object_key == upload.object_key
+    assert tombstone.image_reference.startswith("deleted://")
+    assert upload.image_upload_id in [item.image_upload_id for item in repo.list_expired_image_uploads((expires + timedelta(hours=2)).isoformat())]
+    assert not repo.complete_pending_image_upload(upload.image_upload_id, "owner-a", expires.isoformat())
+
+
+@pytest.mark.parametrize("failed_status_lookup", [False, True])
+def test_discard_during_active_analysis_protects_image_across_owner_profiles(client, monkeypatch, failed_status_lookup):
+    pid = profile(client)
+    other_pid = profile(client)
+    upload_id = ready_image(client, pid, monkeypatch)
+    started = Event()
+    release = Event()
+    deletes = []
+    # Keep the provider blocked across both requests on a loaded test runner.
+    thread_timeout = 30
+
+    class Provider:
+        def identify(self, reference):
+            started.set()
+            assert release.wait(thread_timeout)
+            return EquipmentIdentification(equipment_id="leg_press", confidence="medium", visible_evidence=[])
+
+    class Storage:
+        provider = "local"
+
+        def delete_object(self, *, object_key):
+            deletes.append(object_key)
+
+    monkeypatch.setattr(equipment_routes, "get_equipment_provider", lambda: Provider())
+    monkeypatch.setattr(equipment_routes, "get_storage_adapter", lambda: Storage())
+    if failed_status_lookup:
+        def unavailable(upload_id):
+            raise PersistenceError("fixture-status-unavailable")
+        monkeypatch.setattr(get_coach_repository(), "is_equipment_analysis_running", unavailable)
+    headers = {"Authorization": "Bearer owner-a"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        response = pool.submit(client.post, f"/v1/profiles/{pid}/equipment-identifications", headers=headers, json={"image_upload_id": upload_id})
+        try:
+            assert started.wait(thread_timeout)
+            for profile_id in (pid, other_pid):
+                discarded = client.delete(f"/v1/profiles/{profile_id}/equipment-image-uploads/{upload_id}", headers=headers)
+                if failed_status_lookup:
+                    assert discarded.status_code == 503
+                    assert discarded.json()["detail"]["code"] == "equipment_cleanup_pending"
+                    assert "fixture-status-unavailable" not in discarded.text
+                else:
+                    assert discarded.status_code == 200 and discarded.json() == {"status": "cleanup_after_analysis"}
+                assert deletes == []
+            assert get_coach_repository().get_equipment_receipt(pid, upload_id)["status"] == "running"
+        finally:
+            release.set()
+        assert response.result(timeout=thread_timeout).status_code == 200
+    assert len(deletes) == 1
+    assert get_coach_repository().get_equipment_receipt(pid, upload_id)["status"] == "complete"
+    assert get_persistence_repository().get_image_upload(upload_id).upload_status == "deleted"

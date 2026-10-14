@@ -271,6 +271,7 @@ function eventLabel(eventName: string): string {
     analysis_failed: "Analysis failed",
     meal_saved: "Meal saved",
     workout_completed: "Workout completed",
+    workout_partial_saved: "Partial workout saved",
     checkout_started: "Checkout started"
   };
   return labels[eventName] ?? eventName.replaceAll("_", " ");

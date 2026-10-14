@@ -3,9 +3,9 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ApiClientError, createCalAiApiClient, type BillingStatus } from "./src/api";
-import { createAnalyticsEventClient, createForegroundHeartbeat, type AnalyticsEventName, type AnalyticsProperties } from "./src/analytics";
+import { createAnalyticsEventClient, createForegroundHeartbeat, workoutSaveEventName, type AnalyticsEventName, type AnalyticsProperties } from "./src/analytics";
 import { useAuthSession, type AuthSessionState } from "./src/auth/useAuthSession";
-import { onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
+import { coachFlowErrorFromUnknown, onboardingFlowErrorFromUnknown } from "./src/api/errorMapping";
 import { uploadImageToStorage } from "./src/api/imageUpload";
 import { createEquipmentGuideActions } from "./src/api/equipmentGuide";
 import { AppBottomNav, type MainTab } from "./src/components/AppBottomNav";
@@ -423,7 +423,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       return "ok";
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "refresh"));
       if (error instanceof ApiClientError && error.status === 404 && error.code === "profile_not_found") {
         return "not_found";
       }
@@ -449,7 +449,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       await refreshCoachData(activeProfileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "workoutPlan"));
     }
   }
 
@@ -460,14 +460,14 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     completedExerciseIds: string[];
     exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[];
     sessionRpe: number;
-  }): Promise<void> {
+  }): Promise<boolean> {
     if (!profileId) {
-      return;
+      return false;
     }
     setCoachStatus("loading");
     setCoachError(undefined);
     try {
-      await apiClient.logWorkoutSession(profileId, {
+      const saved = await apiClient.logWorkoutSession(profileId, {
         planId: input.plan.id,
         workoutDayId: input.workoutDayId,
         performedOn: todayIso(),
@@ -476,15 +476,17 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         exercisePerformance: input.exercisePerformance,
         sessionRpe: input.sessionRpe
       });
-      trackEvent("workout_completed", "training", {
+      trackEvent(workoutSaveEventName(saved.completed), "training", {
         workout_day_id: input.workoutDayId,
         duration_minutes: input.durationMinutes,
         session_rpe: input.sessionRpe
       });
       await refreshCoachData(profileId);
+      return true;
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "workoutSave"));
+      return false;
     }
   }
 
@@ -499,7 +501,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "mealRepeat"));
     }
   }
 
@@ -537,7 +539,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "mealDelete"));
     }
   }
 
@@ -546,12 +548,13 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       return;
     }
     setCoachStatus("loading");
+    setCoachError(undefined);
     try {
       await apiClient.logWeight(profileId, { loggedOn: todayIso(), weightKg });
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "weightSave"));
     }
   }
 
@@ -560,12 +563,13 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       return;
     }
     setCoachStatus("loading");
+    setCoachError(undefined);
     try {
       await apiClient.logWellness(profileId, { loggedOn: todayIso(), ...input });
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "wellnessSave"));
     }
   }
 
@@ -625,7 +629,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       await refreshCoachData(profileId);
     } catch (error) {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+      setCoachError(coachFlowErrorFromUnknown(error, "bodySave"));
     }
   }
 
@@ -823,8 +827,14 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
           onDeleteMeal={confirmDeleteMeal}
         />
       ) : null}
-      {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} equipmentActions={equipmentActions} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
+      {profileId ? (
+        <View
+          style={state.screen === "today" && appScreen === "training" ? styles.content : styles.hiddenScreen}
+          accessibilityElementsHidden={state.screen !== "today" || appScreen !== "training"}
+          importantForAccessibility={state.screen === "today" && appScreen === "training" ? "auto" : "no-hide-descendants"}
+        >
+        <TrainingScreen active={state.screen === "today" && appScreen === "training"} dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} equipmentActions={equipmentActions} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={completeWorkout} />
+        </View>
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen
@@ -915,6 +925,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.canvasWarm
   },
   content: { flex: 1 },
+  hiddenScreen: { display: "none" },
   sessionLoading: {
     flex: 1,
     alignItems: "center",

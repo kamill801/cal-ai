@@ -7,6 +7,7 @@ import { FlowStatusCard } from "../components/FlowStatusCard";
 import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
+import { parseNumericInput } from "../validation/numericInput";
 
 type BodyPhotoView = BodyCheckIn["view"];
 
@@ -23,7 +24,8 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, bod
   const [soreness, setSoreness] = useState(2);
   const [bodyAnalysisConsent, setBodyAnalysisConsent] = useState(false);
   const [selectedBodyView, setSelectedBodyView] = useState<BodyPhotoView>("front");
-  const parsedWeight = Number(weight);
+  const parsedWeight = parseNumericInput(weight, "weight");
+  const weightSaveDisabled = parsedWeight.status !== "valid" || status === "loading";
   const selectedBodyViewOption = BODY_PHOTO_VIEWS.find(({ value }) => value === selectedBodyView) ?? BODY_PHOTO_VIEWS[0];
 
   return (
@@ -40,10 +42,11 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, bod
 
       <CoachCard title={progress?.latestWeightKg ? `최근 ${progress.latestWeightKg}kg` : "첫 체중 기록"} eyebrow="체중 추세">
         <View style={styles.inputRow}>
-          <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="예: 72.0" placeholderTextColor={colors.muted} style={styles.input} accessibilityLabel="현재 체중" />
+          <TextInput value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="예: 72.0" placeholderTextColor={colors.muted} style={[styles.input, parsedWeight.status === "invalid" && styles.inputInvalid]} accessibilityLabel="현재 체중" />
           <Text style={styles.unit}>kg</Text>
-          <TouchableOpacity style={styles.smallButton} disabled={!Number.isFinite(parsedWeight) || status === "loading"} onPress={() => onLogWeight(parsedWeight)} accessibilityRole="button"><Text style={styles.smallButtonText}>기록</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.smallButton, weightSaveDisabled && styles.buttonDisabled]} disabled={weightSaveDisabled} onPress={() => { if (!weightSaveDisabled && parsedWeight.status === "valid") onLogWeight(parsedWeight.value); }} accessibilityRole="button" accessibilityLabel="체중 기록 저장" accessibilityState={{ disabled: weightSaveDisabled, busy: status === "loading" }}><Text style={styles.smallButtonText}>기록</Text></TouchableOpacity>
         </View>
+        {parsedWeight.status === "invalid" ? <Text style={styles.fieldError} accessibilityLiveRegion="polite">체중은 30~250kg로 입력해 주세요.</Text> : null}
         <Text style={styles.body}>{progress?.weightChangeKg === undefined ? "주 2-3회 비슷한 시간에 기록하면 일시적인 수분 변화를 덜 크게 보게 돼요." : `첫 기록보다 ${progress.weightChangeKg > 0 ? "+" : ""}${progress.weightChangeKg}kg 변했어요.`}</Text>
       </CoachCard>
 
@@ -63,7 +66,12 @@ export function ProgressScreen({ progress, latestBodyCheckIn, status, error, bod
         <ScoreRow label="에너지" value={energy} onChange={setEnergy} lowLabel="매우 낮음" highLabel="매우 높음" />
         <ScoreRow label="수면" value={sleepQuality} onChange={setSleepQuality} lowLabel="매우 나쁨" highLabel="매우 좋음" />
         <ScoreRow label="근육통" value={soreness} onChange={setSoreness} lowLabel="거의 없음" highLabel="매우 심함" />
-        <TouchableOpacity style={styles.primaryButton} disabled={status === "loading"} onPress={() => onLogWellness({ energy, sleepQuality, soreness })} accessibilityRole="button"><Text style={styles.primaryButtonText}>오늘 상태 저장</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.primaryButton, status === "loading" && styles.buttonDisabled]} disabled={status === "loading"} onPress={() => onLogWellness({ energy, sleepQuality, soreness })} accessibilityRole="button" accessibilityState={{ disabled: status === "loading", busy: status === "loading" }}><Text style={styles.primaryButtonText}>{status === "loading" ? "저장 중" : "오늘 상태 저장"}</Text></TouchableOpacity>
+        {progress?.latestWellness ? (
+          <Text style={styles.savedWellness} accessibilityLiveRegion="polite">
+            최근 저장 {progress.latestWellness.loggedOn} · 에너지 {progress.latestWellness.energy} · 수면 {progress.latestWellness.sleepQuality} · 근육통 {progress.latestWellness.soreness}
+          </Text>
+        ) : null}
       </CoachCard>
 
       {!bodyPhotoEnabled ? (
@@ -182,11 +190,14 @@ const styles = StyleSheet.create({
   subtitle: { color: colors.body, ...typography.body },
   inputRow: { alignItems: "center", flexDirection: "row", gap: spacing.sm },
   input: { flex: 1, minWidth: 0, minHeight: 48, borderColor: colors.hairline, borderWidth: 1, borderRadius: radii.control, color: colors.ink, backgroundColor: colors.surface, paddingHorizontal: spacing.md, fontSize: 19, fontWeight: "800" },
+  inputInvalid: { borderColor: colors.warningBorder },
+  fieldError: { color: colors.warningText, ...typography.caption },
   unit: { color: colors.muted, ...typography.bodyStrong },
   smallButton: { width: 64, minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leaf, paddingHorizontal: spacing.sm },
   smallButtonText: { color: colors.surface, ...typography.bodyStrong },
   body: { color: colors.body, ...typography.body },
   scoreGuide: { color: colors.muted, ...typography.caption },
+  savedWellness: { color: colors.leaf, ...typography.caption },
   scoreRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", gap: spacing.md },
   scoreLabel: { width: 52, color: colors.ink, ...typography.bodyStrong },
   scoreButtons: { flex: 1, flexDirection: "row", gap: spacing.xs },

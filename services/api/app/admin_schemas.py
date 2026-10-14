@@ -47,6 +47,7 @@ class AnalyticsEventName(StrEnum):
     workout_plan_viewed = "workout_plan_viewed"
     workout_started = "workout_started"
     workout_completed = "workout_completed"
+    workout_partial_saved = "workout_partial_saved"
     progress_viewed = "progress_viewed"
     coach_viewed = "coach_viewed"
     plan_viewed = "plan_viewed"

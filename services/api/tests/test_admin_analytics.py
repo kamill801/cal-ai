@@ -23,6 +23,32 @@ def event_payload(event_name: str, *, session_id: str = "session_12345678") -> d
     }
 
 
+def test_partial_workout_event_is_visible_but_not_counted_as_completed(monkeypatch) -> None:
+    monkeypatch.setattr(main, "authenticate_bearer_token", lambda _authorization: AuthenticatedUser(user_id="workout-member"))
+    headers = {"Authorization": "Bearer workout-member-fixture"}
+    partial = client.post(
+        "/v1/analytics/events",
+        json=event_payload("workout_partial_saved", session_id="workout_member_session"),
+        headers=headers,
+    )
+    assert partial.status_code == 200
+    repository = get_analytics_repository()
+    assert repository.overview().metrics.workouts_completed_today == 0
+    detail = repository.user_detail("workout-member")
+    assert detail is not None
+    assert detail.user.workout_count == 0
+    assert detail.recent_activity[0].event_name == "workout_partial_saved"
+
+    completed = client.post(
+        "/v1/analytics/events",
+        json=event_payload("workout_completed", session_id="workout_member_session"),
+        headers=headers,
+    )
+    assert completed.status_code == 200
+    assert repository.overview().metrics.workouts_completed_today == 1
+    assert repository.user_detail("workout-member").user.workout_count == 1
+
+
 def test_default_cors_origins_include_admin_dev_and_preview() -> None:
     origins = main.get_cors_allowed_origins({})
     assert "http://localhost:3016" in origins

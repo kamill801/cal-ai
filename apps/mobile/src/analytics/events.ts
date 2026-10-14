@@ -13,6 +13,7 @@ export const ANALYTICS_EVENT_NAMES = [
   "workout_plan_viewed",
   "workout_started",
   "workout_completed",
+  "workout_partial_saved",
   "progress_viewed",
   "coach_viewed",
   "plan_viewed",
@@ -44,6 +45,10 @@ export interface AnalyticsEventPayload {
 
 export function isAnalyticsEventName(value: string): value is AnalyticsEventName {
   return ANALYTICS_EVENT_NAME_SET.has(value);
+}
+
+export function workoutSaveEventName(completed: boolean): AnalyticsEventName {
+  return completed ? "workout_completed" : "workout_partial_saved";
 }
 
 export function sanitizeAnalyticsProperties(properties: AnalyticsProperties = {}): Record<string, AnalyticsPrimitive> {

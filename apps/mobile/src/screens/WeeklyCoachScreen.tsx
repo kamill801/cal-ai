@@ -8,7 +8,7 @@ import { colors, radii, spacing, typography } from "../theme";
 
 export function WeeklyCoachScreen({ report, status, error }: { readonly report?: WeeklyCoachReport; readonly status: RequestStatus; readonly error?: FlowError }) {
   const evidenceCount = report ? report.evidence.mealsLogged + report.evidence.workoutsCompleted + report.evidence.weightLogs + report.evidence.wellnessCheckIns + report.evidence.bodyCheckIns : 0;
-  const hasEvidence = evidenceCount > 0;
+  const hasEvidence = evidenceCount > 0 || Boolean(report?.wins.length);
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -28,7 +28,7 @@ export function WeeklyCoachScreen({ report, status, error }: { readonly report?:
             <View style={styles.scoreTrack} accessible accessibilityRole="progressbar" accessibilityLabel="이번 주 균형 점수" accessibilityValue={{ min: 0, max: 100, now: report.score }}><View style={[styles.scoreFill, { width: `${report.score}%` }]} /></View>
             <View style={styles.evidenceRow}>
               <Evidence label="식사" value={report.evidence.mealsLogged} />
-              <Evidence label="운동" value={report.evidence.workoutsCompleted} />
+              <Evidence label="운동 완료" value={report.evidence.workoutsCompleted} />
               <Evidence label="체중" value={report.evidence.weightLogs} />
               <Evidence label="회복" value={report.evidence.wellnessCheckIns} />
             </View>

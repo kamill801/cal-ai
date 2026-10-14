@@ -13,6 +13,7 @@ const tsconfig = {
     module: "Node16",
     moduleResolution: "node16",
     customConditions: [],
+    jsx: "react-jsx",
     outDir,
     noEmit: false,
     skipLibCheck: true
@@ -23,6 +24,9 @@ const tsconfig = {
     join(repoRoot, "apps/mobile/src/dev/asyncFlowSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/sessionRestoreSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/equipmentGuideSmoke.ts"),
+    join(repoRoot, "apps/mobile/src/dev/numericValidationSmoke.ts"),
+    join(repoRoot, "apps/mobile/src/dev/errorMappingSmoke.ts"),
+    join(repoRoot, "apps/mobile/src/dev/workoutAnalyticsSmoke.ts"),
     join(repoRoot, "apps/mobile/src/api/**/*.ts"),
     join(repoRoot, "apps/mobile/src/flow/**/*.ts"),
     join(repoRoot, "apps/mobile/src/session/profileRestore.ts"),
