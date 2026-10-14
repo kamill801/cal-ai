@@ -24,7 +24,7 @@ export function LoginScreen({ configured, loading, error, onKakaoLogin }: { read
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "space-between", padding: spacing.xl, paddingTop: 72, paddingBottom: 40, backgroundColor: colors.canvasWarm },
+  container: { flex: 1, width: "100%", maxWidth: 480, alignSelf: "center", justifyContent: "space-between", padding: spacing.xl, paddingTop: 72, paddingBottom: 40, backgroundColor: colors.canvasWarm },
   brand: { gap: spacing.md },
   icon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leafSoft },
   eyebrow: { color: colors.leaf, ...typography.caption },
