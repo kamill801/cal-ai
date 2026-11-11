@@ -142,3 +142,13 @@ the Play reviewer account and existing photos are not disposable test targets.
 No deletion or retention activation, final legal approval or Play submission is
 claimed. Any later documentation-only checkpoint is not the runtime source
 commit named above and does not require another runtime deployment.
+
+## Later Owner-Approved Fixture Preparation
+
+The owner subsequently approved the named disposable workflow and exact Neon
+readback. Fresh Supabase dashboard identity/region and a real synthetic-image
+presign/direct-R2-PUT/complete/Neon readback are recorded in
+`LIFECYCLE-FIXTURE-PREPARATION-2026-11-11.md`. This supersedes the earlier
+Auth-discovery blocker for preparation only. Permanent erasure, sealed writes,
+actual scheduled retention and final policy/Play approval remain unverified;
+the 7/7 whole-service QA boundary is unchanged.
