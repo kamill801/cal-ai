@@ -1,7 +1,21 @@
-import { profileIdForRestore, profileRestoreAction } from "../session/profileRestore";
+import { profileIdForRestore, profileRestoreAction, shouldWaitForInitialDashboard } from "../session/profileRestore";
 import { ownerScope, ownerStorageKey } from "../session/ownerScope";
 
 export function runSessionRestoreSmoke(): void {
+  for (const status of ["idle", "loading", "success"] as const) {
+    if (!shouldWaitForInitialDashboard({ profileId: "fixture-profile", hasDashboard: false, status })) {
+      throw new Error("an owned profile without real dashboard data must not display demo meals");
+    }
+    if (shouldWaitForInitialDashboard({ profileId: "fixture-profile", hasDashboard: true, status })) {
+      throw new Error("background refresh must not hide an already loaded real dashboard");
+    }
+    if (shouldWaitForInitialDashboard({ hasDashboard: false, status })) {
+      throw new Error("a new user without a profile must be able to reach onboarding");
+    }
+  }
+  if (shouldWaitForInitialDashboard({ profileId: "fixture-profile", hasDashboard: false, status: "error" })) {
+    throw new Error("initial dashboard failure must reach the retry screen, not indefinite loading");
+  }
   const first = ownerScope(true, "first-user");
   const second = ownerScope(true, "second-user");
   if (first === second || first === ownerScope(true) || first === ownerScope(false)) {
@@ -23,6 +37,9 @@ export function runSessionRestoreSmoke(): void {
   }
   if (profileRestoreAction("failed") !== "retry") {
     throw new Error("transient restore failure must retain the saved handle for retry");
+  }
+  if (profileRestoreAction("age_restricted") !== "restrict") {
+    throw new Error("age restrictions must retain the profile and open account controls, not retry or onboarding");
   }
   if (profileIdForRestore({ authEnabled: true, cachedProfileId: "device-profile", serverProfileId: "server-profile" }) !== "server-profile") {
     throw new Error("authenticated restore must prefer the server-owned profile over device cache");

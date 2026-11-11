@@ -147,6 +147,7 @@ export interface CalAiApiClient {
   getWeeklyCoach(profileId: string): Promise<WeeklyCoachReport>;
   getBillingStatus(): Promise<BillingStatus>;
   deleteProfile(profileId: string): Promise<ProfileDeletionResult>;
+  deleteAccount(): Promise<{ status: "deleted" | "pending" }>;
 }
 
 export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: string): CalAiApiClient {
@@ -378,6 +379,11 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
       return mapApiProfileDeletionResult(
         await call<ApiProfileDeletionResult>(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" })
       );
+    },
+    async deleteAccount() {
+      const result = await call<unknown>("/v1/account", { method: "DELETE", body: { confirm: true } });
+      if (result && typeof result === "object" && "status" in result && (result.status === "deleted" || result.status === "pending")) return { status: result.status };
+      throw new ApiClientError({ code: "account_deletion_response_invalid", message: "삭제 상태를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.", retryable: true });
     }
   };
 }

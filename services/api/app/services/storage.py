@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 from urllib.error import HTTPError, URLError
@@ -15,6 +16,14 @@ DEFAULT_IMAGE_UPLOAD_MAX_BYTES = 8_000_000
 DEFAULT_UPLOAD_SOFT_LIMIT_BYTES = 8_000_000_000
 DEFAULT_IMAGE_TTL_DAYS = 30
 DEFAULT_PRESIGN_EXPIRES_SECONDS = 900
+ERASURE_GUARD_CONTENT_TYPE = "application/x-trust-first-nutrition-erasure-guard"
+
+
+def is_write_once_object_key(object_key: str) -> bool:
+    return re.fullmatch(
+        r"uploads/image-upload-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/sealed-v1/image\.(?:jpg|png|webp)",
+        object_key,
+    ) is not None
 
 
 class StorageConfigurationError(RuntimeError):
@@ -57,6 +66,8 @@ class StorageAdapter(Protocol):
 
     def delete_object(self, *, object_key: str) -> None: ...
 
+    def storage_namespace(self) -> str: ...
+
 
 def get_image_upload_max_bytes(environ: dict[str, str] | None = None) -> int:
     return _read_positive_int("IMAGE_UPLOAD_MAX_BYTES", DEFAULT_IMAGE_UPLOAD_MAX_BYTES, environ)
@@ -97,6 +108,9 @@ def get_storage_readiness(environ: dict[str, str] | None = None) -> StorageReadi
 class LocalStorageAdapter:
     provider = "local"
 
+    def storage_namespace(self) -> str:
+        return "local-v1"
+
     def presign_put(self, *, object_key: str, content_type: str, expires_seconds: int) -> PresignedUpload:
         expires_at = _future_iso(expires_seconds)
         return PresignedUpload(
@@ -123,12 +137,22 @@ class LocalStorageAdapter:
 class R2StorageAdapter:
     bucket_name: str
     account_id: str
-    access_key_id: str
-    secret_access_key: str
+    access_key_id: str = field(repr=False)
+    secret_access_key: str = field(repr=False)
     endpoint: str
     region: str
 
     provider = "r2"
+
+    def storage_namespace(self) -> str:
+        parsed = urlparse(self.endpoint)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise StorageConfigurationError("R2_ENDPOINT must be an absolute URL without credentials")
+        identity = "\n".join((
+            parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"),
+            self.account_id, self.bucket_name,
+        ))
+        return "r2-v1:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
     @classmethod
     def required_env_names(cls) -> tuple[str, ...]:
@@ -166,7 +190,8 @@ class R2StorageAdapter:
         canonical_uri = _canonical_object_path(parsed.path, self.bucket_name, object_key)
         credential_scope = f"{date_stamp}/{self.region}/s3/aws4_request"
         credential = f"{self.access_key_id}/{credential_scope}"
-        signed_headers = "content-type;host"
+        write_once = is_write_once_object_key(object_key)
+        signed_headers = "content-type;host;if-none-match" if write_once else "content-type;host"
         query_params = {
             "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
             "X-Amz-Content-Sha256": "UNSIGNED-PAYLOAD",
@@ -177,6 +202,8 @@ class R2StorageAdapter:
         }
         canonical_query = _canonical_query(query_params)
         canonical_headers = f"content-type:{content_type}\nhost:{parsed.netloc}\n"
+        if write_once:
+            canonical_headers += "if-none-match:*\n"
         canonical_request = "\n".join(
             [
                 "PUT",
@@ -200,7 +227,7 @@ class R2StorageAdapter:
         upload_url = f"{parsed.scheme}://{parsed.netloc}{canonical_uri}?{canonical_query}&X-Amz-Signature={signature}"
         return PresignedUpload(
             upload_url=upload_url,
-            headers={"Content-Type": content_type},
+            headers={"Content-Type": content_type, **({"If-None-Match": "*"} if write_once else {})},
             expires_at=_future_iso(expires_seconds, now=now),
         )
 
@@ -231,6 +258,9 @@ class R2StorageAdapter:
             raise StorageConfigurationError("R2 HEAD request failed") from exc
 
     def delete_object(self, *, object_key: str) -> None:
+        if is_write_once_object_key(object_key):
+            self.erase_account_object(object_key=object_key)
+            return
         request_url = self._presign_read(method="DELETE", object_key=object_key, expires_seconds=60)
         try:
             with urlopen(Request(request_url, method="DELETE"), timeout=8):
@@ -241,6 +271,60 @@ class R2StorageAdapter:
             raise StorageConfigurationError(f"R2 DELETE failed with status {exc.code}") from exc
         except (URLError, TimeoutError, ValueError) as exc:
             raise StorageConfigurationError("R2 DELETE request failed") from exc
+
+    def erase_account_object(self, *, object_key: str) -> bool:
+        if not is_write_once_object_key(object_key):
+            self.delete_object(object_key=object_key)
+            return False
+        # Keep a content-free guard: deleting it would permit an earlier conditional
+        # PUT to commit. R2 evaluates If-None-Match atomically at write commit.
+        request = self._erasure_guard_request(object_key=object_key)
+        try:
+            with urlopen(request, timeout=8):
+                pass
+            metadata = self.stat_object(object_key=object_key)
+            if metadata is None or metadata.byte_size != 0 or metadata.content_type != ERASURE_GUARD_CONTENT_TYPE:
+                raise StorageConfigurationError("erasure_guard_unverified")
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            raise StorageConfigurationError("erasure_guard_unverified") from None
+        return True
+
+    def _erasure_guard_request(self, *, object_key: str) -> Request:
+        now = datetime.now(UTC)
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        date_stamp = now.strftime("%Y%m%d")
+        parsed = urlparse(self.endpoint)
+        self.storage_namespace()
+        canonical_uri = _canonical_object_path(parsed.path, self.bucket_name, object_key)
+        payload_hash = hashlib.sha256(b"").hexdigest()
+        scope = f"{date_stamp}/{self.region}/s3/aws4_request"
+        signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date"
+        canonical_headers = (
+            f"content-type:{ERASURE_GUARD_CONTENT_TYPE}\nhost:{parsed.netloc}\n"
+            f"x-amz-content-sha256:{payload_hash}\nx-amz-date:{amz_date}\n"
+        )
+        canonical_request = "\n".join((
+            "PUT", canonical_uri, "", canonical_headers, signed_headers, payload_hash,
+        ))
+        string_to_sign = "\n".join((
+            "AWS4-HMAC-SHA256", amz_date, scope,
+            hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+        ))
+        signature = hmac.new(
+            _signature_key(self.secret_access_key, date_stamp, self.region, "s3"),
+            string_to_sign.encode("utf-8"), hashlib.sha256,
+        ).hexdigest()
+        return Request(
+            f"{parsed.scheme}://{parsed.netloc}{canonical_uri}", data=b"", method="PUT",
+            headers={
+                "Content-Type": ERASURE_GUARD_CONTENT_TYPE, "Content-Length": "0",
+                "X-Amz-Date": amz_date, "X-Amz-Content-Sha256": payload_hash,
+                "Authorization": (
+                    f"AWS4-HMAC-SHA256 Credential={self.access_key_id}/{scope}, "
+                    f"SignedHeaders={signed_headers}, Signature={signature}"
+                ),
+            },
+        )
 
     def _presign_read(self, *, method: str, object_key: str, expires_seconds: int) -> str:
         now = datetime.now(UTC)

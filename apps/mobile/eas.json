@@ -12,6 +12,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://cal-ai-api.vercel.app"
       },
@@ -20,6 +21,7 @@
       }
     },
     "production": {
+      "environment": "production",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://cal-ai-api.vercel.app"
       },

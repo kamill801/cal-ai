@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const outDir = "/tmp/cal-ai-mobile-smoke";
@@ -22,6 +23,7 @@ const tsconfig = {
     join(repoRoot, "apps/mobile/src/dev/apiClientSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/asyncFlowSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/sessionRestoreSmoke.ts"),
+    join(repoRoot, "apps/mobile/src/dev/authAccessSmoke.ts"),
     join(repoRoot, "apps/mobile/src/api/**/*.ts"),
     join(repoRoot, "apps/mobile/src/flow/**/*.ts"),
     join(repoRoot, "apps/mobile/src/session/profileRestore.ts"),
@@ -32,7 +34,13 @@ const tsconfig = {
 
 writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
 
-const tsc = spawnSync(join(repoRoot, "apps/mobile/node_modules/typescript/bin/tsc"), ["-p", tsconfigPath], { stdio: "inherit" });
+const require = createRequire(import.meta.url);
+const onboarding = spawnSync(process.execPath, ["--test", join(repoRoot, "apps/mobile/scripts/onboarding-age.test.mjs"), join(repoRoot, "apps/mobile/scripts/training-draft.test.mjs"), join(repoRoot, "apps/mobile/scripts/app-recovery.test.mjs")], { stdio: "inherit" });
+if (onboarding.status !== 0) {
+  process.exit(onboarding.status ?? 1);
+}
+const tsc = spawnSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", tsconfigPath], { stdio: "inherit" });
+if (tsc.error) console.error("Unable to start the TypeScript smoke compiler.");
 if (tsc.status !== 0) {
   process.exit(tsc.status ?? 1);
 }

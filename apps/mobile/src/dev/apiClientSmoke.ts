@@ -133,12 +133,22 @@ async function expectAuthenticatedProfileMapsResponse(): Promise<void> {
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const profile = await createCalAiApiClient("http://127.0.0.1:8015", "session-token").getAuthenticatedProfile();
-    if (profile.profileId !== "server-profile-1") {
-      throw new Error("authenticated profile response did not map");
-    }
-    if (calls[0]?.authorization !== "Bearer session-token") {
-      throw new Error("authenticated profile discovery must include the session bearer token");
+    for (const [baseUrl, expectedUrl] of [
+      ["http://127.0.0.1:8015", "http://127.0.0.1:8015/v1/profiles/me"],
+      ["/", "/v1/profiles/me"],
+      ["", "/v1/profiles/me"]
+    ]) {
+      calls.length = 0;
+      const profile = await createCalAiApiClient(baseUrl, "session-token").getAuthenticatedProfile();
+      if (profile.profileId !== "server-profile-1") {
+        throw new Error("authenticated profile response did not map");
+      }
+      if (calls.length !== 1 || calls[0]?.url !== expectedUrl) {
+        throw new Error("authenticated profile discovery must preserve the configured API origin");
+      }
+      if (calls[0]?.authorization !== "Bearer session-token") {
+        throw new Error("authenticated profile discovery must include the session bearer token");
+      }
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -524,6 +534,37 @@ async function expectCoachContractsMap(): Promise<void> {
   }
 }
 
+async function expectSelfOnlyAccountDeletion(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  let outcome: "deleted" | "pending" = "deleted";
+  globalThis.fetch = ((url, init) => {
+    if (String(url) !== "https://api.example.test/v1/account" || init?.method !== "DELETE" || init?.body !== JSON.stringify({ confirm: true })) throw new Error("account deletion must not accept owner or profile identifiers");
+    if ((init.headers as Record<string, string>).Authorization !== "Bearer fixture-session") throw new Error("account deletion requires current authentication");
+    return Promise.resolve({ ok: true, status: outcome === "deleted" ? 200 : 202, json: () => Promise.resolve({ status: outcome }) } as Response);
+  }) as typeof fetch;
+  try {
+    const response = await createCalAiApiClient("https://api.example.test", "fixture-session").deleteAccount();
+    if (response.status !== "deleted") throw new Error("account deletion confirmation missing");
+    outcome = "pending";
+    const pending = await createCalAiApiClient("https://api.example.test", "fixture-session").deleteAccount();
+    if (pending.status !== "pending") throw new Error("accepted deletion must not be reported complete");
+    globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({}) } as Response)) as typeof fetch;
+    try {
+      await createCalAiApiClient("https://api.example.test", "fixture-session").deleteAccount();
+      throw new Error("malformed deletion response accepted");
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.code !== "account_deletion_response_invalid") throw error;
+    }
+    globalThis.fetch = (async () => { throw new Error("offline-before-send"); }) as typeof fetch;
+    try {
+      await createCalAiApiClient("https://api.example.test", "fixture-session").deleteAccount();
+      throw new Error("offline deletion accepted");
+    } catch (error) {
+      if (!(error instanceof ApiClientError) || error.code !== "network_error") throw error;
+    }
+  } finally { globalThis.fetch = originalFetch; }
+}
+
 export async function runApiClientSmoke(): Promise<void> {
   await expectNetworkError();
   await expectAuthenticatedProfileMapsResponse();
@@ -539,4 +580,5 @@ export async function runApiClientSmoke(): Promise<void> {
   await expectInvalidKindFallsBackToStatus();
   await expectTimeoutStatusFallback();
   await expectCoachContractsMap();
+  await expectSelfOnlyAccountDeletion();
 }

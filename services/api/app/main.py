@@ -4,6 +4,7 @@ import os
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from secrets import compare_digest
+from time import monotonic
 from typing import Literal
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from app.schemas import (
     ApiErrorDetail,
@@ -36,6 +38,8 @@ from app.schemas import (
 )
 from app.coach_routes import router as coach_router
 from app.admin_routes import router as admin_router
+from app.public_routes import router as public_router
+from app.account_routes import account_deletion_gate, router as account_router, worker_router as account_worker_router
 from app.analytics_routes import billing_router, router as analytics_router
 from app.services.analysis_provider import (
     AnalysisProviderConfigurationError,
@@ -47,6 +51,7 @@ from app.services.analysis_provider import (
 )
 from app.services.analysis_results import apply_manual_nutrition_override, apply_persisted_clarification, save_persisted_meal
 from app.services.analytics_repository import get_analytics_repository
+from app.services.account_deletion import AccountDeletionError, run_account_deletion_jobs
 from app.services.image_uploads import ImageUploadError, complete_presigned_image_upload, create_mock_image_upload, create_presigned_image_upload, resolve_analysis_image_reference, resolve_image_reference
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
@@ -84,16 +89,13 @@ app = FastAPI(
     title="Trust-First AI Nutrition Logger API",
     version="0.1.0",
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=get_cors_allowed_origins(),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 app.include_router(coach_router)
 app.include_router(analytics_router)
 app.include_router(billing_router)
 app.include_router(admin_router)
+app.include_router(public_router)
+app.include_router(account_router)
+app.include_router(account_worker_router)
 
 
 @app.middleware("http")
@@ -105,13 +107,52 @@ async def optional_authentication(request: Request, call_next):
         user = authenticate_bearer_token(request.headers.get("Authorization"))
         request.state.user_id = user.user_id if user else None
         request.state.auth_user = user
+        blocked = account_deletion_gate(request)
+        if blocked is not None:
+            return blocked
     except AuthenticationError:
         detail = ApiErrorDetail(code="authentication_required", message="로그인이 필요해요.", retryable=False, kind="validation")
         return JSONResponse(status_code=401, content={"detail": detail.model_dump()})
     except AuthConfigurationError:
         detail = ApiErrorDetail(code="auth_unavailable", message="로그인 설정을 확인해 주세요.", retryable=False, kind="server")
         return JSONResponse(status_code=503, content={"detail": detail.model_dump()})
+    path = request.url.path.rstrip("/")
+    feature_request = (
+        request.method != "DELETE"
+        and not (request.method == "GET" and path == "/v1/profiles/me")
+        and any(
+            path == prefix or path.startswith(prefix + "/")
+            for prefix in (
+                "/v1/onboarding", "/v1/dashboard", "/v1/profiles", "/v1/image-uploads",
+                "/image-uploads", "/v1/analysis-jobs", "/v1/meal-logs",
+            )
+        )
+    )
+    if user is not None and feature_request:
+        try:
+            underage = await run_in_threadpool(lambda: get_coach_repository().has_underage_profile(user.user_id))
+        except (PersistenceError, OSError):
+            detail = ApiErrorDetail(
+                code="age_eligibility_unavailable", message="이용 가능 연령을 확인할 수 없어요. 잠시 후 다시 시도해 주세요.",
+                retryable=True, kind="server",
+            )
+            return JSONResponse(status_code=503, content={"detail": detail.model_dump()})
+        if underage:
+            detail = ApiErrorDetail(
+                code="age_restricted", message="이 서비스는 만 18세 이상만 이용할 수 있어요.",
+                retryable=False, kind="validation",
+            )
+            return JSONResponse(status_code=403, content={"detail": detail.model_dump()})
     return await call_next(request)
+
+
+# Register CORS last so it also wraps early access-gate responses.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_cors_allowed_origins(),
+    allow_methods=["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
+    allow_headers=["*"],
+)
 
 
 def api_error(*, status_code: int, code: str, message: str, retryable: bool, kind: ApiErrorKind) -> HTTPException:
@@ -329,6 +370,7 @@ def cleanup_expired_images(
     request: Request,
     repository: PersistenceRepository = Depends(persistence_repository),
 ) -> RetentionCleanupResponse:
+    started_at = monotonic()
     expected_secret = os.environ.get("CRON_SECRET", "")
     provided = request.headers.get("Authorization", "")
     if not expected_secret or not compare_digest(provided, f"Bearer {expected_secret}"):
@@ -340,27 +382,86 @@ def cleanup_expired_images(
             kind="validation",
         )
 
+    deadline = started_at + 45
+    account_failed = False
+    if os.environ.get("ACCOUNT_DELETION_WORKER_ENABLED", "false").strip().lower() == "true":
+        # Reserve account progress and leave 20s for two-call retention erasure/checkpoints.
+        remaining = min(25, deadline - monotonic() - 20)
+        if remaining < 20:
+            account_failed = True
+        else:
+            try:
+                jobs = run_account_deletion_jobs(max_jobs=3, max_objects=5, budget_seconds=remaining)
+                account_failed = bool(jobs["failed"])
+            except (AccountDeletionError, PersistenceError):
+                account_failed = True
+
+    def check_retention_budget(*, reserve_seconds: float = 0) -> None:
+        remaining = deadline - monotonic()
+        if remaining <= 0 or remaining < reserve_seconds:
+            raise StorageConfigurationError("cleanup_budget_exhausted")
+
+    deleted_images = 0
+    retention_failure: Exception | None = None
     try:
+        check_retention_budget()
         storage = get_storage_adapter()
-        expired = repository.list_expired_image_uploads(datetime.now(UTC).isoformat(timespec="seconds"))
-        for image_record in expired:
-            if image_record.object_key:
-                if image_record.storage_provider != storage.provider:
-                    raise StorageConfigurationError("stored image provider does not match active storage provider")
-                repository.mark_image_upload_deleting(image_record.image_upload_id)
-                storage.delete_object(object_key=image_record.object_key)
-            repository.mark_image_upload_deleted(image_record.image_upload_id)
-        return RetentionCleanupResponse(status="ok", deleted_images=len(expired))
-    except StorageConfigurationError as exc:
+        erase = getattr(storage, "erase_account_object", None)
+        erase_object = erase if callable(erase) else storage.delete_object
+        erasure_reserve = 18 if callable(erase) else 10
+        check_retention_budget()
+        expired = repository.list_expired_image_uploads(
+            datetime.now(UTC).isoformat(timespec="seconds"), limit=100,
+        )
+        check_retention_budget()
+        for index, image_record in enumerate(expired):
+            check_retention_budget()
+            if index >= 100:
+                raise StorageConfigurationError("cleanup_batch_incomplete")
+            try:
+                if image_record.storage_provider != "local":
+                    namespace_method = getattr(storage, "storage_namespace", None)
+                    namespace = namespace_method() if callable(namespace_method) else None
+                    if (
+                        not isinstance(namespace, str) or not namespace.strip()
+                        or image_record.storage_namespace != namespace
+                    ):
+                        raise StorageConfigurationError("storage_namespace_mismatch")
+                if image_record.object_key:
+                    if image_record.storage_provider != storage.provider:
+                        raise StorageConfigurationError("storage_provider_mismatch")
+                    check_retention_budget(reserve_seconds=erasure_reserve)
+                    if not repository.mark_image_upload_deleting(image_record.image_upload_id):
+                        continue
+                    check_retention_budget(reserve_seconds=erasure_reserve)
+                    # Preserve guard objects; hook proof only gates full account erasure.
+                    erase_object(object_key=image_record.object_key)
+                check_retention_budget()
+                if repository.mark_image_upload_deleted(image_record.image_upload_id):
+                    deleted_images += 1
+            except (StorageConfigurationError, PersistenceError, OSError, ValueError) as exc:
+                # An upload may have been tombstoned after the retention snapshot.
+                retention_failure = retention_failure or exc
+    except (StorageConfigurationError, PersistenceError, OSError, ValueError) as exc:
+        retention_failure = retention_failure or exc
+
+    if retention_failure is not None:
+        if isinstance(retention_failure, PersistenceError):
+            raise persistence_unavailable_error() from None
         raise api_error(
             status_code=503,
             code="storage_cleanup_unavailable",
             message="사진 보관 기간 정리를 완료하지 못했어요.",
             retryable=True,
             kind="server",
-        ) from exc
-    except PersistenceError as exc:
-        raise persistence_unavailable_error() from exc
+        ) from None
+    if account_failed:
+        raise api_error(
+            status_code=503, code="account_deletion_cleanup_unavailable",
+            message="계정 삭제 정리를 완료하지 못했어요. 서버 작업을 다시 확인해 주세요.",
+            retryable=True, kind="server",
+        ) from None
+    return RetentionCleanupResponse(status="ok", deleted_images=deleted_images)
 
 
 @app.post("/v1/onboarding", response_model=OnboardingResponse)

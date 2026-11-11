@@ -37,6 +37,8 @@ class CoachRepository(Protocol):
 
     def list_profiles_for_owner(self, owner_id: str) -> list[CoachProfile]: ...
 
+    def has_underage_profile(self, owner_id: str) -> bool: ...
+
     def save_weight_log(self, value: WeightLogResponse) -> WeightLogResponse: ...
 
     def list_weight_logs(self, profile_id: str) -> list[WeightLogResponse]: ...
@@ -94,6 +96,30 @@ class SqlCoachRepository:
                 (owner_id,),
             ).fetchall()
         return [CoachProfile.model_validate_json(row["payload_json"]) for row in rows]
+
+    def has_underage_profile(self, owner_id: str) -> bool:
+        owner_filter = (
+            "payload_json::jsonb ->> 'owner_id' = ?"
+            if self._postgres
+            else "json_extract(payload_json, '$.owner_id') = ?"
+        )
+        age_filter = (
+            "cast(payload_json::jsonb -> 'onboarding' ->> 'age' as numeric) < 18"
+            if self._postgres
+            else "cast(json_extract(payload_json, '$.onboarding.age') as real) < 18"
+        )
+        with self._connection() as conn:
+            if self._postgres:
+                conn.execute("select set_config('statement_timeout', '2000', true)")
+                conn.execute("select set_config('lock_timeout', '2000', true)")
+            else:
+                conn.execute("pragma busy_timeout = 2000")
+            # Any owned underage record wins, even after newer adult onboarding.
+            row = conn.execute(
+                self._sql(f"select 1 as underage from coach_profiles where {owner_filter} and {age_filter} limit 1"),
+                (owner_id,),
+            ).fetchone()
+        return row is not None
 
     def save_weight_log(self, value: WeightLogResponse) -> WeightLogResponse:
         return self._save_event("weight", value)

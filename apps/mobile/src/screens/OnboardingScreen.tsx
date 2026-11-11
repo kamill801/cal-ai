@@ -56,7 +56,7 @@ export function OnboardingScreen({ status, error, target, warnings, onSubmit, on
         <View style={styles.heroCopy}>
           <Text style={styles.eyebrow}>초기 목표 설정</Text>
           <Text style={styles.title}>사진 한 장으로 식단 기록을 시작해요</Text>
-          <Text style={styles.subtitle}>필요한 정보만 짧게 받고, 나중에 체중 변화와 기록이 쌓이면 목표를 다시 조정해요.</Text>
+          <Text style={styles.subtitle}>만 18세 이상을 위한 서비스예요. 필요한 정보만 짧게 받고, 나중에 체중 변화와 기록이 쌓이면 목표를 다시 조정해요.</Text>
         </View>
         <TrustBuddy size={112} pose="meal" />
       </View>
@@ -65,7 +65,7 @@ export function OnboardingScreen({ status, error, target, warnings, onSubmit, on
 
       <View style={styles.formCard}>
         <View style={styles.inputRow}>
-          <NumberField label="나이" value={age} onChangeText={setAge} suffix="세" placeholder="예: 29" />
+          <NumberField label="만 나이" value={age} onChangeText={setAge} suffix="세" placeholder="18~100" />
           <NumberField label="키" value={heightCm} onChangeText={setHeightCm} suffix="cm" placeholder="예: 172" />
         </View>
         <View style={styles.inputRow}>
@@ -204,7 +204,7 @@ function parseOnboardingInput(input: {
   if (!input.sex || !input.goalType || !input.activityLevel || !input.trainingFrequency || !input.experienceLevel || input.availableEquipment.length === 0) {
     return undefined;
   }
-  if (!Number.isInteger(age) || age < 14 || age > 100 || !Number.isFinite(heightCm) || heightCm < 100 || heightCm > 230 || !Number.isFinite(currentWeightKg) || currentWeightKg < 30 || currentWeightKg > 250 || !Number.isInteger(sessionMinutes) || sessionMinutes < 20 || sessionMinutes > 120) {
+  if (!Number.isInteger(age) || age < 18 || age > 100 || !Number.isFinite(heightCm) || heightCm < 100 || heightCm > 230 || !Number.isFinite(currentWeightKg) || currentWeightKg < 30 || currentWeightKg > 250 || !Number.isInteger(sessionMinutes) || sessionMinutes < 20 || sessionMinutes > 120) {
     return undefined;
   }
   if (targetWeightKg !== undefined && (!Number.isFinite(targetWeightKg) || targetWeightKg < 30 || targetWeightKg > 250)) {
@@ -227,7 +227,7 @@ function parseOnboardingInput(input: {
 
 function numericRangeWarning(input: { readonly age: string; readonly heightCm: string; readonly currentWeightKg: string; readonly targetWeightKg: string; readonly sessionMinutes: string }): string | undefined {
   const checks = [
-    { value: input.age, valid: (number: number) => Number.isInteger(number) && number >= 14 && number <= 100, message: "나이는 14~100세 사이의 정수로 입력해 주세요." },
+    { value: input.age, valid: (number: number) => Number.isInteger(number) && number >= 18 && number <= 100, message: "만 나이는 18~100세 사이의 정수로 입력해 주세요." },
     { value: input.heightCm, valid: (number: number) => number >= 100 && number <= 230, message: "키는 100~230cm 사이로 입력해 주세요." },
     { value: input.currentWeightKg, valid: (number: number) => number >= 30 && number <= 250, message: "현재 체중은 30~250kg 사이로 입력해 주세요." },
     { value: input.targetWeightKg, valid: (number: number) => number >= 30 && number <= 250, message: "목표 체중은 30~250kg 사이로 입력해 주세요." },

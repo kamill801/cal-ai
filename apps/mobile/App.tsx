@@ -24,8 +24,9 @@ import { TrainingScreen } from "./src/screens/TrainingScreen";
 import { ProgressScreen } from "./src/screens/ProgressScreen";
 import { WeeklyCoachScreen } from "./src/screens/WeeklyCoachScreen";
 import { clearProfileId, loadProfileId, saveProfileId } from "./src/session/profileSession";
-import { profileIdForRestore, profileRestoreAction, type ProfileRefreshResult } from "./src/session/profileRestore";
+import { profileIdForRestore, profileRestoreAction, shouldWaitForInitialDashboard, type ProfileRefreshResult } from "./src/session/profileRestore";
 import { ownerScope } from "./src/session/ownerScope";
+import { dismissWebAccountDeletionIntent, readWebAccountDeletionIntent } from "./src/session/accountDeletionIntent";
 import { colors } from "./src/theme";
 
 type AppScreen = "onboarding" | "safety" | "plan" | MainTab;
@@ -47,9 +48,12 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const [sessionReady, setSessionReady] = useState(false);
   const [sessionRestoreError, setSessionRestoreError] = useState<string | undefined>(undefined);
   const [sessionRestoreAttempt, setSessionRestoreAttempt] = useState(0);
+  const [ageRestricted, setAgeRestricted] = useState(false);
   const [coachDashboard, setCoachDashboard] = useState<CoachDashboard | undefined>(undefined);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | undefined>(undefined);
   const [workoutHistory, setWorkoutHistory] = useState<WorkoutHistory | undefined>(undefined);
+  const [savedWorkoutSessionId, setSavedWorkoutSessionId] = useState<string | undefined>(undefined);
+  const [workoutRefreshPending, setWorkoutRefreshPending] = useState(false);
   const [progress, setProgress] = useState<ProgressSummary | undefined>(undefined);
   const [weeklyCoach, setWeeklyCoach] = useState<WeeklyCoachReport | undefined>(undefined);
   const [latestBodyCheckIn, setLatestBodyCheckIn] = useState<BodyCheckIn | undefined>(undefined);
@@ -57,6 +61,9 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const [coachError, setCoachError] = useState<FlowError | undefined>(undefined);
   const [deletionStatus, setDeletionStatus] = useState<RequestStatus>("idle");
   const [deletionError, setDeletionError] = useState<string | undefined>(undefined);
+  const [accountDeletionIntent, setAccountDeletionIntent] = useState(readWebAccountDeletionIntent);
+  const [accountDeletionPending, setAccountDeletionPending] = useState(false);
+  const [accountDeleted, setAccountDeleted] = useState(false);
   const [billingStatus, setBillingStatus] = useState<BillingStatus | undefined>(undefined);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | undefined>(undefined);
@@ -68,6 +75,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const lastLoginUserIdRef = useRef<string | undefined>(undefined);
   const lastViewEventRef = useRef<string | undefined>(undefined);
   const lastClarificationRef = useRef<string | undefined>(undefined);
+  const workoutSaveInFlight = useRef(false);
 
   const trackEvent = useCallback(
     (
@@ -99,6 +107,10 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       }
       try {
         setSessionRestoreError(undefined);
+        if (accountDeletionIntent) {
+          setAppScreen("safety");
+          return;
+        }
         const serverProfileId = auth.enabled ? (await apiClient.getAuthenticatedProfile()).profileId : undefined;
         const cachedProfileId = auth.enabled ? undefined : await loadProfileId(scope);
         const restoredProfileId = profileIdForRestore({ authEnabled: auth.enabled, cachedProfileId, serverProfileId });
@@ -124,7 +136,9 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
           return;
         }
         const action = profileRestoreAction(restored);
-        if (action === "open") {
+        if (action === "restrict") {
+          setAgeRestricted(true);
+        } else if (action === "open") {
           setAppScreen("today");
         } else if (action === "clear") {
           await clearProfileId(scope);
@@ -132,9 +146,16 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         } else {
           setAppScreen("today");
         }
-      } catch {
+      } catch (error) {
         if (isCurrent) {
-          setSessionRestoreError("기록을 잠시 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+          if (error instanceof ApiClientError && error.status === 403 && error.code === "age_restricted") {
+            setAgeRestricted(true);
+          } else if (error instanceof ApiClientError && error.code === "account_deletion_in_progress") {
+            setAccountDeletionPending(true);
+            setAppScreen("safety");
+          } else {
+            setSessionRestoreError("기록을 잠시 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+          }
         }
       } finally {
         if (isCurrent) {
@@ -147,7 +168,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     return () => {
       isCurrent = false;
     };
-  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient, sessionRestoreAttempt]);
+  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient, sessionRestoreAttempt, accountDeletionIntent]);
 
   useEffect(() => {
     if (profileId) {
@@ -367,6 +388,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }, [profileId, state.screen]);
 
   async function submitOnboarding(input: OnboardingRequest): Promise<void> {
+    if (ageRestricted) return;
     trackEvent("onboarding_started", "onboarding", { goal_type: input.goalType });
     setOnboardingStatus("loading");
     setOnboardingError(undefined);
@@ -383,10 +405,14 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     } catch (error) {
       setOnboardingStatus("error");
       setOnboardingError(onboardingFlowErrorFromUnknown(error));
+      if (error instanceof ApiClientError && error.status === 403 && error.code === "age_restricted") {
+        setAgeRestricted(true);
+      }
     }
   }
 
   function continueFromOnboarding(target: NutritionTarget): void {
+    if (ageRestricted) return;
     dispatch({ type: "APPLY_NUTRITION_TARGET", target });
     if (onboardingResult) {
       setProfileId(onboardingResult.profileId);
@@ -417,11 +443,18 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       setWeeklyCoach(report);
       setWorkoutPlan(existingPlan);
       setWorkoutHistory(history);
+      setWorkoutRefreshPending(false);
       setCoachStatus("success");
       return "ok";
     } catch (error) {
       setCoachStatus("error");
       setCoachError(onboardingFlowErrorFromUnknown(error));
+      if (error instanceof ApiClientError && error.status === 403 && error.code === "age_restricted") {
+        setAgeRestricted(true);
+        setSessionRestoreError(undefined);
+        setCoachError({ ...onboardingFlowErrorFromUnknown(error), retryable: false });
+        return "age_restricted";
+      }
       if (error instanceof ApiClientError && error.status === 404 && error.code === "profile_not_found") {
         return "not_found";
       }
@@ -430,6 +463,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }
 
   async function retrySessionRestore(): Promise<void> {
+    if (ageRestricted) return;
     setSessionReady(false);
     setSessionRestoreAttempt((attempt) => attempt + 1);
   }
@@ -459,30 +493,58 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[];
     sessionRpe: number;
   }): Promise<void> {
-    if (!profileId) {
+    if (!profileId || ageRestricted || workoutRefreshPending || workoutSaveInFlight.current || coachStatus === "loading") {
       return;
     }
+    workoutSaveInFlight.current = true;
     setCoachStatus("loading");
     setCoachError(undefined);
     try {
-      await apiClient.logWorkoutSession(profileId, {
-        planId: input.plan.id,
-        workoutDayId: input.workoutDayId,
-        performedOn: todayIso(),
-        durationMinutes: input.durationMinutes,
-        completedExerciseIds: input.completedExerciseIds,
-        exercisePerformance: input.exercisePerformance,
-        sessionRpe: input.sessionRpe
-      });
+      let savedSessionId: string;
+      try {
+        const saved = await apiClient.logWorkoutSession(profileId, {
+          planId: input.plan.id,
+          workoutDayId: input.workoutDayId,
+          performedOn: todayIso(),
+          durationMinutes: input.durationMinutes,
+          completedExerciseIds: input.completedExerciseIds,
+          exercisePerformance: input.exercisePerformance,
+          sessionRpe: input.sessionRpe
+        });
+        savedSessionId = saved.id;
+      } catch (error) {
+        setCoachStatus("error");
+        setCoachError({ ...onboardingFlowErrorFromUnknown(error), title: "운동 기록을 저장하지 못했어요" });
+        if (error instanceof ApiClientError && error.status === 403 && error.code === "age_restricted") setAgeRestricted(true);
+        return;
+      }
+      setSavedWorkoutSessionId(savedSessionId);
+      setWorkoutRefreshPending(true);
       trackEvent("workout_completed", "training", {
         workout_day_id: input.workoutDayId,
         duration_minutes: input.durationMinutes,
         session_rpe: input.sessionRpe
       });
-      await refreshCoachData(profileId);
-    } catch (error) {
+      await refreshSavedWorkout(profileId);
+    } finally {
+      workoutSaveInFlight.current = false;
+    }
+  }
+
+  async function refreshSavedWorkout(activeProfileId = profileId): Promise<void> {
+    if (!activeProfileId) return;
+    let result: ProfileRefreshResult = "failed";
+    try {
+      result = await refreshCoachData(activeProfileId);
+    } catch {
       setCoachStatus("error");
-      setCoachError(onboardingFlowErrorFromUnknown(error));
+    }
+    if (result !== "ok" && result !== "age_restricted") {
+      setCoachError({
+        title: "운동 기록은 저장됐어요",
+        message: "저장은 완료됐지만 최신 기록을 불러오지 못했어요. 다시 저장하지 말고 저장된 기록을 다시 불러와 주세요.",
+        code: "workout_saved_refresh_failed", kind: "server", retryable: false
+      });
     }
   }
 
@@ -662,6 +724,41 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     }
   }
 
+  async function deleteAccount(): Promise<void> {
+    if (!auth.session || deletionStatus === "loading" || accountDeleted) return;
+    setDeletionStatus("loading");
+    setDeletionError(undefined);
+    try {
+      const result = await apiClient.deleteAccount();
+      if (result.status === "pending") {
+        setAccountDeletionPending(true);
+        setDeletionStatus("idle");
+        setDeletionError("계정 삭제 요청이 접수됐어요. 처리가 끝날 때까지 새 기록은 작성할 수 없어요. 잠시 후 삭제 상태를 다시 확인해 주세요.");
+        return;
+      }
+      setAccountDeleted(true);
+      setAccountDeletionPending(true);
+      setDeletionStatus("success");
+      dismissWebAccountDeletionIntent();
+      await clearProfileId(scope);
+      await auth.signOut();
+    } catch (error) {
+      setDeletionStatus("error");
+      setDeletionError(error instanceof ApiClientError ? error.userMessage : "계정 삭제를 완료하지 못했어요. 잠시 후 다시 시도해 주세요.");
+      if (error instanceof ApiClientError && error.code === "account_deletion_in_progress") setAccountDeletionPending(true);
+    }
+  }
+
+  function leavePrivacy(): void {
+    dismissWebAccountDeletionIntent();
+    if (accountDeletionIntent) {
+      setAccountDeletionIntent(false);
+      setSessionReady(false);
+      setSessionRestoreAttempt((value) => value + 1);
+    }
+    setAppScreen(profileId ? "today" : "onboarding");
+  }
+
   function handleMealImageResult(result: MealImagePickerResult): void {
     switch (result.status) {
       case "selected":
@@ -691,7 +788,13 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     }
   }
 
-  if (!auth.ready || !sessionReady) {
+  const waitingForDashboard = !ageRestricted && appScreen !== "safety" && !accountDeleted && shouldWaitForInitialDashboard({
+    profileId,
+    hasDashboard: Boolean(coachDashboard),
+    status: coachStatus
+  });
+
+  if (!auth.ready || !sessionReady || waitingForDashboard) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
@@ -712,9 +815,46 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
           loading={auth.loading}
           error={auth.error}
           onKakaoLogin={() => void auth.signInWithKakao()}
+          onEmailLogin={auth.signInWithEmail}
         />
       </SafeAreaView>
     );
+  }
+
+  if (accountDeleted) {
+    return <SafeAreaView style={styles.safeArea}><View style={styles.sessionLoading}>
+      <Text style={styles.sessionErrorTitle}>계정 삭제가 완료됐어요</Text>
+      <Text style={styles.sessionLoadingText}>로그인 계정과 연결된 앱 기록을 삭제했어요.</Text>
+      <TouchableOpacity style={styles.sessionRetryButton} onPress={() => void auth.signOut()} accessibilityRole="button"><Text style={styles.sessionRetryText}>로그인 화면으로</Text></TouchableOpacity>
+      {auth.error ? <Text style={styles.sessionLoadingText}>{auth.error}</Text> : null}
+    </View></SafeAreaView>;
+  }
+
+  if (appScreen === "safety") {
+    return <SafeAreaView style={styles.safeArea}><StatusBar style="dark" /><View style={styles.content}>
+      <SafetyPrivacyScreen
+        onBack={accountDeletionPending || deletionStatus === "loading" ? undefined : leavePrivacy}
+        onSignOut={auth.enabled && deletionStatus !== "loading" ? () => void signOut() : undefined}
+        onDeleteData={() => void deleteAppData()}
+        onDeleteAccount={auth.enabled ? () => void deleteAccount() : undefined}
+        hasProfile={Boolean(profileId)}
+        accountDeletionPending={accountDeletionPending}
+        deletionStatus={deletionStatus}
+        deletionError={deletionError}
+      />
+    </View></SafeAreaView>;
+  }
+
+  if (ageRestricted) {
+    return <SafeAreaView style={styles.safeArea}><StatusBar style="dark" /><View style={styles.sessionLoading} accessibilityLabel="연령 기준에 따른 이용 제한">
+      <Text style={styles.sessionErrorTitle}>만 18세 이상만 이용할 수 있어요</Text>
+      <Text style={styles.sessionLoadingText}>현재 계정의 프로필이 연령 기준에 맞지 않아 기록 기능을 이용할 수 없어요. 개인정보 확인과 기록·계정 삭제, 로그아웃은 계속 이용할 수 있어요.</Text>
+      <View style={styles.sessionActions}>
+        <TouchableOpacity style={styles.sessionRetryButton} onPress={() => setAppScreen("safety")} accessibilityRole="button"><Text style={styles.sessionRetryText}>개인정보와 계정 관리</Text></TouchableOpacity>
+        {auth.enabled ? <TouchableOpacity style={styles.sessionSignOutButton} onPress={() => void signOut()} accessibilityRole="button"><Text style={styles.sessionSignOutText}>로그아웃</Text></TouchableOpacity> : null}
+      </View>
+      {sessionRestoreError || auth.error ? <Text style={styles.sessionLoadingText} accessibilityRole="alert">{sessionRestoreError ?? auth.error}</Text> : null}
+    </View></SafeAreaView>;
   }
 
   if (sessionRestoreError) {
@@ -766,6 +906,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       <StatusBar style="dark" />
       <View style={styles.content}>
       {state.screen === "today" && appScreen === "onboarding" ? (
+        <View style={{ flex: 1 }}>
         <OnboardingScreen
           status={onboardingStatus}
           error={onboardingError}
@@ -780,15 +921,8 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
             }
           }}
         />
-      ) : null}
-      {state.screen === "today" && appScreen === "safety" ? (
-        <SafetyPrivacyScreen
-          onBack={() => setAppScreen("today")}
-          onSignOut={auth.enabled ? () => void signOut() : undefined}
-          onDeleteData={() => void deleteAppData()}
-          deletionStatus={deletionStatus}
-          deletionError={deletionError}
-        />
+        <TouchableOpacity style={styles.sessionSignOutButton} onPress={() => setAppScreen("safety")} accessibilityRole="button"><Text style={styles.sessionSignOutText}>개인정보와 계정 관리</Text></TouchableOpacity>
+        </View>
       ) : null}
       {state.screen === "today" && appScreen === "plan" ? (
         <PlanScreen
@@ -822,7 +956,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         />
       ) : null}
       {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} status={coachStatus} error={coachError} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} savedSessionId={savedWorkoutSessionId} refreshPending={workoutRefreshPending} status={coachStatus} error={coachError} onRefresh={() => void refreshSavedWorkout()} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen

@@ -13,11 +13,7 @@ export type MealImagePickerResult =
   | { readonly status: "read_failed" };
 
 export async function pickMealImageFromLibrary(): Promise<MealImagePickerResult> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    return { status: "permission_denied" };
-  }
-
+  // SDK 54 uses the system picker; broad permission also breaks web user activation.
   const picked = await ImagePicker.launchImageLibraryAsync({
     allowsEditing: false,
     mediaTypes: ["images"],

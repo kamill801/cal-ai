@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -68,7 +69,10 @@ def create_presigned_image_upload(
             )
 
         image_upload_id = f"image-upload-{uuid4()}"
-        object_key = create_image_object_key(image_upload_id=image_upload_id, file_name=payload.file_name)
+        object_key = create_image_object_key(
+            image_upload_id=image_upload_id, file_name=payload.file_name, content_type=payload.content_type,
+            write_once=(adapter.provider == "r2" and os.environ.get("R2_WRITE_ONCE_UPLOADS_ENABLED", "false").lower() == "true"),
+        )
         presigned = adapter.presign_put(
             object_key=object_key,
             content_type=payload.content_type,
@@ -89,6 +93,7 @@ def create_presigned_image_upload(
             upload_status="pending",
             upload_expires_at=presigned.expires_at,
             owner_id=owner_id,
+            storage_namespace=adapter.storage_namespace(),
         )
         return ImageUploadPresignResponse(
             image_upload_id=image_upload_id,
@@ -129,6 +134,7 @@ def complete_presigned_image_upload(
             )
 
         adapter = get_storage_adapter()
+        _validate_storage_binding(existing, adapter)
         if adapter.provider == "r2":
             stored_object = adapter.stat_object(object_key=payload.object_key)
             if stored_object is None:
@@ -161,6 +167,7 @@ def complete_presigned_image_upload(
             cleanup_after=cleanup_after,
             upload_expires_at=existing.upload_expires_at,
             owner_id=owner_id,
+            storage_namespace=existing.storage_namespace,
         )
         return ImageUploadResponse(image_upload_id=record.image_upload_id, image_reference=record.image_reference, status="ready")
     except StorageConfigurationError as exc:
@@ -196,7 +203,9 @@ def resolve_analysis_image_reference(
     if not upload.object_key:
         raise ImageUploadError("image_upload_key_missing", "이미지 저장 정보를 확인할 수 없어요.", retryable=False)
     try:
-        return get_storage_adapter().presign_get(
+        adapter = get_storage_adapter()
+        _validate_storage_binding(upload, adapter)
+        return adapter.presign_get(
             object_key=upload.object_key,
             expires_seconds=ANALYSIS_READ_EXPIRES_SECONDS,
         )
@@ -204,7 +213,23 @@ def resolve_analysis_image_reference(
         raise ImageUploadError("storage_unavailable", "이미지 저장소 설정을 확인해 주세요.", retryable=True) from exc
 
 
-def create_image_object_key(*, image_upload_id: str, file_name: str) -> str:
+def _validate_storage_binding(upload, adapter) -> None:
+    if (
+        upload.storage_provider != adapter.provider
+        or (upload.storage_namespace and upload.storage_namespace != adapter.storage_namespace())
+        or upload.image_reference != adapter.image_reference(object_key=upload.object_key)
+    ):
+        raise ImageUploadError(
+            "image_upload_storage_mismatch", "이미지 저장 위치가 변경되어 확인이 필요해요.", retryable=False,
+        )
+
+
+def create_image_object_key(
+    *, image_upload_id: str, file_name: str, write_once: bool = False, content_type: str = "image/jpeg",
+) -> str:
+    if write_once:
+        extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[content_type]
+        return f"uploads/{image_upload_id}/sealed-v1/image.{extension}"
     safe_file_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", file_name).strip(".-") or "meal-image"
     return f"uploads/{image_upload_id}/{safe_file_name}"
 

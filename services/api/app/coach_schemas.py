@@ -5,13 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.schemas import DashboardMeal, NutritionTarget, OnboardingRequest
+from app.schemas import DashboardMeal, NutritionTarget, StoredOnboardingData
 
 
 class CoachProfile(BaseModel):
     profile_id: str
     owner_id: str | None = None
-    onboarding: OnboardingRequest
+    onboarding: StoredOnboardingData
     target: NutritionTarget
     created_at: str
 

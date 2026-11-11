@@ -4,6 +4,7 @@ import * as WebBrowser from "expo-web-browser";
 import { useEffect, useMemo, useState } from "react";
 import { AppState, Platform } from "react-native";
 import { createSupabaseAuthClient, isSupabaseAuthEnabled } from "./supabase";
+import { signInWithPassword } from "./passwordLogin";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -15,6 +16,7 @@ export interface AuthSessionState {
   session?: Session;
   error?: string;
   signInWithKakao(): Promise<void>;
+  signInWithEmail(email: string, password: string): Promise<void>;
   signOut(): Promise<boolean>;
 }
 
@@ -96,6 +98,21 @@ export function useAuthSession(): AuthSessionState {
         setLoading(false);
       }
     },
+    async signInWithEmail(email, password) {
+      if (!client) {
+        setError("로그인 환경 설정이 아직 완료되지 않았어요.");
+        return;
+      }
+      setLoading(true);
+      setError(undefined);
+      try {
+        await signInWithPassword(client, email, password);
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "로그인을 완료하지 못했어요.");
+      } finally {
+        setLoading(false);
+      }
+    },
     async signOut() {
       if (!client) {
         return true;
@@ -103,7 +120,7 @@ export function useAuthSession(): AuthSessionState {
       setLoading(true);
       setError(undefined);
       try {
-        const { error: signOutError } = await client.auth.signOut();
+        const { error: signOutError } = await client.auth.signOut({ scope: "local" });
         if (signOutError) {
           throw signOutError;
         }

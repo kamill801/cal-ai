@@ -51,6 +51,42 @@ def _create_profile(client: TestClient, owner_id: str | None = None) -> str:
     return response.json()["profile_id"]
 
 
+@pytest.mark.parametrize("age,status_code", [(17, 422), (18, 200), (100, 200), (101, 422)])
+def test_onboarding_age_boundaries(monkeypatch: pytest.MonkeyPatch, age: int, status_code: int) -> None:
+    _install_verified_owner_auth(monkeypatch)
+    with TestClient(main.app) as client:
+        response = client.post(
+            "/v1/onboarding", headers=_headers("owner-a"), json={**ONBOARDING_PAYLOAD, "age": age},
+        )
+
+    assert response.status_code == status_code
+    if status_code == 422:
+        assert response.json()["detail"]["code"] == "validation_error"
+        assert response.json()["detail"]["kind"] == "validation"
+    else:
+        assert response.json()["profile_id"]
+        assert response.json()["target"]["calories_kcal"] > 0
+
+
+@pytest.mark.parametrize("age", [14, 17])
+def test_legacy_profile_age_remains_deserializable(monkeypatch: pytest.MonkeyPatch, age: int) -> None:
+    _install_verified_owner_auth(monkeypatch)
+    with TestClient(main.app) as client:
+        profile_id = _create_profile(client, "owner-a")
+        with sqlite3.connect(os.environ["CAL_AI_API_DATA_PATH"]) as connection:
+            payload = json.loads(connection.execute(
+                "select payload_json from coach_profiles where profile_id = ?", (profile_id,),
+            ).fetchone()[0])
+            payload["onboarding"]["age"] = age
+            connection.execute(
+                "update coach_profiles set payload_json = ? where profile_id = ?", (json.dumps(payload), profile_id),
+            )
+        response = client.get("/v1/profiles/me", headers=_headers("owner-a"))
+
+    assert response.status_code == 200
+    assert response.json() == {"profile_id": profile_id}
+
+
 def test_current_profile_uses_authenticated_owner_and_newest_profile(monkeypatch: pytest.MonkeyPatch) -> None:
     _install_verified_owner_auth(monkeypatch)
     _install_created_at_sequence(

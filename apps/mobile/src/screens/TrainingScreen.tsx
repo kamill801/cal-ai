@@ -1,7 +1,7 @@
 import type { CoachDashboard, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { Check } from "lucide-react-native";
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
 import { FlowStatusCard } from "../components/FlowStatusCard";
@@ -25,7 +25,7 @@ interface PerformanceDraft {
   effort: WorkoutEffort;
 }
 
-export function TrainingScreen({ dashboard, plan, history, status, error, onGenerate, onStart, onComplete }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly status: RequestStatus; readonly error?: FlowError; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void }) {
+export function TrainingScreen({ dashboard, plan, history, savedSessionId, refreshPending = false, status, error, onRefresh, onGenerate, onStart, onComplete }: { readonly dashboard?: CoachDashboard; readonly plan?: WorkoutPlan; readonly history?: WorkoutHistory; readonly savedSessionId?: string; readonly refreshPending?: boolean; readonly status: RequestStatus; readonly error?: FlowError; readonly onRefresh?: () => void; readonly onGenerate: () => void; readonly onStart: (workoutDayId: string) => void; readonly onComplete: (input: WorkoutCompletionInput) => void }) {
   const proteinTarget = dashboard?.nutrition.target.proteinG ?? 0;
   const proteinConsumed = dashboard?.nutrition.consumed.proteinG ?? 0;
   const proteinProgress = proteinTarget ? Math.min(1, proteinConsumed / proteinTarget) : 0;
@@ -37,17 +37,37 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   const [durationMinutes, setDurationMinutes] = useState(String(plan?.sessionMinutes ?? 60));
   const [sessionRpe, setSessionRpe] = useState(7);
   const [startTracked, setStartTracked] = useState(false);
+  const editedPerformance = useRef<Record<string, Partial<Record<keyof PerformanceDraft, true>>>>({});
 
   useEffect(() => {
+    editedPerformance.current = {};
     setCompletedExerciseIds([]);
-    setPerformance(Object.fromEntries((nextDay?.exercises ?? []).map((exercise) => [exercise.id, { sets: String(exercise.sets), reps: exercise.recommendedReps ? String(exercise.recommendedReps) : "", load: exercise.recommendedLoadKg ? String(exercise.recommendedLoadKg) : "", effort: "on_target" }])));
+    setPerformance(Object.fromEntries((nextDay?.exercises ?? []).map((exercise) => [exercise.id, performanceDefaults(exercise)])));
     setDurationMinutes(String(plan?.sessionMinutes ?? 60));
     setSessionRpe(7);
     setStartTracked(false);
-  }, [nextDay?.id, plan?.sessionMinutes]);
+  }, [nextDay?.id, plan?.sessionMinutes, savedSessionId ?? history?.sessions[0]?.sessionId]);
+
+  useEffect(() => {
+    setPerformance((current) => {
+      const updated = { ...current };
+      for (const exercise of nextDay?.exercises ?? []) {
+        const defaults = performanceDefaults(exercise);
+        const previous = current[exercise.id] ?? defaults;
+        const edited = editedPerformance.current[exercise.id] ?? {};
+        updated[exercise.id] = {
+          sets: edited.sets ? previous.sets : defaults.sets,
+          reps: edited.reps ? previous.reps : defaults.reps,
+          load: edited.load ? previous.load : defaults.load,
+          effort: edited.effort ? previous.effort : defaults.effort
+        };
+      }
+      return updated;
+    });
+  }, [nextDay?.exercises]);
 
   const parsedDuration = Number(durationMinutes);
-  const canSaveSession = completedExerciseIds.length > 0 && Number.isInteger(parsedDuration) && parsedDuration >= 5 && parsedDuration <= 240;
+  const canSaveSession = !refreshPending && completedExerciseIds.length > 0 && Number.isInteger(parsedDuration) && parsedDuration >= 5 && parsedDuration <= 240;
 
   function toggleExercise(exerciseId: string): void {
     if (!completedExerciseIds.includes(exerciseId) && !startTracked && nextDay) {
@@ -58,6 +78,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   }
 
   function updatePerformance(exerciseId: string, field: "sets" | "reps" | "load", value: string): void {
+    editedPerformance.current[exerciseId] = { ...editedPerformance.current[exerciseId], [field]: true };
     setPerformance((current) => ({
       ...current,
       [exerciseId]: { ...(current[exerciseId] ?? { sets: "", reps: "", load: "", effort: "on_target" }), [field]: value }
@@ -65,6 +86,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
   }
 
   function updateEffort(exerciseId: string, effort: WorkoutEffort): void {
+    editedPerformance.current[exerciseId] = { ...editedPerformance.current[exerciseId], effort: true };
     setPerformance((current) => ({
       ...current,
       [exerciseId]: { ...(current[exerciseId] ?? { sets: "", reps: "", load: "", effort: "on_target" }), effort }
@@ -107,7 +129,10 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
         <TrustBuddy size={104} pose="workout" />
       </View>
 
-      {error ? <FlowStatusCard error={error} /> : null}
+      {refreshPending ? <>
+        <FlowStatusCard title="운동 기록은 저장됐어요" message="최신 기록을 확인하기 전에는 다시 저장하지 마세요. 화면 갱신에 실패했어도 방금 저장한 기록은 유지돼요." />
+        {onRefresh ? <TouchableOpacity style={[styles.primaryButton, status === "loading" && styles.buttonDisabled]} disabled={status === "loading"} onPress={onRefresh} accessibilityRole="button" accessibilityLabel="저장된 운동 기록 다시 불러오기" accessibilityState={{ disabled: status === "loading", busy: status === "loading" }}><Text style={styles.primaryButtonText}>{status === "loading" ? "저장된 기록 불러오는 중" : "저장된 기록 다시 불러오기"}</Text></TouchableOpacity> : null}
+      </> : error ? <FlowStatusCard error={error} /> : null}
       <CoachCard title={proteinTarget > 0 ? `단백질 ${proteinConsumed} / ${proteinTarget}g` : "단백질 목표를 준비하고 있어요"} eyebrow="운동을 위한 오늘의 연료" tone="leaf">
         <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 단백질 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: proteinProgressPercent }}><View style={[styles.progressFill, { width: `${proteinProgressPercent}%` }]} /></View>
         <Text style={styles.body}>{dashboard?.nutrition.guidance ?? "식사를 기록하면 운동일 단백질 섭취량과 남은 양을 보여드려요."}</Text>
@@ -222,6 +247,15 @@ export function TrainingScreen({ dashboard, plan, history, status, error, onGene
       ) : null}
     </ScrollView>
   );
+}
+
+function performanceDefaults(exercise: WorkoutPlan["days"][number]["exercises"][number]): PerformanceDraft {
+  return {
+    sets: String(exercise.sets),
+    reps: exercise.recommendedReps ? String(exercise.recommendedReps) : "",
+    load: exercise.recommendedLoadKg ? String(exercise.recommendedLoadKg) : "",
+    effort: "on_target"
+  };
 }
 
 const webCheckboxStyle: CSSProperties = {

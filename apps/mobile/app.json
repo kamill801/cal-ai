@@ -2,8 +2,10 @@
   "expo": {
     "name": "Trust First Nutrition",
     "slug": "trust-first-nutrition",
+    "owner": "arche-trustfirstnutrition",
     "scheme": "trustfirstnutrition",
     "version": "0.1.0",
+    "icon": "./assets/brand/app-icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
@@ -12,11 +14,13 @@
         "expo-image-picker",
         {
           "cameraPermission": "식사와 신체 변화 사진을 촬영해 분석 및 기록에 사용할 수 있도록 카메라 접근 권한이 필요합니다.",
-          "photosPermission": "앨범에서 식사와 신체 변화 사진을 선택해 분석 및 기록에 사용할 수 있도록 사진 접근 권한이 필요합니다."
+          "photosPermission": "앨범에서 식사와 신체 변화 사진을 선택해 분석 및 기록에 사용할 수 있도록 사진 접근 권한이 필요합니다.",
+          "microphonePermission": false
         }
       ],
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/with-legacy-camera-storage.cjs"
     ],
     "ios": {
       "supportsTablet": false
@@ -24,15 +28,34 @@
     "android": {
       "allowBackup": false,
       "package": "com.trustfirstnutrition.app",
+      "versionCode": 1,
       "permissions": [
-        "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "CAMERA"
       ],
       "blockedPermissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.MANAGE_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#fbfaf6"
+        "foregroundImage": "./assets/brand/adaptive-foreground.png",
+        "backgroundColor": "#dcefe4"
+      }
+    },
+    "web": {
+      "favicon": "./assets/brand/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "cd7254d2-d859-4992-8063-7f2492ba8351"
       }
     }
   }

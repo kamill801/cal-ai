@@ -23,7 +23,8 @@ class ActivityLevel(StrEnum):
     athlete = "athlete"
 
 
-class OnboardingRequest(BaseModel):
+class StoredOnboardingData(BaseModel):
+    # Legacy profiles must remain readable; new requests use the stricter subclass.
     age: int = Field(ge=14, le=100)
     sex: Literal["male", "female", "other"]
     height_cm: float = Field(ge=100, le=230)
@@ -35,6 +36,10 @@ class OnboardingRequest(BaseModel):
     experience_level: Literal["beginner", "intermediate", "advanced"] = "beginner"
     available_equipment: list[Literal["bodyweight", "dumbbells", "gym"]] = Field(default_factory=lambda: ["gym"], min_length=1)
     session_minutes: int = Field(default=60, ge=20, le=120)
+
+
+class OnboardingRequest(StoredOnboardingData):
+    age: int = Field(ge=18, le=100)
 
 
 class NutritionTarget(BaseModel):
