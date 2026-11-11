@@ -7,16 +7,16 @@ full-product release preparation branch, not a change to the product's scope.
 ## Latest checkpoint - 2026-11-11
 
 This section supersedes older progress snapshots below, not their evidence.
-Current release source7068afe is pushed to the existing release branch, not main,
-and deployed at canonical production via `dpl_6r4xPvRLAx4gibjpdhTWGTFo24L6`.
+Current release sourceb0ffe1a is pushed to the existing release branch, not main,
+and deployed at canonical production via `dpl_9NBnWviGKae877hTLjm9thau3jmA`.
 The exact current AAB is accepted in a saved internal-test draft, not released.
 APK v2 verification passed; actual Android installation/testing remains pending.
 Text/icon store drafts are saved; graphic/screenshots/privacy/Data safety remain.
 Owner approved Neon/R2 preparation: schema3/12 guards now verified on Neon after
 clone testing, core records preserved, deletion jobs0 and flags remain false.
 Legacy profile-erasure ordering is repaired in source with full-set preflight:
-17 regressions and full API478 pass locally; production proof is recorded in
-the deployment report. R2 configuration access waits for the owner's optional
+17 regressions and full API478 pass locally; canonical deployment and9 public
+probes pass without actual erasure. R2 configuration access waits for the owner's optional
 2FA choice. See the latest follow-up,
 `NEON-R2-PREPARATION-2026-11-11.md` and `PLAY-UPLOAD-2026-11-11.md`.
 Older no-upload/uncommitted/no-migration wording below is historical, not current.

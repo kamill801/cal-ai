@@ -65,8 +65,11 @@ The regressions failed14/17 before repair and passed17/17 afterward, including
 an unsafe record appearing after a valid one with zero partial deletion.
 Account-deletion tests passed100 with7 optional PostgreSQL skips; fresh full
 API tests passed478 with7 skips and one existing TestClient warning.
-These are local fixture results, not real storage/account erasure. Release
-evidence is recorded separately in `PRODUCTION-DEPLOYMENT-2026-11-11.md`.
+These are local fixture results, not real storage/account erasure. Source
+`b0ffe1a` was pushed and promoted as `dpl_9NBnWviGKae877hTLjm9thau3jmA`;
+canonical alias and9 public probes passed. No production profile deletion was
+used to test the repair. Exact release evidence is recorded separately in
+`PRODUCTION-DEPLOYMENT-2026-11-11.md`.
 
 ## R2 Handoff And Remaining Gates
 

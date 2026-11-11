@@ -136,3 +136,32 @@ external delete. The17 targeted regressions and full API478 pass locally
 (7 optional PostgreSQL skips,1 existing warning). Production promotion of this
 repair is recorded below when verified. See
 `NEON-R2-PREPARATION-2026-11-11.md`; schema installation is not deletion E2E.
+
+## Profile Image Preflight Release
+
+- Source `b0ffe1a3d986e7b6263ff49164699d17817441a6` was committed and pushed
+  to the same release branch; exact remote SHA matched. Main was not merged.
+- The allowlisted110-file,10,696,583-byte archive matched that commit exactly.
+  Manifest SHA-256:
+  `d44b35250835570a0f2c5e1b1ec3ac1c576a1ee40e226b1d92d41b1493fd59a1`.
+  No docs, tests, environment files, credentials or native artifacts were sent.
+  Targeted source patterns passed. The staged test module's only secret-pattern
+  hit was the unchanged, explicitly synthetic fixture from the reviewed parent.
+  This is not an exhaustive secret audit or independent deployment-SHA proof.
+- Candidate `dpl_9NBnWviGKae877hTLjm9thau3jmA`, immutable URL
+  `https://cal-ai-8rp0pr12h-upglow.vercel.app`, was READY/production and matched
+  the existing project. Authenticated-browser readiness passed before promotion.
+  Official promotion completed; separate alias readback matched this exact ID.
+- Canonical public probes passed9/9 at `2026-11-11T09:10:08.654Z`: health,
+  configuration readiness, four actual policy HTML pages, profile/admin401 and
+  disabled worker503. Public privacy rendering also passed in the browser.
+  Food OpenAI/body mock and all three false flags are preserved. No paid AI,
+  Auth deletion, object deletion, cleanup, new records or credentials changes.
+- Full local API478 passed,7 optional PostgreSQL skips,1 existing warning;
+  the17 new preflight regressions passed after14 failed before repair.
+  The repair was not exercised by deleting a production profile. Legacy R2
+  provenance and real provider lifecycle remain unresolved release gates.
+- The change is backend-only; the existing APK/AAB need no rebuild for it.
+  Android device execution, policy approval, R2 checks, truthful final store
+  declarations, closed testing and review remain open. Whole-service QA stays
+  7/7 blocked. Play remains a saved internal draft, not a release.
