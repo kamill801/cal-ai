@@ -16,8 +16,11 @@ Owner approved Neon/R2 preparation: schema3/12 guards now verified on Neon after
 clone testing, core records preserved, deletion jobs0 and flags remain false.
 Legacy profile-erasure ordering is repaired in source with full-set preflight:
 17 regressions and full API478 pass locally; canonical deployment and9 public
-probes pass without actual erasure. R2 configuration access waits for the owner's optional
-2FA choice. See the latest follow-up,
+probes pass without actual erasure. Owner dashboard access is now restored:
+the existing R2 bucket is private with Standard storage, and only the approved
+`If-None-Match` CORS header was added and verified after reload. Origins/methods
+and lifecycle are unchanged; actual conditional upload/erasure remain unverified.
+See the latest follow-up,
 `NEON-R2-PREPARATION-2026-11-11.md` and `PLAY-UPLOAD-2026-11-11.md`.
 Older no-upload/uncommitted/no-migration wording below is historical, not current.
 The owner explicitly declined developer-account conversion and chose the

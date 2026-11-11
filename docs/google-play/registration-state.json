@@ -385,8 +385,8 @@
   },
   "owner_handoff_2026_11_11": {
     "android_tester": "owner_has_nearby_Android_tester_direct_APK_install_link_verified_and_instructions_delivered_installation_not_yet_reported",
-    "deletion_preparation": "owner_explicitly_approved_Neon_guard_schema_and_R2_settings_preparation_only_schema3_installed_storage_waits_for_owner_twofactor_interstitial",
-    "cloudflare": "owner_signed_in_existing_account_optional_twofactor_setup_or_Skip_for_now_requires_owner_choice_no_new_account_needed",
+    "deletion_preparation": "owner_explicitly_approved_preparation_only_Neon_schema3_installed_R2_private_Standard_configuration_verified_If_None_Match_CORS_header_saved_and_reloaded_no_activation_or_erasure",
+    "cloudflare": "owner_completed_dashboard_handoff_existing_account_and_bucket_verified_no_new_account_authentication_or_billing_change",
     "permanent_deletion": "requires_separate_named_disposable_identity_and_action_time_confirmation_never_owner_or_reviewer"
   },
   "neon_preparation_2026_11_11": {
@@ -405,9 +405,30 @@
     "legacy_uploads": "ten_R2_rows_ownerless_missing_namespace_unsealed_preserved_no_backfill",
     "compatibility_finding": "profile_delete_external_erasure_ordering_repaired_full_set_owner_provider_key_namespace_preflight_zero_side_effects_on_unsafe_local_fixtures_committed_pushed_promoted_no_real_delete_test",
     "compatibility_regressions": "14_failed_before_fix_17_passed_after_fix_full_API478_passed_7_optional_PG_skips_1_existing_warning_local_fixtures_only",
-    "R2_configuration": "not_yet_inspected_or_changed_owner_twofactor_interstitial_pending",
+    "R2_configuration": "private_Standard_existing_bucket_verified_only_If_None_Match_CORS_header_added_and_persisted_lifecycle_preserved_no_real_conditional_or_erasure_test",
     "actual_provider_erasure": "not_performed",
     "evidence": "docs/google-play/NEON-R2-PREPARATION-2026-11-11.md"
+  },
+  "r2_preparation_2026_11_11": {
+    "bucket": "cal-ai-meal-images",
+    "location": "APAC",
+    "default_storage_class": "Standard_checked",
+    "public_access": "no_custom_domain_Public_Development_URL_disabled_unchanged",
+    "allowed_origins": ["https://cal-ai-api.vercel.app", "http://localhost:8081"],
+    "allowed_methods": ["PUT", "GET", "HEAD"],
+    "allowed_headers_before": ["Content-Type"],
+    "allowed_headers_after": ["Content-Type", "If-None-Match"],
+    "expose_headers": ["ETag"],
+    "max_age_seconds": 3600,
+    "persisted_readback": "entire_JSON_equal_after_reload_and_reopen_2026-11-11T09:18:35.655Z",
+    "lifecycle": "only_existing_Default_Multipart_Abort_Rule_7days_enabled_unchanged_not_photo_expiry",
+    "bucket_lock": "none_unchanged",
+    "configuration_change": "only_approved_CORS_header_no_source_rebuild_or_deployment",
+    "runtime_conditional_upload_or_erasure_test": "not_performed",
+    "activation": "not_approved_or_performed_all_prior_deletion_worker_write_once_flags_false_CRON_SECRET_absent_unchanged",
+    "credentials_or_paid_plan": "not_created_read_or_changed",
+    "evidence": "docs/google-play/NEON-R2-PREPARATION-2026-11-11.md",
+    "screenshots": ["/private/tmp/cal-ai-r2-cors-policy-20261111.png", "/private/tmp/cal-ai-r2-settings-20261111.png"]
   },
   "eas_project_id": "cd7254d2-d859-4992-8063-7f2492ba8351",
   "release_deployment_id": "dpl_9NBnWviGKae877hTLjm9thau3jmA",

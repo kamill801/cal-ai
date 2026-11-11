@@ -71,19 +71,41 @@ canonical alias and9 public probes passed. No production profile deletion was
 used to test the repair. Exact release evidence is recorded separately in
 `PRODUCTION-DEPLOYMENT-2026-11-11.md`.
 
-## R2 Handoff And Remaining Gates
+## R2 Dashboard Preparation Verified
 
-Existing private bucket: `cal-ai-meal-images`. Dashboard sign-in initially
-required the owner. After owner login, the current page is the optional
-two-factor-authentication setup interstitial, not new account creation.
-The owner must personally configure authentication or choose Skip for now.
-No security setting, token, bucket, CORS or lifecycle rule was changed.
+The owner completed the authentication handoff. The existing account and
+`cal-ai-meal-images` bucket were verified in the bucket settings surface;
+no new account, bucket, credential, paid plan or authentication change was made.
 
-After access: independently verify exact account/bucket, private access,
-existing CORS and lifecycle settings before merging conditional-header support.
+- Location: Asia-Pacific (APAC); default storage class: Standard, checked.
+- No custom domain; Public Development URL disabled. Public access was not
+  enabled by this preparation.
+- Existing origins remain exactly `https://cal-ai-api.vercel.app` and
+  `http://localhost:8081`; methods remain PUT, GET and HEAD.
+- Added only `If-None-Match` to existing `AllowedHeaders: ["Content-Type"]`.
+  `ExposeHeaders: ["ETag"]` and `MaxAgeSeconds: 3600` are unchanged.
+- Save succeeded. After a full reload, the editor was reopened and its entire
+  persisted JSON was parsed and compared with the expected policy at
+  `2026-11-11T09:18:35.655Z`. The editor was then cancelled without another save.
+- Only the existing Default Multipart Abort Rule is enabled: abort unfinished
+  multipart uploads after7 days. There is no actual photo-expiration rule or
+  bucket lock. No lifecycle rule was added or modified.
+- Data access logs and local uploads are disabled; event notifications are not
+  configured. The offered Workers Paid plan was not purchased.
+
+Evidence: `/private/tmp/cal-ai-r2-cors-policy-20261111.png` and
+`/private/tmp/cal-ai-r2-settings-20261111.png`. This is persisted provider
+configuration evidence, not a signed conditional PUT, overwrite-race, upload,
+object deletion or Auth-erasure test. Browser header permission alone does not
+activate the backend write-once feature or prove atomic storage behavior.
+No source rebuild or Vercel deployment was needed for this CORS-only change.
+
+## Remaining Gates
+
 Do not broaden origins or install an expiry rule that removes permanent sealed
 guards. Conditional PUT/concurrency/guard readback and disposable Auth erasure
-remain unverified. Legacy namespace provenance remains unresolved.
+remain unverified. Legacy namespace provenance remains unresolved; the current
+bucket's identity does not establish ownership or provenance of historical rows.
 
 Keep `ACCOUNT_DELETION_ENABLED`, `ACCOUNT_DELETION_WORKER_ENABLED` and
 `R2_WRITE_ONCE_UPLOADS_ENABLED` false. Leave `CRON_SECRET` absent. Permanent
