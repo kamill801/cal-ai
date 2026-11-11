@@ -30,6 +30,8 @@ class PublicDocument(HTMLParser):
 def default_public_metadata(monkeypatch):
     monkeypatch.delenv("PUBLIC_POLICY_EFFECTIVE_DATE", raising=False)
     monkeypatch.delenv("PUBLIC_POLICY_VERSION", raising=False)
+    for name in ("ACCOUNT_DELETION_ENABLED", "ACCOUNT_DELETION_WORKER_ENABLED", "IMAGE_TTL_DAYS"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.mark.parametrize("path,title", PUBLIC_PAGES)
@@ -169,7 +171,9 @@ def test_public_age_policy_is_18_plus_without_claiming_verification(path):
     assert "18~100세" in html
     assert "자기 입력값 검사" in html
     assert "실제 나이 확인이나 보호자 동의 확인이 아닙니다" in html
-    assert "이미 저장된 프로필의 접근까지 차단하는 것은 아닙니다" in html
+    assert "저장 프로필에 만 18세 미만 나이가 있으면 주요 기능 접근을 제한" in html
+    assert "프로필 확인·삭제와 계정 관리 경로는 유지합니다" in html
+    assert "이미 저장된 프로필의 접근까지 차단하는 것은 아닙니다" not in html
     assert "14~100세" not in html
     assert "최종 이용 대상 연령" not in html
     assert "최종 이용 연령" not in html
@@ -195,11 +199,84 @@ def test_deletion_disclosures_do_not_promote_pending_to_completed(path):
 def test_retention_example_is_not_a_deployed_ttl_promise():
     html = TestClient(app).get("/privacy").text
     assert "설정 예시의 사진 만료값은 30일" in html
-    assert "실제 운영 보관 기한이 확인된 값은 아닙니다" in html
-    assert "정기 작업의 배포·실행·성공 여부는 확인되지 않았으므로" in html
+    assert "현재 서버 설정도 운영자가 승인한 보관 정책이나 삭제 완료 기한을 뜻하지 않습니다" in html
+    assert "정기 작업의 실제 실행·성공 여부는 별도 검증 대상" in html
     assert "30일 이내 자동 삭제를 보장하지 않습니다" in html
     assert "모든 기록에 적용되는 자동 보관 기한은 코드에서 확인되지 않았습니다" in html
     assert "법정 보존 항목·기간" in html
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/account-deletion"])
+def test_disabled_deletion_is_visible_without_claiming_request_acceptance(path, monkeypatch):
+    monkeypatch.setenv("ACCOUNT_DELETION_ENABLED", "false")
+    monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "false")
+    monkeypatch.setenv("IMAGE_TTL_DAYS", "17")
+    html = TestClient(app).get(path).text
+    assert "현재 서버의 삭제·보관 설정" in html
+    assert "온라인 계정 탈퇴 접수: 꺼짐" in html
+    assert "후속 계정 삭제 작업: 꺼짐" in html
+    assert "새 업로드의 만료 예정 기간: 17일" in html
+    assert "기존 사진의 만료 예정 시각은 업로드별로 다를 수 있습니다" in html
+    assert "자동 삭제 완료 기한이나 법정 보관 기간을 뜻하지 않습니다" in html
+    assert "앱에서 시도해도 새 탈퇴 요청은 접수되지 않습니다" in html
+
+
+@pytest.mark.parametrize("path", ["/privacy", "/account-deletion"])
+def test_enabled_configuration_does_not_attest_provider_erasure(path, monkeypatch):
+    monkeypatch.setenv("ACCOUNT_DELETION_ENABLED", "true")
+    monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "true")
+    monkeypatch.delenv("CRON_SECRET", raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+    html = TestClient(app).get(path).text
+    assert "온라인 계정 탈퇴 접수: 켜짐" in html
+    assert "후속 계정 삭제 작업: 켜짐" in html
+    assert "켜짐은 설정값이며, 인증·권한·실제 작업 실행이나 삭제 완료를 보장하지 않습니다" in html
+    assert "앱에서 시도해도 새 탈퇴 요청은 접수되지 않습니다" not in html
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "sentinel-private-ttl", "<script>ttl</script>"])
+def test_invalid_photo_ttl_is_not_reflected_or_presented_as_a_retention_policy(value, monkeypatch):
+    monkeypatch.setenv("IMAGE_TTL_DAYS", value)
+    response = TestClient(app).get("/privacy")
+    assert response.status_code == 200
+    assert "새 업로드의 만료 예정 기간: 설정 확인 필요" in response.text
+    assert f"만료 예정 기간: {value}일" not in response.text
+    assert "sentinel-private-ttl" not in response.text
+    assert "<script>ttl</script>" not in response.text
+
+
+def test_non_boolean_flag_values_are_not_reflected_or_enabled(monkeypatch):
+    monkeypatch.setenv("ACCOUNT_DELETION_ENABLED", "sentinel-private-enable")
+    monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "1")
+    html = TestClient(app).get("/account-deletion").text
+    assert "온라인 계정 탈퇴 접수: 꺼짐" in html
+    assert "후속 계정 삭제 작업: 꺼짐" in html
+    assert "sentinel-private-enable" not in html
+
+
+def test_off_app_deletion_request_is_prominent_without_promising_automatic_erasure():
+    html = TestClient(app).get("/account-deletion").text
+    assert html.index("앱 없이 계정 삭제 요청하기") < html.index("앱에서 계정 삭제 열기")
+    document = PublicDocument(html)
+    assert any(
+        tag == "a" and attrs.get("href", "").startswith("mailto:areche.ai.kr@gmail.com?subject=")
+        for tag, attrs in document.elements
+    )
+    assert "앱을 다시 설치하지 않아도" in html
+    assert "이메일 전송만으로 계정 삭제가 자동 접수되거나 완료되지는 않습니다" in html
+    assert "이메일 발신 주소만으로 계정 소유권을 확정하지 않으며" in html
+
+
+def test_ai_notice_separates_response_storage_from_provider_retention_and_reports():
+    html = TestClient(app).get("/privacy").text
+    for fact in (
+        "응답 저장 옵션과 별개로 부정사용 모니터링·안전 검토에 따른 보관",
+        "이미 전송된 제공자 측 자료의 삭제를 뜻하지 않습니다",
+        "학습 활용 여부·보관 예외는 실제 제공자 계약과 계정 설정을 확인해야 합니다",
+        "AI 결과가 부적절하거나 잘못되었다고 생각하면",
+        "문의 접수만으로 모델 학습 제외나 제공자 자료 삭제가 자동 적용되지는 않습니다",
+    ):
+        assert fact in html
 
 
 def test_support_describes_reviewer_access_without_publishing_or_attesting_credentials():

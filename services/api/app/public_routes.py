@@ -6,6 +6,8 @@ from html import escape
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+from app.services.storage import StorageConfigurationError, get_image_ttl_days
+
 router = APIRouter(include_in_schema=False)
 
 OPERATOR = "아르케"
@@ -35,11 +37,11 @@ PAGES = {
 <dl><dt>Vercel</dt><dd>웹·API 호스팅을 위한 라우팅과 작업 일정 설정이 있습니다. 호스팅 과정의 요청 처리와 운영 로그 세부사항은 별도 확인이 필요합니다.</dd>
 <dt>Supabase와 카카오</dt><dd>Supabase 인증을 사용하는 경우 계정 인증과 세션을 처리합니다. 카카오 로그인 경로도 있으며 실제 제공 정보는 로그인 제공자 설정에 따릅니다. Supabase의 앱 로그인 계정 삭제와 카카오 계정 자체의 삭제는 다릅니다.</dd>
 <dt>Postgres 연결과 Neon, Cloudflare R2</dt><dd>앱 기록은 설정된 Postgres 데이터베이스 또는 로컬 SQLite에 저장하는 코드가 있습니다. Neon 연결 여부·지역은 별도 확인 대상입니다. R2가 선택되면 사진 파일과 업로드 정보가 전달되고, 제한 시간 서명 주소로 업로드·분석용 읽기를 허용합니다. 로컬·모의 저장 경로도 존재합니다.</dd>
-<dt>OpenAI</dt><dd>실제 AI 제공자로 활성화된 경우 음식 사진의 분석용 주소, 식사 종류와 선택 메모를 전송합니다. 신체 분석에는 동의한 사진의 분석용 주소, 촬영 방향과 이전 체크인 존재 여부를 전송하며 이전 사진 자체는 이 요청에 포함하지 않습니다. 모의 분석 경로도 있습니다. 요청은 응답 저장을 끄는 옵션을 사용하지만, 이것만으로 제공자의 모든 로그·보관이 없거나 즉시 삭제된다고 보장하지 않습니다.</dd></dl>
+<dt>OpenAI</dt><dd>실제 AI 제공자로 활성화된 경우 음식 사진의 분석용 주소, 식사 종류와 선택 메모를 전송합니다. 신체 분석에는 동의한 사진의 분석용 주소, 촬영 방향과 이전 체크인 존재 여부를 전송하며 이전 사진 자체는 이 요청에 포함하지 않습니다. 모의 분석 경로도 있습니다. 요청은 응답 저장을 끄는 옵션을 사용하지만, 이것만으로 제공자의 모든 로그·보관이 없거나 즉시 삭제된다고 보장하지 않습니다. 응답 저장 옵션과 별개로 부정사용 모니터링·안전 검토에 따른 보관이 있을 수 있습니다. 원본 사진을 앱 저장소에서 지워도 이미 전송된 제공자 측 자료의 삭제를 뜻하지 않습니다. 학습 활용 여부·보관 예외는 실제 제공자 계약과 계정 설정을 확인해야 합니다.</dd></dl>
 <p>현재 확인한 이용 분석은 자체 API와 데이터베이스 경로입니다. 설정 예시에 PostHog·Sentry 항목이 있다는 사실만으로 외부 전송이 활성화되었다고 볼 수 없습니다. 각 제공자의 실제 수신 법인·처리 국가·이전 시점과 방식·보관 조건·재위탁·계약 및 적용 법적 근거는 운영자가 확정해야 할 미확인 사항입니다.</p>
 <h2 id="retention">얼마나 보관하고 어떻게 삭제하나요?</h2>
 <ul><li><strong>일반 기록·이용 기록:</strong> 저장·조회·삭제 경로는 있지만, 모든 기록에 적용되는 자동 보관 기한은 코드에서 확인되지 않았습니다. 기기에서 로그아웃하거나 앱을 삭제하는 것만으로 서버 기록이 삭제되지는 않습니다.</li>
-<li><strong>사진:</strong> 업로드 완료 시 설정된 기간으로 만료 예정 시각을 계산하고 정리 API가 삭제를 시도합니다. 설정 예시의 사진 만료값은 30일이며 실제 운영 보관 기한이 확인된 값은 아닙니다. 정기 작업의 배포·실행·성공 여부는 확인되지 않았으므로 30일 이내 자동 삭제를 보장하지 않습니다. 사진 정리와 이미지 메타데이터·분석 결과·식사 기록 삭제는 별개입니다.</li>
+<li><strong>사진:</strong> 업로드 완료 시 설정된 기간으로 만료 예정 시각을 계산하고 정리 API가 삭제를 시도합니다. 설정 예시의 사진 만료값은 30일이며, 위에 표시된 현재 서버 설정도 운영자가 승인한 보관 정책이나 삭제 완료 기한을 뜻하지 않습니다. 정기 작업의 실제 실행·성공 여부는 별도 검증 대상이므로 30일 이내 자동 삭제를 보장하지 않습니다. 사진 정리와 이미지 메타데이터·분석 결과·식사 기록 삭제는 별개입니다.</li>
 <li><strong>프로필 기록 삭제:</strong> ‘내 앱 데이터 모두 삭제’는 현재 프로필 기록과 연결 사진을 대상으로 하며, 로그인 계정은 유지됩니다. 이 작업은 해당 계정의 이용 분석 이벤트·세션·분석용 사용자 정보도 함께 삭제합니다. 분석 정보의 삭제 범위는 현재 프로필에만 한정되지 않습니다. 식사 기록 하나의 삭제도 계정·사진·이용 기록 전체 삭제와 같지 않습니다.</li>
 <li><strong>계정 탈퇴:</strong> 인증된 요청과 최종 확인 후 서버가 삭제 요청을 접수합니다. 접수 후에는 일반 API 이용과 새 기록 작성을 차단하고, 별도 서버 작업이 계정의 앱 기록·이용 기록·연결 사진과 Supabase 인증 계정 삭제를 진행하도록 구현되어 있습니다. 접수·로그아웃·인증 계정 삭제만으로 모든 삭제가 완료된 것은 아닙니다.</li>
 <li><strong>삭제 후에도 남는 상태 정보:</strong> 접근 차단·재시도를 위한 계정 식별자, 삭제 단계·시각, 사진 객체 키와 정리 이력 등이 별도로 남을 수 있습니다. 삭제 완료 응답이 있는 경우에도 계정 식별자와 삭제 상태는 남습니다. 현재 코드에는 이 정보의 자동 만료가 없습니다. 일부 신규 R2 업로드에는 재생성 방지용 빈 객체를 남기는 선택 기능이 구현되어 있으나 기본적으로 비활성화되어 있고 실제 저장소 검증이 필요합니다. 활성화되더라도 사진 내용이 없는 0바이트 객체와 임의 객체 키가 남습니다. 기존 업로드나 저장 위치가 확인되지 않는 사진은 안전한 정리 조건을 검증하기 전까지 처리 중으로 유지합니다. 이 상태 정보의 최종 보관 기한과 외부 제공자 로그·백업의 삭제 범위는 확정되지 않았습니다.</li></ul>
@@ -47,15 +49,16 @@ PAGES = {
 <h2 id="rights">열람·정정·삭제·동의 철회는 어떻게 요청하나요?</h2>
 <p>앱에서 제공되는 조회·수정·삭제 기능을 이용할 수 있습니다. 제공되지 않는 항목의 열람·정정, 처리 정지, 동의 철회, 삭제 및 자료 제공 요청은 문의 이메일로 보내 주세요. 원하는 조치와 관련 계정·기록을 식별할 최소한의 설명만 적어 주세요. 이메일 발신 주소만으로 소유권을 확정하지 않으며, 타인 정보가 처리되지 않도록 안전한 확인 절차가 필요합니다.</p>
 <p>사진 분석을 원하지 않으면 추가 사진 전송·동의를 중단할 수 있습니다. 이미 저장된 정보의 삭제는 별도로 요청해야 합니다. 처리 기한·제한 사유·확인 방식은 요청과 실제 운영 조건에 따라 안내해야 하며, 이 문서에서 자동 처리나 고정 응답 기한을 확약하지 않습니다. 원본 신체 사진, 비밀번호, 인증 코드, 인증 토큰 또는 API 키를 이메일이나 공개 게시물에 첨부하지 마세요.</p>
+<p>AI 결과가 부적절하거나 잘못되었다고 생각하면 <a href="/support">문의 페이지</a>로 발생 시각·화면과 문제의 유형을 알려 주세요. 원본 신체 사진이나 불필요한 건강정보를 다시 보내지 마세요. 문의 접수만으로 모델 학습 제외나 제공자 자료 삭제가 자동 적용되지는 않습니다.</p>
 <h2 id="age">연령 기준과 정책 변경</h2>
-<p>이 서비스의 이용 대상은 만 18세 이상입니다. 목표 설정은 입력 만 나이를 18~100세로 제한합니다. 이는 자기 입력값 검사이며 실제 나이 확인이나 보호자 동의 확인이 아닙니다. 입력값 제한만으로 이미 저장된 프로필의 접근까지 차단하는 것은 아닙니다. 만 18세 미만은 이용할 수 없으며, 해당 연령의 정보 처리가 우려되면 문의해 주세요.</p>
+<p>이 서비스의 이용 대상은 만 18세 이상입니다. 목표 설정은 입력 만 나이를 18~100세로 제한합니다. 이는 자기 입력값 검사이며 실제 나이 확인이나 보호자 동의 확인이 아닙니다. 인증된 계정의 저장 프로필에 만 18세 미만 나이가 있으면 주요 기능 접근을 제한하며, 프로필 확인·삭제와 계정 관리 경로는 유지합니다. 만 18세 미만은 이용할 수 없으며, 해당 연령의 정보 처리가 우려되면 문의해 주세요.</p>
 <p>이 페이지의 시행일과 정책 문서 버전은 아래 표시된 문서 기준입니다. 중요한 변경은 변경 내용과 적용일을 서비스에서 안내해야 합니다. 신체 분석 동의에 저장되는 정책 버전은 별도 설정이며, 이 페이지 버전을 바꾸어도 기존 동의가 갱신되거나 다시 수집되지는 않습니다.</p>
 """),
     "terms": ("서비스 이용약관", """
 <h2>서비스 범위</h2><p>Trust First Nutrition은 식사·영양 기록, 목표 관리, 운동 계획과 수행 기록, 신체 체크인 및 코칭을 제공합니다. 운영자는 아르케입니다.</p>
 <h2>추정치와 안전</h2><p>사진 분석 결과는 음식의 조리법과 실제 섭취량에 따라 달라지는 추정치입니다. 저장 전에 결과를 확인하고 수정해 주세요. 운동·영양 코칭은 일반적인 정보이며 의료 행위, 진단, 치료나 특정 신체 변화의 보장이 아닙니다. 통증이나 건강상 우려가 있으면 운동을 중단하고 적절한 전문가에게 상담하세요.</p>
 <h2>계정과 이용</h2><p>본인이 이용할 권리가 있는 계정과 사진만 사용해야 합니다. 다른 사람의 사진이나 기록을 동의 없이 업로드하거나 타인의 계정·데이터에 접근해서는 안 됩니다. 사용자는 기록 삭제와 계정 탈퇴를 요청할 수 있습니다.</p>
-<h2>연령과 개인정보</h2><p>이 서비스의 이용 대상은 만 18세 이상입니다. 목표 설정의 입력 만 나이 범위는 18~100세입니다. 이는 자기 입력값 검사이며 실제 나이 확인이나 보호자 동의 확인이 아닙니다. 입력값 제한만으로 이미 저장된 프로필의 접근까지 차단하는 것은 아닙니다. 만 18세 미만은 이용할 수 없습니다. 건강·사진 정보, 외부 처리와 보관상의 한계는 <a href="/privacy">개인정보처리방침</a>을 확인해 주세요.</p>
+<h2>연령과 개인정보</h2><p>이 서비스의 이용 대상은 만 18세 이상입니다. 목표 설정의 입력 만 나이 범위는 18~100세입니다. 이는 자기 입력값 검사이며 실제 나이 확인이나 보호자 동의 확인이 아닙니다. 인증된 계정의 저장 프로필에 만 18세 미만 나이가 있으면 주요 기능 접근을 제한하며, 프로필 확인·삭제와 계정 관리 경로는 유지합니다. 만 18세 미만은 이용할 수 없습니다. 건강·사진 정보, 외부 처리와 보관상의 한계는 <a href="/privacy">개인정보처리방침</a>을 확인해 주세요.</p>
 <h2>유료 기능과 변경</h2><p>유료 기능은 실제 제공 시 가격, 결제 조건과 취소·환불 조건을 별도로 표시하고 동의를 받습니다. 이 문서만으로 결제나 구독이 시작되지 않습니다. 기능·정책의 중요한 변경은 서비스에서 안내해야 합니다.</p>
 <h2>문의 및 탈퇴</h2><p>서비스 문제는 <a href="/support">문의 페이지</a>, 탈퇴는 <a href="/account-deletion">계정 삭제 안내</a>를 이용해 주세요.</p>
 """),
@@ -68,6 +71,7 @@ PAGES = {
 <p><a href="/account-deletion">계정과 연결된 기록 삭제 방법</a> · <a href="/privacy">개인정보처리방침</a></p>
 """),
     "account-deletion": ("계정 삭제", """
+<h2>앱 없이 계정 삭제 요청하기</h2><p>앱을 다시 설치하지 않아도 <a href="mailto:areche.ai.kr@gmail.com?subject=Trust%20First%20Nutrition%20account%20deletion">삭제 요청 이메일 보내기</a>로 요청할 수 있습니다. 아래 소유권 확인 안내를 확인해 주세요. 이메일 전송만으로 계정 삭제가 자동 접수되거나 완료되지는 않습니다.</p>
 <h2>계정과 연결된 데이터를 삭제하려면</h2><ol>
 <li><a href="/?action=delete-account">앱에서 계정 삭제 열기</a>를 누릅니다.</li>
 <li>삭제할 계정으로 로그인합니다. 이 링크를 열거나 로그인하는 것만으로 삭제되지 않습니다.</li>
@@ -97,16 +101,41 @@ def policy_metadata() -> tuple[str, str]:
     return effective_date, version
 
 
+def lifecycle_settings_notice() -> str:
+    acceptance = os.environ.get("ACCOUNT_DELETION_ENABLED", "false").strip().lower() == "true"
+    worker = os.environ.get("ACCOUNT_DELETION_WORKER_ENABLED", "false").strip().lower() == "true"
+    try:
+        expiry = f"{get_image_ttl_days()}일"
+    except StorageConfigurationError:
+        expiry = "설정 확인 필요"
+    disabled_notice = (
+        "<p>접수 설정이 꺼져 있어 앱에서 시도해도 새 탈퇴 요청은 접수되지 않습니다. "
+        "<a href='/support'>문의 페이지</a>에서 삭제 요청과 본인 확인 절차를 안내받으세요.</p>"
+        if not acceptance else ""
+    )
+    return (
+        '<section aria-label="현재 서버의 삭제·보관 설정"><h2>현재 서버의 삭제·보관 설정</h2><ul>'
+        f"<li>온라인 계정 탈퇴 접수: {'켜짐' if acceptance else '꺼짐'}</li>"
+        f"<li>후속 계정 삭제 작업: {'켜짐' if worker else '꺼짐'}</li>"
+        f"<li>새 업로드의 만료 예정 기간: {expiry}</li></ul>"
+        "<p>이 값은 현재 서버 설정의 읽기 결과입니다. 켜짐은 설정값이며, 인증·권한·실제 작업 실행이나 삭제 완료를 보장하지 않습니다. "
+        "만료 예정 기간은 새 업로드에 적용할 기술 설정이며 자동 삭제 완료 기한이나 법정 보관 기간을 뜻하지 않습니다. "
+        "기존 사진의 만료 예정 시각은 업로드별로 다를 수 있습니다.</p>"
+        f"{disabled_notice}</section>"
+    )
+
+
 def render_page(slug: str) -> HTMLResponse:
     title, body = PAGES[slug]
     effective_date, version = policy_metadata()
     title = escape(title)
+    lifecycle_notice = lifecycle_settings_notice() if slug in {"privacy", "account-deletion"} else ""
     html = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} | Trust First Nutrition</title>
 <style>body{{margin:0;background:#fdf9f2;color:#232722;font-family:system-ui,sans-serif;line-height:1.75}}main{{max-width:720px;margin:auto;padding:40px 22px 64px}}a{{color:#2f6842}}h1{{font-size:28px;line-height:1.35}}h2{{font-size:19px;margin-top:30px}}nav,footer,.metadata{{font-size:14px}}footer{{border-top:1px solid #d9e1d6;margin-top:36px;padding-top:20px}}li{{margin:10px 0}}dt{{font-weight:700;margin-top:18px}}dd{{margin:6px 0 18px}}p,a,li,dd,dt{{overflow-wrap:anywhere}}.notice{{border-left:3px solid #2f6842;padding-left:16px}}a:focus-visible{{outline:3px solid #2f6842;outline-offset:3px}}.skip{{position:absolute;left:12px;top:12px;transform:translateY(-200%);background:#fdf9f2;padding:8px}}.skip:focus{{transform:none}}@media(max-width:480px){{main{{padding-top:32px}}h1{{font-size:26px}}}}</style>
 </head><body><a class="skip" href="#content">본문으로 이동</a><main id="content"><nav aria-label="홈"><a href="/">Trust First Nutrition</a></nav><h1>{title}</h1>
 <p class="metadata">시행일(문서 기준): <time datetime="{effective_date}">{effective_date}</time><br>정책 문서 버전: {escape(version)}</p>
-<aside class="notice" aria-label="문서의 확인 범위"><p>이 안내는 코드와 설정 예시를 기준으로 작성한 기술 문서입니다. 실제 운영 설정·제공자 계약·삭제 작업의 실행은 별도 확인이 필요합니다. 최종 법률 검토나 준법 확인을 마쳤다는 뜻이 아닙니다.</p></aside>{body}
+<aside class="notice" aria-label="문서의 확인 범위"><p>이 안내는 코드와 설정 예시를 기준으로 작성한 기술 문서입니다. 실제 운영 설정·제공자 계약·삭제 작업의 실행은 별도 확인이 필요합니다. 최종 법률 검토나 준법 확인을 마쳤다는 뜻이 아닙니다.</p></aside>{lifecycle_notice}{body}
 <footer><p>운영자: {escape(OPERATOR)}<br>문의: <a href="mailto:{escape(SUPPORT_EMAIL, quote=True)}">{escape(SUPPORT_EMAIL)}</a></p>
 <nav aria-label="관련 문서"><a href="/privacy">개인정보</a> · <a href="/terms">이용약관</a> · <a href="/support">문의</a> · <a href="/account-deletion">계정 삭제</a></nav></footer></main></body></html>"""
     return HTMLResponse(html, headers={
