@@ -90,3 +90,55 @@ passes of the historical whole-service run. Check 1: exact staged production
 candidate documents and authorization/configuration boundaries. Check 2: exact
 canonical alias after promotion, policy content/security headers and reloaded
 desktop/mobile rendering. No paid AI or destructive endpoint invocation.
+
+## Completed Scoped Production Release
+
+- Source commit: `ee3d59a9b02bbe802fbc54cedd781b3cc8595722`, pushed on
+  `codex/android-play-readiness`; no merge to main.
+- Vercel production: `dpl_8teiWGLvAmebMhG1ynNkjKzwNWts`, READY.
+  Candidate: `https://cal-ai-lxgobsybb-upglow.vercel.app`.
+  Canonical alias readback: `https://cal-ai-api.vercel.app` points to that
+  exact deployment.
+- All 110 uploaded runtime files matched the source commit byte-for-byte before
+  upload and the remote deployment's source file hashes afterward.
+  Source archive SHA-256:
+  `6d7157eb6dea10b1c61bdc8a53e1e414df302c77aa59b126033674e0b48f792f`.
+- Both reserved read-only deployed checks passed, 9/9 HTTP checks each:
+  health, readiness and four public pages returned 200; unauthenticated profile
+  and admin requests returned 401; disabled deletion worker returned structured
+  503. Public-page content and no-store, nosniff, no-referrer and CSP headers
+  matched the assertions. Targeted secret-pattern checks found no match, not a
+  claim of exhaustive secret detection.
+- Canonical browser checks passed after reload: desktop 1470x758 (764px main)
+  and mobile 390x844, no horizontal overflow, readable content and correct
+  notices. The deletion page's off-app request link was visible. Viewport
+  override was reset. This is public-document rendering, not whole-app or
+  Android device QA.
+- Current deployed photo TTL is **7 days**, not the 30-day configuration example.
+  It is an upload expiry setting, not an approved policy or evidence of actual
+  automatic erasure. Online deletion acceptance and worker remain false.
+  Write-once uploads were explicitly false on this deployment; production
+  environment-name inventory showed `CRON_SECRET` absent. No secret values were
+  exported or added.
+- Readiness reported configured R2, OpenAI food analysis, mock body analysis and
+  Supabase authentication. This does not prove live provider execution. No paid
+  AI calls or application-data mutations were made by the deployed probes.
+- CLI harness history remains in the private ledger: early attempts exited
+  before HTTP. Linking the local temporary project did not resolve the issue;
+  installed CLI source showed `--scope` being forwarded to curl. Removing that
+  unsupported curl argument resolved transport without service-source, provider
+  or protection changes. No additional repair pass or counter reset occurred.
+
+Private release proof:
+
+- `/private/tmp/cal-ai-privacy-deployed-checks-20261111.json`
+- `/private/tmp/cal-ai-deletion-desktop-20261111.jpg`
+- `/private/tmp/cal-ai-privacy-mobile-20261111.jpg`
+
+Remaining owner gates are the named disposable hosted-erasure test and its
+destructive approval, category-specific retention/transfer decisions and review,
+and actual support-mailbox receipt/handling confirmation. Existing real users,
+the Play reviewer account and existing photos are not disposable test targets.
+No deletion or retention activation, final legal approval or Play submission is
+claimed. Any later documentation-only checkpoint is not the runtime source
+commit named above and does not require another runtime deployment.
