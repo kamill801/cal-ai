@@ -7,6 +7,19 @@ full-product release preparation branch, not a change to the product's scope.
 ## Latest checkpoint - 2026-11-11
 
 This section supersedes older progress snapshots below, not their evidence.
+Current release source7068afe is pushed to the existing release branch, not main,
+and deployed at canonical production via `dpl_6r4xPvRLAx4gibjpdhTWGTFo24L6`.
+The exact current AAB is accepted in a saved internal-test draft, not released.
+APK v2 verification passed; actual Android installation/testing remains pending.
+Text/icon store drafts are saved; graphic/screenshots/privacy/Data safety remain.
+Owner approved Neon/R2 preparation: schema3/12 guards now verified on Neon after
+clone testing, core records preserved, deletion jobs0 and flags remain false.
+Legacy profile-erasure ordering is repaired in source with full-set preflight:
+17 regressions and full API478 pass locally; production proof is recorded in
+the deployment report. R2 configuration access waits for the owner's optional
+2FA choice. See the latest follow-up,
+`NEON-R2-PREPARATION-2026-11-11.md` and `PLAY-UPLOAD-2026-11-11.md`.
+Older no-upload/uncommitted/no-migration wording below is historical, not current.
 The owner explicitly declined developer-account conversion and chose the
 existing ARCHE Labs Personal account with closed testing. Do not convert or
 create a paid account. Prepare truthful draft declarations; any actual
@@ -204,3 +217,19 @@ static ELF alignment checks. Store tests are now 23/23. No Android runtime,
 cryptographic-signature or zipalign-tool proof, Play upload/acceptance, public
 release or production repair is implied. See `ANDROID-ARTIFACTS-2026-11-10.md`.
 The seventh/final QA pass is complete with whole-service readiness still blocked.
+
+## Latest checkpoint: 2026-11-11
+
+Supersedes the historical missing-app/artifact/deployment notes above, not their
+verification limits. App4975788258134910868 exists in the approved Personal
+account. Current APK signature and AAB JarFile integrity have bounded official-
+tool evidence; the AAB was accepted into a saved internal draft, not distributed.
+Play reports16KB support but actual Android execution/screenshots remain open.
+See `ANDROID-SIGNATURE-2026-11-11.md` and `PLAY-UPLOAD-2026-11-11.md`.
+
+Commit7068afe is pushed on the release branch; its source archive is promoted
+to the canonical production alias with public9/9 and narrow CORS probes passing.
+Deletion acceptance/worker/write-once flags remain off, public policies remain
+drafts, provider erasure remains untested. Do not treat HTTP200, upload success,
+the reviewer's saved credentials, or the Console Save and release button as
+whole-service readiness or authorization to attest compliance.

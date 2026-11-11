@@ -90,3 +90,49 @@ verification and operational preparation, not the shared reviewer's deletion.
 Signed artifacts have bounded static evidence, not Android runtime or Play
 acceptance. No AAB upload, closed-test release or app review submission occurred.
 The existing whole-service QA counter remains7/7 and blocked.
+
+## Later committed-source promotion
+
+This checkpoint supersedes the earlier dirty-source deployment above.
+
+- Source commit `7068afe0af5e7047e700e748e503b7a7e977626b` was created and
+  pushed to `codex/android-play-readiness`; remote `ls-remote` matched. No main
+  merge or original-main change. The source correction explicitly preserves the
+  existing seven CORS methods after a fresh library wildcard regression.
+- Every file in the allowlisted110-file,10,695,412-byte archive was compared
+  byte-for-byte with this commit before deployment. Manifest SHA-256:
+  `8bac72af548a716c64a3314f632b798508498f3cc5429bd73f3b217b37c4ef35`.
+  This is local provenance; deployment readback did not expose source metadata
+  and is not independent source-SHA attestation.
+- Deployment `dpl_6r4xPvRLAx4gibjpdhTWGTFo24L6`, immutable URL
+  `https://cal-ai-1y3ifqvda-upglow.vercel.app`, matched the exact existing project,
+  READY/production. Authorized browser verified readiness, public privacy HTML
+  and disabled deletion worker before promotion. Separate alias readback after
+  official promotion confirmed `cal-ai-api.vercel.app` points to this deployment.
+- The same9 public GET probes passed at `2026-11-11T08:37:22.264Z` with food
+  openai/body mock and all deletion flags still explicitly false. Additional
+  canonical-origin preflight returned POST200 and QUERY400, exactly the seven
+  allowed methods and no credential-allow header. No paid AI or data mutation.
+- Fresh local API461 passed/7 optional-PG tests skipped/1 existing warning;
+  mobile19 regressions plus async/API harness, shared/mobile types and store24
+  passed. New independent bounded static review found no actionable P0/P1
+  blockers. Provider lifecycle and Android device gates remain unverified.
+
+Evidence: refreshed sanitized public probe JSON and
+`/private/tmp/cal-ai-committed-production-privacy-20261111.png`.
+Play AAB acceptance subsequently succeeded as a saved internal draft only; see
+`PLAY-UPLOAD-2026-11-11.md`. Neither that upload nor this deployment closes
+privacy approval, real erasure, tester participation or public-release gates.
+
+## Subsequent Approved Schema Preparation
+
+After explicit owner preparation approval, Neon schema3 was installed and
+verified on the existing production database after cloned-branch testing.
+Core records are unchanged; no tombstones or jobs were created and all runtime
+deletion/write-once flags stay false. Fresh canonical public probes passed9/9.
+An independently identified legacy-profile erasure-ordering compatibility issue
+is repaired in source with full-set remote-image preflight before any mark or
+external delete. The17 targeted regressions and full API478 pass locally
+(7 optional PostgreSQL skips,1 existing warning). Production promotion of this
+repair is recorded below when verified. See
+`NEON-R2-PREPARATION-2026-11-11.md`; schema installation is not deletion E2E.

@@ -125,10 +125,30 @@ def delete_profile_data(
             additional_image_upload_ids=body_image_ids,
         )
         storage = get_storage_adapter()
+        # Validate the full deletion set before changing metadata or erasing any object.
+        try:
+            for image_record in image_records:
+                if image_record.object_key and image_record.storage_provider != storage.provider:
+                    raise StorageConfigurationError("storage_provider_mismatch")
+                if image_record.storage_provider != "local":
+                    if not image_record.owner_id or not image_record.object_key:
+                        raise StorageConfigurationError("image_ownership_unverified")
+                    namespace_method = getattr(storage, "storage_namespace", None)
+                    namespace = namespace_method() if callable(namespace_method) else None
+                    if (
+                        not isinstance(namespace, str) or not namespace.strip()
+                        or image_record.storage_namespace != namespace
+                    ):
+                        raise StorageConfigurationError("storage_namespace_unverified")
+        except (StorageConfigurationError, OSError, ValueError):
+            raise _error(
+                503, "profile_image_verification_required",
+                "사진의 소유권과 저장 위치를 확인해야 삭제할 수 있어요. 지원팀에 문의해 주세요.",
+                False, "server",
+            ) from None
+
         for image_record in image_records:
             if image_record.object_key:
-                if image_record.storage_provider != storage.provider:
-                    raise StorageConfigurationError("stored image provider does not match active storage provider")
                 meals.mark_image_upload_deleting(image_record.image_upload_id)
                 storage.delete_object(object_key=image_record.object_key)
 

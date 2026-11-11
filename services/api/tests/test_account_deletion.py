@@ -582,6 +582,108 @@ def test_profile_a_deletion_preserves_same_owner_b_and_foreign_c(client, monkeyp
     assert get_coach_repository().get_profile(profiles[2]).owner_id == FOREIGN
 
 
+@pytest.mark.parametrize("unsafe_first", [True, False])
+@pytest.mark.parametrize("failure", [
+    "ownerless", "ownerless_without_key", "missing_key", "provider",
+    "missing_namespace", "blank_namespace", "namespace_mismatch",
+])
+def test_profile_image_preflight_rejects_entire_set_before_side_effects(
+    client, monkeypatch, unsafe_first, failure,
+):
+    own = profile(client)
+    repo = get_persistence_repository()
+    for label in ("valid", "unsafe"):
+        upload(label, object_key=f"private-fixture/{label}")
+        job(f"job-{label}", label, profile_id=own)
+    with repo._connection() as conn:
+        conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'private-namespace'")
+        if failure.startswith("ownerless"):
+            conn.execute("update image_uploads set owner_id = null where image_upload_id = 'unsafe'")
+        if failure in {"missing_key", "ownerless_without_key"}:
+            conn.execute("update image_uploads set object_key = null where image_upload_id = 'unsafe'")
+        if failure == "provider":
+            conn.execute("update image_uploads set storage_provider = 'other-remote' where image_upload_id = 'unsafe'")
+        if failure in {"missing_namespace", "blank_namespace", "namespace_mismatch"}:
+            namespace = {"missing_namespace": None, "blank_namespace": " ", "namespace_mismatch": "other-private-namespace"}[failure]
+            conn.execute("update image_uploads set storage_namespace = ? where image_upload_id = 'unsafe'", (namespace,))
+    get_analytics_repository()
+    repo.prepare_account_deletion()
+    for flag in ("ACCOUNT_DELETION_ENABLED", "ACCOUNT_DELETION_WORKER_ENABLED", "R2_WRITE_ONCE_UPLOADS_ENABLED"):
+        monkeypatch.setenv(flag, "false")
+    selected = repo.list_profile_image_uploads(own, owner_id=OWNER)
+    assert {record.image_upload_id for record in selected} == {"valid", "unsafe"}
+    selected.sort(key=lambda record: (record.image_upload_id == "unsafe") != unsafe_first)
+    monkeypatch.setattr(repo, "list_profile_image_uploads", lambda *a, **kw: selected)
+    tables = ("image_uploads", "analysis_jobs", "coach_profiles", "account_deletions")
+    before = {table: rows(table) for table in tables}
+    photos = {record.object_key for record in selected if record.object_key}
+    original_photos = photos.copy()
+    effects = []
+    original_mark = repo.mark_image_upload_deleting
+
+    def mark(upload_id):
+        effects.append(("mark", upload_id))
+        return original_mark(upload_id)
+
+    def erase(*, object_key):
+        effects.append(("delete", object_key))
+        photos.discard(object_key)
+
+    monkeypatch.setattr(repo, "mark_image_upload_deleting", mark)
+    monkeypatch.setattr("app.coach_routes.get_storage_adapter", lambda: SimpleNamespace(
+        provider="r2", storage_namespace=lambda: "private-namespace", delete_object=erase,
+    ))
+    response = client.delete(f"/v1/profiles/{own}", headers=headers())
+    assert effects == []
+    assert photos == original_photos
+    assert {table: rows(table) for table in tables} == before
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "profile_image_verification_required"
+    assert response.json()["detail"]["retryable"] is False
+    for private in ("private-fixture", "private-namespace", "other-remote", OWNER):
+        assert private not in response.text
+
+
+@pytest.mark.parametrize("object_key", [None, "fixture/local"])
+def test_profile_image_preflight_preserves_ownerless_local_fallback(client, monkeypatch, object_key):
+    own = profile(client)
+    upload("local-legacy", None, object_key=object_key)
+    job("local-job", "local-legacy", None, own)
+    get_analytics_repository()
+    get_persistence_repository().prepare_account_deletion()
+    deleted_keys = []
+    monkeypatch.setattr("app.coach_routes.get_storage_adapter", lambda: SimpleNamespace(
+        provider="local", delete_object=lambda **kw: deleted_keys.append(kw["object_key"]),
+    ))
+    response = client.delete(f"/v1/profiles/{own}", headers=headers())
+    assert response.status_code == 200
+    assert deleted_keys == ([object_key] if object_key else [])
+    assert get_persistence_repository().get_image_upload("local-legacy") is None
+
+
+def test_profile_image_preflight_allows_verified_owned_remote_scoped_deletion(client, monkeypatch):
+    own, retained = profile(client), profile(client)
+    repo = get_persistence_repository()
+    for label, profile_id in (("selected", own), ("retained", retained)):
+        upload(label, object_key=f"fixture/{label}")
+        job(f"job-{label}", label, profile_id=profile_id)
+    with repo._connection() as conn:
+        conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'fixture-namespace'")
+    get_analytics_repository()
+    repo.prepare_account_deletion()
+    deleted_keys = []
+    monkeypatch.setattr("app.coach_routes.get_storage_adapter", lambda: SimpleNamespace(
+        provider="r2", storage_namespace=lambda: "fixture-namespace",
+        delete_object=lambda **kw: deleted_keys.append(kw["object_key"]),
+    ))
+    response = client.delete(f"/v1/profiles/{own}", headers=headers())
+    assert response.status_code == 200
+    assert deleted_keys == ["fixture/selected"]
+    assert repo.get_image_upload("selected") is None
+    assert repo.get_image_upload("retained") is not None
+    assert get_coach_repository().get_profile(retained).owner_id == OWNER
+
+
 def test_profile_shared_upload_and_foreign_job_links_are_not_delete_authority(client):
     a, b = profile(client), profile(client)
     upload("shared")
