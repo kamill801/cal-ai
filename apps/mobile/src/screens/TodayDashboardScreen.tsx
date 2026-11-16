@@ -114,7 +114,6 @@ export function TodayDashboardScreen({
 
       <View style={styles.guidanceCard}>
         <View style={styles.coachRow}>
-          <TrustBuddy size={84} pose="coach" />
           <View style={styles.coachCopy}>
             <Text style={styles.warningLabel}>지금 가장 좋은 다음 행동</Text>
             <Text style={styles.guidanceTitle}>{coachDashboard?.nextAction.title ?? dashboard.nextMealGuidance.explanation}</Text>

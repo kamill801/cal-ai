@@ -1,0 +1,392 @@
+[
+  {
+    "scene": "로그인",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "목표",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "식사",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "분석",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "보정",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "결과",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "운동",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "변화",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "코치",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "이용권",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "동의",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "저장",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "캐릭터",
+    "width": 320,
+    "height": 800,
+    "bodyWidth": 320,
+    "loaded": true,
+    "mascotCount": 7,
+    "textOverlaps": [],
+    "viewport": 320
+  },
+  {
+    "scene": "로그인",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "목표",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "식사",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "분석",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "보정",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "결과",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "운동",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "변화",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "코치",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "이용권",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "동의",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "저장",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "캐릭터",
+    "width": 390,
+    "height": 844,
+    "bodyWidth": 390,
+    "loaded": true,
+    "mascotCount": 7,
+    "textOverlaps": [],
+    "viewport": 390
+  },
+  {
+    "scene": "로그인",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "목표",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "식사",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "분석",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "보정",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "결과",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "운동",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "변화",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "코치",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "이용권",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "동의",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "저장",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 1,
+    "textOverlaps": [],
+    "viewport": 1365
+  },
+  {
+    "scene": "캐릭터",
+    "width": 1365,
+    "height": 900,
+    "bodyWidth": 1365,
+    "loaded": true,
+    "mascotCount": 7,
+    "textOverlaps": [],
+    "viewport": 1365
+  }
+]

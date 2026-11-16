@@ -53,12 +53,14 @@ export function OnboardingScreen({ status, error, target, warnings, onSubmit, on
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <View style={styles.heroCopy}>
+        <View style={styles.headerTop}>
           <Text style={styles.eyebrow}>초기 목표 설정</Text>
+          <TrustBuddy size={80} pose="welcome" />
+        </View>
+        <View style={styles.heroCopy}>
           <Text style={styles.title}>사진 한 장으로 식단 기록을 시작해요</Text>
           <Text style={styles.subtitle}>만 18세 이상을 위한 서비스예요. 필요한 정보만 짧게 받고, 나중에 체중 변화와 기록이 쌓이면 목표를 다시 조정해요.</Text>
         </View>
-        <TrustBuddy size={112} pose="meal" />
       </View>
 
       {rangeWarning ? <Text style={styles.validationText} accessibilityRole="alert">{rangeWarning}</Text> : null}
@@ -278,8 +280,9 @@ const trainingOptions = [
 
 const styles = StyleSheet.create({
   container: { gap: spacing.lg, padding: spacing.lg, paddingBottom: spacing.xxl },
-  header: { alignItems: "center", flexDirection: "row", gap: spacing.md, paddingTop: spacing.sm },
-  heroCopy: { flex: 1, minWidth: 0, gap: spacing.xs },
+  header: { gap: spacing.md, paddingTop: spacing.sm },
+  headerTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  heroCopy: { minWidth: 0, gap: spacing.xs },
   eyebrow: { color: colors.leaf, ...typography.caption },
   title: { color: colors.ink, ...typography.screenTitle },
   subtitle: { color: colors.body, ...typography.body },

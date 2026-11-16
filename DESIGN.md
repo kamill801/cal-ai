@@ -152,7 +152,7 @@
 - Target visual position:
   - `Cute Trust Nutrition`: trustworthy enough for nutrition decisions, cute and warm enough for daily Korean consumer use.
   - The strongest axis is trust plus approachable warmth. Cuteness is allowed when it supports repeat daily use, but food evidence and nutrition clarity remain primary.
-  - Use a small original rice/spoon-buddy character as an accent for analysis, coach, empty, and saved states. Do not let the mascot replace the food photo or analysis result as the main content.
+  - Use Kongbi, the approved asymmetric pistachio bean with a yellow wristband, as the primary mascot and app icon. Use its welcome, meal, analysis, workout, progress, coach, and celebration poses for the corresponding state. Duri remains an unchanged alternate concept; revised Moa remains a draft, not an in-app character. Do not let the mascot replace the food photo or analysis result as the main content.
   - The app should not feel like a medical report, spreadsheet, or generic AI assistant.
 - Color:
   - The palette borrows warmth from the Clay reference but shifts toward a food/nutrition product.

@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronUp, Eye, EyeOff, ShieldCheck } from "lucide-react-native";
+import { ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react-native";
 import { useState } from "react";
 import { ActivityIndicator, KeyboardAvoidingView, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { getApiBaseUrl } from "../api/config";
+import { TrustBuddy } from "../components/TrustBuddy";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
 interface LoginScreenProps {
@@ -36,7 +37,7 @@ export function LoginScreen({ configured, loading, error, onKakaoLogin, onEmailL
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
     <View style={styles.content}>
       <View style={styles.brand}>
-        <View style={styles.icon}><ShieldCheck color={colors.leaf} size={28} /></View>
+        <TrustBuddy size={96} pose="welcome" />
         <Text style={styles.eyebrow}>TRUST FIRST</Text>
         <Text style={styles.title}>내 기록을 이어서{`\n`}몸의 변화를 만들어요</Text>
         <Text style={styles.subtitle}>식사, 운동, 신체 체크인을 한 계정에 안전하게 모아 매일의 다음 행동을 연결해요.</Text>
@@ -84,7 +85,6 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, alignItems: "center", padding: spacing.xl, paddingTop: 48, paddingBottom: 40 },
   content: { width: "100%", maxWidth: 440, flexGrow: 1, justifyContent: "space-between", gap: 48 },
   brand: { gap: spacing.md },
-  icon: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: radii.control, backgroundColor: colors.leafSoft },
   eyebrow: { color: colors.leaf, ...typography.caption },
   title: { color: colors.ink, ...typography.heroTitle },
   subtitle: { color: colors.body, ...typography.body },

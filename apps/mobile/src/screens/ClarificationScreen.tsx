@@ -5,6 +5,7 @@ import { CalorieRange } from "../components/CalorieRange";
 import { ClarificationSheet } from "../components/ClarificationSheet";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { MealPhotoFrame } from "../components/MealPhotoFrame";
+import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { scanPhotoSource } from "../mockData";
 import { colors, spacing, typography } from "../theme";
@@ -39,8 +40,11 @@ export function ClarificationScreen({
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>원탭 보정</Text>
-        <Text style={styles.title}>{isLoading ? "답변을 반영하고 있어요" : "이 질문 하나만 확인해요"}</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>원탭 보정</Text>
+          <Text style={styles.title}>{isLoading ? "답변을 반영하고 있어요" : "이 질문 하나만 확인해요"}</Text>
+        </View>
+        <TrustBuddy size={64} pose="analysis" />
       </View>
       <MealPhotoFrame source={photoSource ?? scanPhotoSource} stageText={isLoading ? "범위 다시 계산 중" : "밥 양 확인 대기"} confidenceLabel={analysis.summary.confidenceLabel} confidenceGroup={analysis.summary.confidenceGroup} />
       <CalorieRange range={analysis.summary.calorieRange} compact />
@@ -58,6 +62,13 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl
   },
   header: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: spacing.xs
   },
   eyebrow: {

@@ -77,7 +77,7 @@ export function ReviewResultScreen({
           <Text style={styles.title}>분석 결과</Text>
           <Text style={styles.subtitle}>{isSaving ? "식사 기록으로 저장하고 있어요" : "사진 한 장으로 믿을 수 있는 범위를 만들었어요"}</Text>
         </View>
-        <TrustBuddy size={104} pose="analysis" />
+        <TrustBuddy size={80} pose="analysis" />
       </View>
 
       <View style={styles.photoStage}>
@@ -138,7 +138,6 @@ export function ReviewResultScreen({
               <Text style={styles.sectionTitle}>직접 확인한 값으로 수정</Text>
               <Text style={styles.editorHelp}>음식 이름이나 영양값이 다르면 저장 전에 고칠 수 있어요.</Text>
             </View>
-            <TrustBuddy size={80} pose="coach" />
           </View>
           <TextInput
             style={styles.nameInput}

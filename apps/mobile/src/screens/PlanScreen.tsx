@@ -1,5 +1,6 @@
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { CoachCard } from "../components/CoachCard";
+import { TrustBuddy } from "../components/TrustBuddy";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
 export function PlanScreen({
@@ -28,8 +29,11 @@ export function PlanScreen({
       </TouchableOpacity>
 
       <View style={styles.hero}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>무료 베타</Text>
+        <View style={styles.heroTop}>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>무료 베타</Text>
+          </View>
+          <TrustBuddy size={64} pose="coach" />
         </View>
         <Text style={styles.title}>Cal AI는 지금 무료로 다듬는 중이에요</Text>
         <Text style={styles.subtitle}>식사 분석, 운동 계획, 주간 코칭을 먼저 안정적으로 만들고 있어요. 결제 화면은 준비된 뒤에만 열어둘게요.</Text>
@@ -87,6 +91,7 @@ const styles = StyleSheet.create({
   backButton: { alignSelf: "flex-start", borderRadius: radii.control, paddingVertical: spacing.sm },
   backText: { color: colors.leaf, ...typography.bodyStrong },
   hero: { gap: spacing.md, borderColor: colors.creamDeep, borderRadius: radii.card, borderWidth: 1, backgroundColor: colors.cream, padding: spacing.xl, ...shadows.card },
+  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   badge: { alignSelf: "flex-start", borderRadius: radii.pill, backgroundColor: colors.leaf, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   badgeText: { color: colors.surface, ...typography.caption },
   title: { color: colors.ink, ...typography.heroTitle },

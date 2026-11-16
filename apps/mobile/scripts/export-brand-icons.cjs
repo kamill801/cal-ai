@@ -40,7 +40,7 @@ async function main() {
     if (foreground.bitmap.data[index + 3] <= 8) return;
     radius = Math.max(radius, Math.hypot(x - (foreground.bitmap.width - 1) / 2, y - (foreground.bitmap.height - 1) / 2));
   });
-  // Keep every visible pixel in the central adaptive-icon circle, including leaf tips.
+  // Keep the entire character inside the adaptive-icon safe circle.
   const scale = 296 / radius;
   foreground.resize(Math.round(foreground.bitmap.width * scale), Math.round(foreground.bitmap.height * scale), Jimp.RESIZE_BICUBIC);
   const adaptive = new Jimp(1024, 1024, 0x00000000);

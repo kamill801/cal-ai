@@ -6,6 +6,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 import { CalorieRange } from "../components/CalorieRange";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { MealPhotoFrame } from "../components/MealPhotoFrame";
+import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { scanPhotoSource } from "../mockData";
 import { colors, radii, shadows, spacing, typography } from "../theme";
@@ -54,8 +55,13 @@ export function AnalyzeEvidenceScreen({
           </TouchableOpacity>
           <Text style={styles.eyebrow}>식사 사진 촬영</Text>
         </View>
-        <Text style={styles.title}>{isLoading ? "사진을 분석하고 있어요" : "사진 한 장으로 간편 기록"}</Text>
-        <Text style={styles.subtitle}>밝은 곳에서 음식이 잘 보이게 찍으면 범위가 더 좋아져요.</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>{isLoading ? "사진을 분석하고 있어요" : "사진 한 장으로 간편 기록"}</Text>
+            <Text style={styles.subtitle}>밝은 곳에서 음식이 잘 보이게 찍으면 범위가 더 좋아져요.</Text>
+          </View>
+          <TrustBuddy size={64} pose="analysis" />
+        </View>
       </View>
 
       {analysis ? (
@@ -131,6 +137,16 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xxl
   },
   header: {
+    gap: spacing.xs
+  },
+  headerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md
+  },
+  headerCopy: {
+    flex: 1,
+    minWidth: 0,
     gap: spacing.xs
   },
   headerTop: {

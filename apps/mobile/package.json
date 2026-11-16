@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/run-smoke-tests.mjs",
     "check:store": "node scripts/check-store-build.mjs --check",
-    "test:store": "node --test scripts/check-store-build.test.mjs scripts/brand-icons.test.cjs",
+    "test:store": "node --test scripts/check-store-build.test.mjs scripts/brand-icons.test.cjs scripts/kongbi-assets.test.cjs scripts/trust-buddy.test.mjs",
     "eas-build-pre-install": "node scripts/check-store-build.mjs"
   },
   "dependencies": {
