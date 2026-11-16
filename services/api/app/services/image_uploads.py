@@ -92,6 +92,7 @@ def create_presigned_image_upload(
             object_key=object_key,
             upload_status="pending",
             upload_expires_at=presigned.expires_at,
+            cleanup_after=_cleanup_after_iso(get_image_ttl_days()),
             owner_id=owner_id,
             storage_namespace=adapter.storage_namespace(),
         )

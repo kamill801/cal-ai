@@ -176,7 +176,9 @@ def test_retention_claim_after_acceptance_skips_without_losing_key(client):
 def test_remote_terminal_checkpoint_requires_verified_erase_hook(client, monkeypatch, verified):
     from types import SimpleNamespace
 
-    upload("remote", object_key="fixture/remote")
+    image_id = f"image-upload-{OWNER}"
+    object_key = f"uploads/{image_id}/sealed-v1/image.jpg"
+    upload(image_id, object_key=object_key)
     repo = get_persistence_repository()
     with repo._connection() as conn:
         conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'fixture-namespace'")
@@ -188,17 +190,18 @@ def test_remote_terminal_checkpoint_requires_verified_erase_hook(client, monkeyp
 
     monkeypatch.setattr(deletion, "get_storage_adapter", lambda: SimpleNamespace(
         provider="r2", storage_namespace=lambda: "fixture-namespace", erase_account_object=erase,
+        delete_object=lambda **kw: pytest.fail("remote deletion requires erasure proof"),
     ))
     assert delete(client).status_code == 202
     result = deletion.run_account_deletion_jobs()
-    assert calls == ["fixture/remote"]
+    assert calls == [object_key]
     assert result["deleted" if verified else "pending"] == 1
     assert repo.get_account_deletion_stage(OWNER) == (3 if verified else 2)
     assert rows("account_deletion_objects")[0]["erase_verified"] == int(verified)
     assert repo.list_account_deletion_objects(OWNER, 5) == ([] if verified else rows("account_deletion_objects"))
 
 
-def test_unknown_remote_key_is_not_overridden_by_other_verified_objects(client, monkeypatch):
+def test_unknown_remote_key_rejects_even_with_other_verified_objects(client, monkeypatch, admin):
     from types import SimpleNamespace
 
     upload("known", object_key="fixture/known")
@@ -207,16 +210,19 @@ def test_unknown_remote_key_is_not_overridden_by_other_verified_objects(client, 
     with repo._connection() as conn:
         conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'fixture-namespace'")
     monkeypatch.setattr(deletion, "get_storage_adapter", lambda: SimpleNamespace(
-        provider="r2", storage_namespace=lambda: "fixture-namespace", erase_account_object=lambda **kw: True,
+        provider="r2", storage_namespace=lambda: "fixture-namespace",
+        erase_account_object=lambda **kw: pytest.fail("preflight must not erase any object"),
     ))
-    assert delete(client).status_code == 202
-    assert deletion.run_account_deletion_jobs()["pending"] == 1
-    assert repo.account_storage_uncertain(OWNER)
-    assert repo.get_account_deletion_stage(OWNER) == 2
+    assert delete(client).status_code == 503
+    assert repo.get_account_deletion_stage(OWNER) is None
+    assert repo.get_image_upload("known") is not None
+    assert repo.get_image_upload("lost") is not None
+    assert rows("account_deletion_objects") == []
+    assert admin.calls == []
 
 
 @pytest.mark.parametrize("namespace", [None, "original-bucket"])
-def test_remote_namespace_missing_or_changed_never_calls_storage(client, monkeypatch, namespace):
+def test_remote_namespace_missing_or_changed_never_calls_storage(client, monkeypatch, namespace, admin):
     from types import SimpleNamespace
 
     upload("remote", object_key="fixture/remote")
@@ -228,12 +234,11 @@ def test_remote_namespace_missing_or_changed_never_calls_storage(client, monkeyp
         erase_account_object=lambda **kw: pytest.fail("wrong namespace erasure"),
         delete_object=lambda **kw: pytest.fail("wrong namespace deletion"),
     ))
-    assert delete(client).status_code == 202
-    assert deletion.run_account_deletion_jobs()["failed"] == 1
-    assert repo.get_account_deletion_stage(OWNER) == 2
-    manifest = rows("account_deletion_objects")[0]
-    assert manifest["storage_namespace"] == namespace
-    assert manifest["erase_verified"] == manifest["sweep_count"] == 0
+    assert delete(client).status_code == 503
+    assert repo.get_account_deletion_stage(OWNER) is None
+    assert repo.get_image_upload("remote").storage_namespace == namespace
+    assert rows("account_deletion_objects") == []
+    assert admin.calls == []
 
 
 @pytest.mark.parametrize("namespace", [None, "original-bucket"])

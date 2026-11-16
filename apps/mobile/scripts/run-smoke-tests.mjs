@@ -35,7 +35,7 @@ const tsconfig = {
 writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
 
 const require = createRequire(import.meta.url);
-const onboarding = spawnSync(process.execPath, ["--test", join(repoRoot, "apps/mobile/scripts/onboarding-age.test.mjs"), join(repoRoot, "apps/mobile/scripts/training-draft.test.mjs"), join(repoRoot, "apps/mobile/scripts/app-recovery.test.mjs")], { stdio: "inherit" });
+const onboarding = spawnSync(process.execPath, ["--test", join(repoRoot, "apps/mobile/scripts/onboarding-age.test.mjs"), join(repoRoot, "apps/mobile/scripts/training-draft.test.mjs"), join(repoRoot, "apps/mobile/scripts/app-recovery.test.mjs"), join(repoRoot, "apps/mobile/scripts/privacy-consent.test.mjs")], { stdio: "inherit" });
 if (onboarding.status !== 0) {
   process.exit(onboarding.status ?? 1);
 }

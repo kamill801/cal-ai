@@ -4,6 +4,7 @@ import { MealImageReadError, readMealImageBlob } from "../media/mealImageFile";
 import { ApiClientError, type CalAiApiClient } from "./client";
 
 export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveCommand, { type: "UPLOAD_IMAGE" }>, apiClient: CalAiApiClient): Promise<ImageUploadViewModel> {
+  apiClient.assertHealthConsent();
   const imageBlob = await readUploadBlob(activeCommand.uri);
   const presigned = await apiClient.presignImageUpload({
     localAssetId: activeCommand.localAssetId,
@@ -11,6 +12,7 @@ export async function uploadImageToStorage(activeCommand: Extract<ScanToSaveComm
     contentType: activeCommand.contentType,
     byteSize: activeCommand.byteSize
   });
+  apiClient.assertHealthConsent();
   let etag: string | undefined;
   if (!presigned.uploadUrl.startsWith("local-upload://")) {
     const uploadResponse = await fetch(presigned.uploadUrl, {

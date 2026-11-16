@@ -11,6 +11,7 @@ from app.admin_schemas import (
     BillingStatusResponse,
 )
 from app.services.analytics_repository import (
+    AnalyticsConsentError,
     AnalyticsOwnershipError,
     AnalyticsProfileOwnershipError,
     get_analytics_repository,
@@ -45,6 +46,8 @@ def record_analytics_event(
             payload,
             user,
         )
+    except AnalyticsConsentError:
+        raise HTTPException(status_code=403, detail="analytics_consent_required") from None
     except AnalyticsProfileOwnershipError as exc:
         raise HTTPException(status_code=404, detail="profile_not_found") from exc
     except AnalyticsOwnershipError as exc:
@@ -65,6 +68,8 @@ def record_analytics_heartbeat(
             payload,
             user,
         )
+    except AnalyticsConsentError:
+        raise HTTPException(status_code=403, detail="analytics_consent_required") from None
     except AnalyticsProfileOwnershipError as exc:
         raise HTTPException(status_code=404, detail="profile_not_found") from exc
     except AnalyticsOwnershipError as exc:

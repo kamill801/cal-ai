@@ -2,11 +2,21 @@ import { ApiClientError, createCalAiApiClient } from "../api";
 import { uploadImageToStorage } from "../api/imageUpload";
 import type { ScanToSaveCommand } from "../flow/scanToSaveFlow";
 
+async function consentedApiClient(baseUrl: string, accessToken?: string) {
+  const client = createCalAiApiClient(baseUrl, accessToken);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({ ok: true, status: 200, json: async () => ({
+    policy_version: "fixture-current", health_data_consent: true, analytics_consent: false, consented_at: "2026-11-16T00:00:00Z"
+  }) } as Response)) as typeof fetch;
+  try { await client.getPrivacyConsent(); } finally { globalThis.fetch = previousFetch; }
+  return client;
+}
+
 async function expectNetworkError(): Promise<void> {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (() => Promise.reject(new TypeError("connection refused"))) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:0").getTodayDashboard();
+    await createCalAiApiClient("http://127.0.0.1:0").getPrivacyConsent();
     throw new Error("expected network error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "network_error" || error.kind !== "network" || !error.retryable) {
@@ -34,7 +44,7 @@ async function expectProviderUnavailable(): Promise<void> {
         })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected http error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_unavailable" || error.status !== 503 || error.kind !== "provider" || error.retryable) {
@@ -63,7 +73,7 @@ async function expectImageUploadMapsResponse(): Promise<void> {
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const uploaded = await createCalAiApiClient("http://127.0.0.1:8015").uploadImage({
+    const uploaded = await (await consentedApiClient("http://127.0.0.1:8015")).uploadImage({
       localAssetId: "local-demo-meal-preview",
       fileName: "meal-preview.png",
       contentType: "image/png",
@@ -100,7 +110,7 @@ async function expectOnboardingMapsResponse(): Promise<void> {
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const onboarded = await createCalAiApiClient("http://127.0.0.1:8015").createOnboarding({
+    const onboarded = await (await consentedApiClient("http://127.0.0.1:8015")).createOnboarding({
       age: 29,
       sex: "male",
       heightCm: 172,
@@ -139,7 +149,7 @@ async function expectAuthenticatedProfileMapsResponse(): Promise<void> {
       ["", "/v1/profiles/me"]
     ]) {
       calls.length = 0;
-      const profile = await createCalAiApiClient(baseUrl, "session-token").getAuthenticatedProfile();
+      const profile = await (await consentedApiClient(baseUrl, "session-token")).getAuthenticatedProfile();
       if (profile.profileId !== "server-profile-1") {
         throw new Error("authenticated profile response did not map");
       }
@@ -193,7 +203,7 @@ async function expectPresignedUploadContract(): Promise<void> {
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const client = createCalAiApiClient("http://127.0.0.1:8015");
+    const client = await consentedApiClient("http://127.0.0.1:8015");
     const presigned = await client.presignImageUpload({
       localAssetId: "local-demo-meal-preview",
       fileName: "meal-preview.png",
@@ -268,7 +278,7 @@ async function expectLocalPresignedUploadSkipsNetworkPut(): Promise<void> {
       contentType: "image/png",
       byteSize: 4
     };
-    const result = await uploadImageToStorage(command, createCalAiApiClient("http://127.0.0.1:8015"));
+    const result = await uploadImageToStorage(command, await consentedApiClient("http://127.0.0.1:8015"));
     if (result.imageUploadId !== "image-upload-local" || calls.some((call) => call.startsWith("local-upload://"))) {
       throw new Error("local presigned upload should skip direct network PUT");
     }
@@ -294,7 +304,7 @@ async function expectProviderDryRun(): Promise<void> {
         })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected dry-run provider error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "analysis_provider_dry_run" || error.kind !== "provider" || error.retryable) {
@@ -322,7 +332,7 @@ async function expectMalformedOutput(): Promise<void> {
         })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected malformed-output provider error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "analysis_output_malformed" || error.kind !== "provider" || !error.retryable) {
@@ -350,7 +360,7 @@ async function expectValidationError(): Promise<void> {
         })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected validation error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "validation_error" || error.kind !== "validation" || error.retryable) {
@@ -370,7 +380,7 @@ async function expectMalformedErrorFallback(): Promise<void> {
       json: () => Promise.reject(new SyntaxError("invalid json"))
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected fallback server error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "http_500" || error.kind !== "server" || !error.retryable) {
@@ -398,7 +408,7 @@ async function expectInvalidKindFallsBackToStatus(): Promise<void> {
         })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected invalid-kind fallback error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "http_503" || error.kind !== "server" || !error.retryable) {
@@ -418,7 +428,7 @@ async function expectTimeoutStatusFallback(): Promise<void> {
       json: () => Promise.resolve({ detail: "Request Timeout" })
     } as Response)) as typeof fetch;
   try {
-    await createCalAiApiClient("http://127.0.0.1:8015").getTodayDashboard();
+    await (await consentedApiClient("http://127.0.0.1:8015")).getTodayDashboard();
     throw new Error("expected timeout fallback error");
   } catch (error) {
     if (!(error instanceof ApiClientError) || error.code !== "http_408" || error.kind !== "timeout" || !error.retryable) {
@@ -509,7 +519,7 @@ async function expectCoachContractsMap(): Promise<void> {
     return Promise.reject(new Error("unexpected request"));
   }) as typeof fetch;
   try {
-    const client = createCalAiApiClient("http://127.0.0.1:8015", "session-token");
+    const client = await consentedApiClient("http://127.0.0.1:8015", "session-token");
     const dashboard = await client.getCoachDashboard("profile-1");
     const plan = await client.generateWorkoutPlan("profile-1");
     const history = await client.getWorkoutHistory("profile-1");

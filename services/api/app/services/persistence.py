@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -61,6 +61,20 @@ class ImageUploadRecord:
 
 
 @dataclass(frozen=True)
+class ImageErasureTarget:
+    image_upload_id: str
+    owner_id: str | None
+    storage_provider: str
+    object_key: str | None
+    storage_namespace: str | None
+
+    @classmethod
+    def from_upload(cls, record: ImageUploadRecord) -> ImageErasureTarget:
+        return cls(record.image_upload_id, record.owner_id, record.storage_provider,
+                   record.object_key, record.storage_namespace)
+
+
+@dataclass(frozen=True)
 class AnalysisJobRecord:
     analysis_job_id: str
     image_upload_id: str
@@ -105,7 +119,13 @@ class PersistenceRepository(Protocol):
 
     def get_account_deletion_stage(self, owner_id: str) -> int | None: ...
 
-    def begin_account_deletion(self, owner_id: str) -> int: ...
+    def begin_account_deletion(
+        self, owner_id: str, *, validate_uploads: Callable[[ImageErasureTarget], None] | None = None,
+    ) -> int: ...
+
+    def preflight_account_deletion(
+        self, owner_id: str, *, lease_token: str, validate_uploads: Callable[[ImageErasureTarget], None],
+    ) -> None: ...
 
     def advance_account_deletion(self, owner_id: str, stage: int, *, lease_token: str) -> None: ...
 
@@ -160,6 +180,8 @@ class PersistenceRepository(Protocol):
 
     def list_expired_image_uploads(self, now_iso: str, *, limit: int = 100) -> list[ImageUploadRecord]: ...
 
+    def record_image_retention_attempt(self, image_upload_id: str) -> bool: ...
+
     def mark_image_upload_deleting(self, image_upload_id: str) -> bool: ...
 
     def mark_image_upload_deleted(self, image_upload_id: str) -> bool: ...
@@ -209,6 +231,7 @@ class PersistenceRepository(Protocol):
         *,
         owner_id: str | None = None,
         additional_image_upload_ids: list[str] | None = None,
+        expected_uploads: list[ImageUploadRecord] | None = None,
     ) -> list[ImageUploadRecord]: ...
 
     def list_profile_image_uploads(
@@ -219,12 +242,22 @@ class PersistenceRepository(Protocol):
         additional_image_upload_ids: list[str] | None = None,
     ) -> list[ImageUploadRecord]: ...
 
+    def claim_profile_erasure(
+        self, profile_id: str, *, owner_id: str | None, expected_uploads: list[ImageUploadRecord],
+        additional_image_upload_ids: list[str] | None = None,
+    ) -> None: ...
+
+    def complete_profile_erasure(
+        self, profile_id: str, *, owner_id: str | None, expected_uploads: list[ImageUploadRecord],
+        additional_image_upload_ids: list[str] | None = None,
+    ) -> list[ImageUploadRecord]: ...
+
 
 class AccountDeletionPersistence:
     """Shared SQL cleanup and a minimal, permanent subject tombstone."""
 
     _account_postgres = False
-    _account_guard_version = 3
+    _account_guard_version = 4
 
     def _account_clock(self, column: str, operator: str = ">") -> str:
         if self._account_postgres:
@@ -254,10 +287,26 @@ class AccountDeletionPersistence:
             self._account_transaction_limits(conn, 10)
             if self._account_postgres:
                 conn.execute("select pg_advisory_xact_lock(1480534353, 2)")
+            conn.execute(
+                "create table if not exists privacy_consents (owner_id text primary key, "
+                "policy_version text not null, health_data_consent integer not null, "
+                "analytics_consent integer not null, consented_at text not null)"
+            )
+            self._ensure_account_worker_columns(conn)
             row = conn.execute("select version from account_deletion_schema where id = 1").fetchone()
             if row and row["version"] == self._account_guard_version:
                 return
             self._install_account_write_guards(conn)
+            # Older accepted jobs may already have passed the newly added consent phase.
+            pending_consents = (
+                "select d.owner_id from account_deletions d join privacy_consents c "
+                "on c.owner_id = d.owner_id where d.stage in (1, 2)"
+            )
+            conn.execute(
+                "update account_deletion_work set phase = 'consents', cursor = '', next_attempt_at = null "
+                f"where owner_id in ({pending_consents})"
+            )
+            conn.execute(f"update account_deletions set stage = 0 where owner_id in ({pending_consents})")
             conn.execute(
                 self._account_sql("insert into account_deletion_schema (id, version) values (1, ?) "
                                   "on conflict(id) do update set version = excluded.version"),
@@ -311,14 +360,62 @@ class AccountDeletionPersistence:
             ).fetchone()
         return int(row["stage"]) if row else None
 
-    def begin_account_deletion(self, owner_id: str) -> int:
+    def _lock_account_owner(self, conn, owner_id):
+        row = conn.execute(
+            self._account_sql("insert into account_owner_state (owner_id, deleting) values (?, 0) "
+                              "on conflict(owner_id) do update set deleting = account_owner_state.deleting "
+                              "returning deleting"),
+            (owner_id,),
+        ).fetchone()
+        return row["deleting"]
+
+    def _account_erasure_inventory(self, conn, owner_id):
+        profile_owner = self._account_json("p.payload_json", "owner_id")
+        job_profile = self._account_json("j.request_json", "profile_id")
+        log_profile = self._account_json("m.request_json", "profile_id")
+        body_image = self._account_json("e.payload_json", "image_upload_id")
+        rows = conn.execute(self._account_sql(
+            "select u.* from image_uploads u where u.owner_id = ? or exists "
+            "(select 1 from analysis_jobs j where j.image_upload_id = u.image_upload_id "
+            "and (j.owner_id = ? or (j.owner_id is null and exists "
+            f"(select 1 from coach_profiles p where p.profile_id = {job_profile} and {profile_owner} = ?)))) "
+            "or exists (select 1 from coach_events e join coach_profiles p on p.profile_id = e.profile_id "
+            f"where e.event_type = 'body' and {body_image} = u.image_upload_id and {profile_owner} = ?) "
+            "or exists (select 1 from analysis_jobs j join meal_logs m on m.analysis_job_id = j.analysis_job_id "
+            f"join coach_profiles p on p.profile_id = {log_profile} where j.image_upload_id = u.image_upload_id "
+            f"and (j.owner_id = ? or j.owner_id is null) and {profile_owner} = ?) "
+            "order by u.image_upload_id"
+        ), (owner_id,) * 6).fetchall()
+        for row in rows:
+            yield ImageErasureTarget(row["image_upload_id"], row["owner_id"], row["storage_provider"],
+                                     row["object_key"], row["storage_namespace"])
+        manifest = conn.execute(self._account_sql(
+            "select * from account_deletion_objects where owner_id = ? order by image_upload_id"
+        ), (owner_id,)).fetchall()
+        for row in manifest:
+            yield ImageErasureTarget(row["image_upload_id"], row["upload_owner_id"], row["storage_provider"],
+                                     row["object_key"], row["storage_namespace"])
+
+    def begin_account_deletion(
+        self, owner_id: str, *, validate_uploads: Callable[[ImageErasureTarget], None] | None = None,
+    ) -> int:
         with self._connection() as conn:
             self._account_transaction_limits(conn)
             self._require_account_schema(conn)
             # Every guarded writer holds this owner row until commit, including DELETEs.
+            self._lock_account_owner(conn, owner_id)
+            existing = conn.execute(self._account_sql(
+                "select stage from account_deletions where owner_id = ?"
+            ), (owner_id,)).fetchone()
+            if existing is not None:
+                return int(existing["stage"])
+            for target in self._account_erasure_inventory(conn, owner_id):
+                if validate_uploads is not None:
+                    validate_uploads(target)
+                elif target.storage_provider != "local":
+                    raise PersistenceError("account_deletion_inventory_unverified")
             conn.execute(
-                self._account_sql("insert into account_owner_state (owner_id, deleting) values (?, 1) "
-                                  "on conflict(owner_id) do update set deleting = 1"),
+                self._account_sql("update account_owner_state set deleting = 1 where owner_id = ?"),
                 (owner_id,),
             )
             conn.execute(
@@ -336,6 +433,16 @@ class AccountDeletionPersistence:
             conn.execute(self._account_sql("insert into account_deletion_work (owner_id, phase) values (?, ?) "
                                           "on conflict(owner_id) do nothing"), (owner_id, phase))
         return int(row["stage"])
+
+    def preflight_account_deletion(
+        self, owner_id: str, *, lease_token: str, validate_uploads: Callable[[ImageErasureTarget], None],
+    ) -> None:
+        with self._account_deletion_transaction(owner_id, lease_token) as conn:
+            self._lock_account_owner(conn, owner_id)
+            if self._require_account_lease(conn, owner_id, lease_token)["storage_uncertain"]:
+                raise PersistenceError("account_deletion_inventory_unverified")
+            for target in self._account_erasure_inventory(conn, owner_id):
+                validate_uploads(target)
 
     def advance_account_deletion(self, owner_id: str, stage: int, *, lease_token: str) -> None:
         if stage not in {1, 2, 3}:
@@ -489,16 +596,20 @@ class AccountDeletionPersistence:
                 conn.execute(
                     self._account_sql(
                         "insert into account_deletion_objects "
-                        "(owner_id, image_upload_id, storage_provider, object_key, storage_namespace) values (?, ?, ?, ?, ?) "
+                        "(owner_id, image_upload_id, storage_provider, object_key, storage_namespace, upload_owner_id) "
+                        "values (?, ?, ?, ?, ?, ?) "
                         "on conflict(owner_id, image_upload_id) do nothing"
                     ),
-                    (owner_id, upload.image_upload_id, upload.storage_provider, upload.object_key, upload.storage_namespace),
+                    (owner_id, upload.image_upload_id, upload.storage_provider, upload.object_key,
+                     upload.storage_namespace, upload.owner_id),
                 )
                 existing = conn.execute(self._account_sql(
-                    "select storage_provider, object_key, storage_namespace from account_deletion_objects "
+                    "select storage_provider, object_key, storage_namespace, upload_owner_id from account_deletion_objects "
                     "where owner_id = ? and image_upload_id = ?"), (owner_id, upload.image_upload_id)).fetchone()
-                if existing is None or (existing["storage_provider"], existing["object_key"], existing["storage_namespace"]) != (
-                    upload.storage_provider, upload.object_key, upload.storage_namespace
+                if existing is None or (
+                    existing["storage_provider"], existing["object_key"], existing["storage_namespace"], existing["upload_owner_id"]
+                ) != (
+                    upload.storage_provider, upload.object_key, upload.storage_namespace, upload.owner_id
                 ):
                     raise PersistenceError("account_deletion_manifest_conflict")
 
@@ -553,7 +664,7 @@ class AccountDeletionPersistence:
             "create table if not exists account_deletion_objects (owner_id text not null, "
             "image_upload_id text not null, storage_provider text not null, object_key text not null, "
             "last_swept_at text, sweep_count integer not null default 0, erase_verified integer not null default 0, "
-            "storage_namespace text, "
+            "storage_namespace text, upload_owner_id text, "
             "primary key (owner_id, image_upload_id))",
             "create index if not exists account_deletion_objects_sweep "
             "on account_deletion_objects (owner_id, sweep_count, last_swept_at, image_upload_id)",
@@ -569,7 +680,8 @@ class AccountDeletionPersistence:
         additions = {
             "account_deletion_work": {"phase": "text not null default 'profiles'", "cursor": "text not null default ''",
                                       "next_attempt_at": "text"},
-            "account_deletion_objects": {"erase_verified": "integer not null default 0", "storage_namespace": "text"},
+            "account_deletion_objects": {"erase_verified": "integer not null default 0", "storage_namespace": "text",
+                                         "upload_owner_id": "text"},
             "image_uploads": {"storage_namespace": "text"},
         }
         for table, columns in additions.items():
@@ -581,7 +693,10 @@ class AccountDeletionPersistence:
                     optional = "if not exists " if self._account_postgres else ""
                     conn.execute(f"alter table {table} add column {optional}{name} {definition}")
 
-    def _mark_retention_upload(self, image_upload_id, *, deleted):
+    def record_image_retention_attempt(self, image_upload_id: str) -> bool:
+        return self._mark_retention_upload(image_upload_id, deleted=False, attempt_only=True)
+
+    def _mark_retention_upload(self, image_upload_id, *, deleted, attempt_only=False):
         with self._connection() as conn:
             self._account_transaction_limits(conn)
             suffix = " for update" if self._account_postgres else ""
@@ -599,6 +714,12 @@ class AccountDeletionPersistence:
                 tombstone = conn.execute(self._account_sql("select 1 from account_deletions where owner_id = ?"), (owner,)).fetchone()
                 if state["deleting"] or tombstone:
                     return False
+            if attempt_only:
+                cursor = conn.execute(self._account_sql(
+                    "update image_uploads set retention_attempted_at = ? "
+                    "where image_upload_id = ? and upload_status in ('pending', 'ready', 'deleting')"
+                ), (_now_iso(), image_upload_id))
+                return cursor.rowcount > 0
             if deleted:
                 # Retain the random key: a legacy/ownerless late PUT must remain discoverable.
                 conn.execute(self._account_sql("update image_uploads set image_reference = ?, upload_status = 'deleted' "
@@ -619,6 +740,14 @@ class AccountDeletionPersistence:
         return namespace
 
     def _profile_artifact_ids(self, conn, owner_id, profile_id, body_image_ids):
+        body_image = self._account_json("payload_json", "image_upload_id")
+        current_body_ids = conn.execute(self._account_sql(
+            f"select {body_image} as image_upload_id from coach_events "
+            "where profile_id = ? and event_type = 'body'"
+        ), (profile_id,)).fetchall()
+        body_image_ids = sorted(set(body_image_ids) | {
+            row["image_upload_id"] for row in current_body_ids if row["image_upload_id"] is not None
+        })
         job_profile = self._account_json("j.request_json", "profile_id")
         log_profile = self._account_json("m.request_json", "profile_id")
         rows = conn.execute(
@@ -665,9 +794,68 @@ class AccountDeletionPersistence:
             _, uploads = self._profile_artifact_ids(conn, owner_id, profile_id, body_image_ids)
         return uploads
 
-    def _delete_owned_profile_artifacts(self, owner_id, profile_id, body_image_ids):
+    @contextmanager
+    def _profile_artifact_transaction(self, owner_id, profile_id, body_image_ids, expected_uploads=None):
         with self._connection() as conn:
+            if expected_uploads is not None:
+                self._account_transaction_limits(conn)
+                if self._account_postgres:
+                    conn.execute("select set_config('lock_timeout', '250ms', true)")
+                if any(item.storage_provider != "local" for item in expected_uploads):
+                    self._require_account_schema(conn)
+                if owner_id is not None and self._lock_account_owner(conn, owner_id):
+                    raise PersistenceError("account_deletion_in_progress")
+                suffix = " for update nowait" if self._account_postgres else ""
+                # Writers also lock parents before the owner fence. Never wait on
+                # those parents while holding the fence; retry a fresh transaction.
+                profile = conn.execute(self._account_sql(
+                    "select payload_json from coach_profiles where profile_id = ?" + suffix
+                ), (profile_id,)).fetchone()
+                if profile is None or json.loads(profile["payload_json"]).get("owner_id") != owner_id:
+                    raise PersistenceError("profile_erasure_inventory_changed")
             job_ids, uploads = self._profile_artifact_ids(conn, owner_id, profile_id, body_image_ids)
+            if expected_uploads is not None:
+                if self._account_postgres:
+                    for item in uploads:
+                        conn.execute("select 1 from image_uploads where image_upload_id = %s for update nowait",
+                                     (item.image_upload_id,)).fetchone()
+                    job_ids, uploads = self._profile_artifact_ids(conn, owner_id, profile_id, body_image_ids)
+                if {ImageErasureTarget.from_upload(item) for item in uploads} != {
+                    ImageErasureTarget.from_upload(item) for item in expected_uploads
+                }:
+                    raise PersistenceError("profile_erasure_inventory_changed")
+            yield conn, job_ids, uploads
+
+    def claim_profile_erasure(
+        self, profile_id: str, *, owner_id: str | None, expected_uploads: list[ImageUploadRecord],
+        additional_image_upload_ids: list[str] | None = None,
+    ) -> None:
+        with self._profile_artifact_transaction(
+            owner_id, profile_id, additional_image_upload_ids or [], expected_uploads,
+        ) as (conn, _, uploads):
+            for upload in uploads:
+                if upload.object_key and upload.upload_status != "deleted":
+                    cursor = conn.execute(self._account_sql(
+                        "update image_uploads set upload_status = 'deleting' where image_upload_id = ? "
+                        "and upload_status != 'deleted'"
+                    ), (upload.image_upload_id,))
+                    if cursor.rowcount != 1:
+                        raise PersistenceError("image_upload_deletion_unavailable")
+
+    def complete_profile_erasure(
+        self, profile_id: str, *, owner_id: str | None, expected_uploads: list[ImageUploadRecord],
+        additional_image_upload_ids: list[str] | None = None,
+    ) -> list[ImageUploadRecord]:
+        return self._delete_owned_profile_artifacts(
+            owner_id, profile_id, additional_image_upload_ids or [], expected_uploads, complete_profile=True,
+        )
+
+    def _delete_owned_profile_artifacts(
+        self, owner_id, profile_id, body_image_ids, expected_uploads=None, *, complete_profile=False,
+    ):
+        with self._profile_artifact_transaction(
+            owner_id, profile_id, body_image_ids, expected_uploads,
+        ) as (conn, job_ids, uploads):
             job_marks = ",".join("?" for _ in job_ids) or "null"
             conn.execute(
                 self._account_sql(
@@ -686,6 +874,19 @@ class AccountDeletionPersistence:
                     self._account_sql("delete from image_uploads where image_upload_id = ?"),
                     (upload.image_upload_id,),
                 )
+            if complete_profile:
+                session_filter = "user_id = ? or (user_id is null and profile_id = ?)"
+                conn.execute(self._account_sql(
+                    "delete from product_events where user_id = ? or (user_id is null and "
+                    "(profile_id = ? or session_id in "
+                    f"(select session_id from app_sessions where {session_filter})))"
+                ), (owner_id, profile_id, owner_id, profile_id))
+                conn.execute(self._account_sql(f"delete from app_sessions where {session_filter}"),
+                             (owner_id, profile_id))
+                if owner_id is not None:
+                    conn.execute(self._account_sql("delete from app_users where user_id = ?"), (owner_id,))
+                for table in ("coach_events", "workout_plans", "coach_profiles"):
+                    conn.execute(self._account_sql(f"delete from {table} where profile_id = ?"), (profile_id,))
         return uploads
 
     def _account_json(self, column: str, key: str) -> str:
@@ -725,6 +926,7 @@ class AccountDeletionPersistence:
             "users": ("app_users", "user_id", "t.user_id = ?", None),
             "subscriptions": ("billing_subscriptions", "subscription_id", "t.user_id = ?", None),
             "payments": ("billing_payments", "payment_id", "t.user_id = ?", None),
+            "consents": ("privacy_consents", "owner_id", "t.owner_id = ?", None),
             "coach_events": ("coach_events", "event_id", profile("t.profile_id"), None),
             "plans": ("workout_plans", "plan_id", profile("t.profile_id"), None),
             "delete_profiles": ("coach_profiles", "profile_id", profile("t.profile_id"), None),
@@ -802,6 +1004,14 @@ class AccountDeletionPersistence:
             + " from coach_profiles p where p.profile_id = NEW.profile_id)"
         )
         job_owner = "(select j.owner_id from analysis_jobs j where j.analysis_job_id = NEW.analysis_job_id)"
+        job_image_owner = ("(select u.owner_id from analysis_jobs j join image_uploads u "
+                           "on u.image_upload_id = j.image_upload_id where j.analysis_job_id = NEW.analysis_job_id)")
+        job_profile_owner = ("(select " + self._account_json("p.payload_json", "owner_id")
+                             + " from analysis_jobs j join coach_profiles p on p.profile_id = "
+                             + self._account_json("j.request_json", "profile_id")
+                             + " where j.analysis_job_id = NEW.analysis_job_id)")
+        job_image_lock = ("select 1 from image_uploads where image_upload_id = "
+                          "(select image_upload_id from analysis_jobs where analysis_job_id = NEW.analysis_job_id)")
         missing_profile = "not exists (select 1 from coach_profiles p where p.profile_id = NEW.profile_id)"
         missing_job = "not exists (select 1 from analysis_jobs j where j.analysis_job_id = NEW.analysis_job_id)"
         json_profile_id = self._account_json("NEW.request_json", "profile_id")
@@ -812,17 +1022,26 @@ class AccountDeletionPersistence:
         json_profile_owner = ("(select " + self._account_json("p.payload_json", "owner_id")
                               + f" from coach_profiles p where p.profile_id = {json_profile_id})")
         image_owner = "(select u.owner_id from image_uploads u where u.image_upload_id = NEW.image_upload_id)"
+        image_erasing = ("exists (select 1 from image_uploads u where u.image_upload_id = NEW.image_upload_id "
+                         "and u.upload_status in ('deleting', 'deleted'))")
+        job_image_erasing = ("exists (select 1 from analysis_jobs j join image_uploads u "
+                             "on u.image_upload_id = j.image_upload_id where j.analysis_job_id = NEW.analysis_job_id "
+                             "and u.upload_status in ('deleting', 'deleted'))")
         body_image_id = self._account_json("NEW.payload_json", "image_upload_id")
         body_image_owner = ("(select u.owner_id from image_uploads u where NEW.event_type = 'body' "
                             f"and u.image_upload_id = {body_image_id})")
         parent_checks = {
+            "image_uploads": "exists (select 1 from image_uploads u where u.image_upload_id = NEW.image_upload_id "
+                "and u.upload_status in ('deleting', 'deleted') and NEW.upload_status not in ('deleting', 'deleted'))",
             "analysis_jobs": "not exists (select 1 from image_uploads u where "
-                f"u.image_upload_id = NEW.image_upload_id) or {missing_json_profile}",
+                f"u.image_upload_id = NEW.image_upload_id) or {missing_json_profile} or {image_erasing}",
             "coach_events": f"{missing_profile} or (NEW.event_type = 'body' and {body_image_id} is not null "
-                f"and not exists (select 1 from image_uploads u where u.image_upload_id = {body_image_id}))",
+                f"and (not exists (select 1 from image_uploads u where u.image_upload_id = {body_image_id}) "
+                f"or exists (select 1 from image_uploads u where u.image_upload_id = {body_image_id} "
+                "and u.upload_status in ('deleting', 'deleted'))))",
             "workout_plans": missing_profile,
-            "clarifications": missing_job,
-            "meal_logs": f"{missing_job} or {missing_json_profile}",
+            "clarifications": f"{missing_job} or {job_image_erasing}",
+            "meal_logs": f"{missing_job} or {missing_json_profile} or {job_image_erasing}",
             "app_sessions": f"(NEW.profile_id is not null and {missing_profile})",
             "product_events": "not exists (select 1 from app_sessions s where "
                 f"s.session_id = NEW.session_id) or (NEW.profile_id is not null and {missing_profile})",
@@ -833,14 +1052,15 @@ class AccountDeletionPersistence:
             "coach_profiles": [self._account_json("NEW.payload_json", "owner_id")],
             "coach_events": [profile_owner, body_image_owner],
             "workout_plans": [profile_owner],
-            "clarifications": [job_owner],
-            "meal_logs": [job_owner, json_profile_owner],
+            "clarifications": [job_owner, job_image_owner, job_profile_owner],
+            "meal_logs": [job_owner, json_profile_owner, job_image_owner, job_profile_owner],
             "app_users": ["NEW.user_id"],
             "app_sessions": ["NEW.user_id", profile_owner],
             "product_events": ["NEW.user_id", "(select s.user_id from app_sessions s "
                                "where s.session_id = NEW.session_id)", profile_owner],
             "billing_subscriptions": ["NEW.user_id"],
             "billing_payments": ["NEW.user_id"],
+            "privacy_consents": ["NEW.owner_id"],
         }
         parent_locks = {
             "analysis_jobs": ["select 1 from image_uploads where image_upload_id = NEW.image_upload_id",
@@ -848,9 +1068,9 @@ class AccountDeletionPersistence:
             "coach_events": ["select 1 from coach_profiles where profile_id = NEW.profile_id",
                              f"select 1 from image_uploads where NEW.event_type = 'body' and image_upload_id = {body_image_id}"],
             "workout_plans": ["select 1 from coach_profiles where profile_id = NEW.profile_id"],
-            "clarifications": ["select 1 from analysis_jobs where analysis_job_id = NEW.analysis_job_id"],
+            "clarifications": ["select 1 from analysis_jobs where analysis_job_id = NEW.analysis_job_id", job_image_lock],
             "meal_logs": ["select 1 from analysis_jobs where analysis_job_id = NEW.analysis_job_id",
-                          f"select 1 from coach_profiles where profile_id = {json_profile_id}"],
+                          f"select 1 from coach_profiles where profile_id = {json_profile_id}", job_image_lock],
             "app_sessions": ["select 1 from coach_profiles where profile_id = NEW.profile_id"],
             "product_events": ["select 1 from app_sessions where session_id = NEW.session_id",
                                "select 1 from coach_profiles where profile_id = NEW.profile_id"],
@@ -894,6 +1114,8 @@ class AccountDeletionPersistence:
                     "returning deleting into blocked; "
                     "if blocked = 1 or exists (select 1 from account_deletions where owner_id = subject) then "
                     "raise exception 'account_deletion_in_progress'; end if; end loop; "
+                    f"if TG_OP != 'DELETE' and ({parent_check}) then "
+                    "raise exception 'account_deletion_in_progress'; end if; "
                     "if TG_OP = 'DELETE' then return OLD; end if; return NEW; end; $$"
                 )
                 conn.execute(f"revoke all on function account_guard_{table}() from public")
@@ -1035,19 +1257,13 @@ class SQLitePersistenceRepository(AccountDeletionPersistence):
         return self._image_upload_from_row(row) if row else None
 
     def sum_image_upload_bytes(self) -> int:
-        now = _now_iso()
         with self._connection() as conn:
             row = conn.execute(
                 """
                 select coalesce(sum(byte_size), 0) as total_bytes
                   from image_uploads
-                 where upload_status in ('ready', 'deleting')
-                    or (
-                        upload_status = 'pending'
-                        and (upload_expires_at is null or upload_expires_at >= ?)
-                    )
+                 where upload_status in ('pending', 'ready', 'deleting')
                 """,
-                (now,),
             ).fetchone()
         return int(row["total_bytes"]) if row else 0
 
@@ -1058,14 +1274,18 @@ class SQLitePersistenceRepository(AccountDeletionPersistence):
             rows = conn.execute(
                 """
                 select * from image_uploads
-                 where upload_status in ('ready', 'deleting')
-                   and cleanup_after is not null
-                   and cleanup_after <= ?
+                 where (
+                       (upload_status in ('ready', 'deleting') and cleanup_after <= ?)
+                       or (upload_status in ('pending', 'deleting')
+                           and coalesce(cleanup_after, upload_expires_at) <= ?
+                           and upload_expires_at <= ?)
+                   )
                    and not exists (select 1 from account_deletions d where d.owner_id = image_uploads.owner_id)
-                 order by cleanup_after, image_upload_id
+                 order by case when retention_attempted_at is null then 0 else 1 end,
+                          retention_attempted_at, cleanup_after, image_upload_id
                  limit ?
                 """,
-                (now_iso, limit),
+                (now_iso, now_iso, now_iso, limit),
             ).fetchall()
         return [self._image_upload_from_row(row) for row in rows]
 
@@ -1279,7 +1499,12 @@ class SQLitePersistenceRepository(AccountDeletionPersistence):
         *,
         owner_id: str | None = None,
         additional_image_upload_ids: list[str] | None = None,
+        expected_uploads: list[ImageUploadRecord] | None = None,
     ) -> list[ImageUploadRecord]:
+        if expected_uploads is not None:
+            return self._delete_owned_profile_artifacts(
+                owner_id, profile_id, additional_image_upload_ids or [], expected_uploads,
+            )
         uploads = self.list_profile_image_uploads(
             profile_id,
             owner_id=owner_id,
@@ -1442,6 +1667,7 @@ class SQLitePersistenceRepository(AccountDeletionPersistence):
             "soft_limit_exceeded": "alter table image_uploads add column soft_limit_exceeded integer not null default 0",
             "upload_expires_at": "alter table image_uploads add column upload_expires_at text",
             "owner_id": "alter table image_uploads add column owner_id text",
+            "retention_attempted_at": "alter table image_uploads add column retention_attempted_at text",
         }
         for column_name, statement in column_statements.items():
             if column_name not in existing_columns:
@@ -1588,19 +1814,13 @@ class PostgresPersistenceRepository(AccountDeletionPersistence):
         return SQLitePersistenceRepository._image_upload_from_row(row) if row else None
 
     def sum_image_upload_bytes(self) -> int:
-        now = _now_iso()
         with self._connection() as conn:
             row = conn.execute(
                 """
                 select coalesce(sum(byte_size), 0) as total_bytes
                   from image_uploads
-                 where upload_status in ('ready', 'deleting')
-                    or (
-                        upload_status = 'pending'
-                        and (upload_expires_at is null or upload_expires_at >= %s)
-                    )
+                 where upload_status in ('pending', 'ready', 'deleting')
                 """,
-                (now,),
             ).fetchone()
         return int(row["total_bytes"]) if row else 0
 
@@ -1611,14 +1831,18 @@ class PostgresPersistenceRepository(AccountDeletionPersistence):
             rows = conn.execute(
                 """
                 select * from image_uploads
-                 where upload_status in ('ready', 'deleting')
-                   and cleanup_after is not null
-                   and cleanup_after <= %s
+                 where (
+                       (upload_status in ('ready', 'deleting') and cleanup_after <= %s)
+                       or (upload_status in ('pending', 'deleting')
+                           and coalesce(cleanup_after, upload_expires_at) <= %s
+                           and upload_expires_at <= %s)
+                   )
                    and not exists (select 1 from account_deletions d where d.owner_id = image_uploads.owner_id)
-                 order by cleanup_after, image_upload_id
+                 order by case when retention_attempted_at is null then 0 else 1 end,
+                          retention_attempted_at, cleanup_after, image_upload_id
                  limit %s
                 """,
-                (now_iso, limit),
+                (now_iso, now_iso, now_iso, limit),
             ).fetchall()
         return [SQLitePersistenceRepository._image_upload_from_row(row) for row in rows]
 
@@ -1835,7 +2059,12 @@ class PostgresPersistenceRepository(AccountDeletionPersistence):
         *,
         owner_id: str | None = None,
         additional_image_upload_ids: list[str] | None = None,
+        expected_uploads: list[ImageUploadRecord] | None = None,
     ) -> list[ImageUploadRecord]:
+        if expected_uploads is not None:
+            return self._delete_owned_profile_artifacts(
+                owner_id, profile_id, additional_image_upload_ids or [], expected_uploads,
+            )
         uploads = self.list_profile_image_uploads(
             profile_id,
             owner_id=owner_id,
@@ -1981,6 +2210,7 @@ class PostgresPersistenceRepository(AccountDeletionPersistence):
             "alter table image_uploads add column if not exists soft_limit_exceeded boolean not null default false",
             "alter table image_uploads add column if not exists upload_expires_at text",
             "alter table image_uploads add column if not exists owner_id text",
+            "alter table image_uploads add column if not exists retention_attempted_at text",
             "alter table analysis_jobs add column if not exists owner_id text",
         )
 

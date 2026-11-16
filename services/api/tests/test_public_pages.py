@@ -30,8 +30,24 @@ class PublicDocument(HTMLParser):
 def default_public_metadata(monkeypatch):
     monkeypatch.delenv("PUBLIC_POLICY_EFFECTIVE_DATE", raising=False)
     monkeypatch.delenv("PUBLIC_POLICY_VERSION", raising=False)
-    for name in ("ACCOUNT_DELETION_ENABLED", "ACCOUNT_DELETION_WORKER_ENABLED", "IMAGE_TTL_DAYS"):
+    for name in ("ACCOUNT_DELETION_ENABLED", "ACCOUNT_DELETION_WORKER_ENABLED", "IMAGE_TTL_DAYS",
+                 "IMAGE_RETENTION_ENABLED", "R2_WRITE_ONCE_UPLOADS_ENABLED"):
         monkeypatch.delenv(name, raising=False)
+
+
+def test_public_retention_notice_reports_independent_switches_without_executing_cleanup(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setenv("CRON_SECRET", "private-configuration-never-render")
+    html = client.get("/privacy").text
+    assert "만료 사진 자동 정리: 꺼짐" in html
+    assert "새 사진 재업로드 방지: 꺼짐" in html
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "true")
+    monkeypatch.setenv("R2_WRITE_ONCE_UPLOADS_ENABLED", "true")
+    html = client.get("/privacy").text
+    assert "만료 사진 자동 정리: 켜짐" in html
+    assert "새 사진 재업로드 방지: 켜짐" in html
+    assert "온라인 계정 탈퇴 접수: 꺼짐" in html
+    assert "private-configuration-never-render" not in html
 
 
 @pytest.mark.parametrize("path,title", PUBLIC_PAGES)
@@ -116,8 +132,8 @@ def test_get_pages_never_authenticate_or_operate_on_accounts(path, _title, monke
 def test_policy_effective_date_and_version_are_public_and_configurable(path, _title, monkeypatch):
     client = TestClient(app)
     default = client.get(path).text
-    assert '<time datetime="2026-11-10">2026-11-10</time>' in default
-    assert "정책 문서 버전: 2026-11-10.1" in default
+    assert '<time datetime="2026-11-16">2026-11-16</time>' in default
+    assert "정책 문서 버전: 2026-11-16.1" in default
     monkeypatch.setenv("PUBLIC_POLICY_EFFECTIVE_DATE", "2026-12-01")
     monkeypatch.setenv("PUBLIC_POLICY_VERSION", "2026-12-01.2")
     configured = client.get(path).text
@@ -141,8 +157,8 @@ def test_policy_effective_date_and_version_are_public_and_configurable(path, _ti
 def test_invalid_public_metadata_falls_back_without_leaking_values(setting, value, monkeypatch):
     monkeypatch.setenv(setting, value)
     html = TestClient(app).get("/privacy").text
-    assert '<time datetime="2026-11-10">2026-11-10</time>' in html
-    assert "정책 문서 버전: 2026-11-10.1" in html
+    assert '<time datetime="2026-11-16">2026-11-16</time>' in html
+    assert "정책 문서 버전: 2026-11-16.1" in html
     if value:
         assert value not in html
 
@@ -204,6 +220,22 @@ def test_retention_example_is_not_a_deployed_ttl_promise():
     assert "30일 이내 자동 삭제를 보장하지 않습니다" in html
     assert "모든 기록에 적용되는 자동 보관 기한은 코드에서 확인되지 않았습니다" in html
     assert "법정 보존 항목·기간" in html
+    assert "새 업로드 주소 발급 시" in html
+    assert "업로드를 완료하지 않은 임시 파일" in html
+    assert "자동 정리는 별도 활성화 설정과 예약 요청 인증이 모두 필요" in html
+
+
+def test_privacy_explains_separate_affirmative_and_optional_consent():
+    html = TestClient(app).get("/privacy").text
+    for fact in (
+        "기록 조회·전송 전에", "체크박스는 미리 선택하지 않습니다",
+        "이용 분석은 별도 선택 항목이며 기본값은 꺼짐", "거절해도",
+        "개인정보 안내·문의·로그아웃·계정 삭제 경로는 유지",
+        "안내 버전이 바뀌면 다시 선택", "동의 상태는 로그인 계정과 정책 버전에 연결",
+        "건강정보 처리 동의를 철회", "이미 저장된 기록이 자동으로 삭제되지는 않습니다",
+        "분석 속성으로 목표 종류·보정 답변·운동 시간·강도·빈도와 자유 메모는 받지 않습니다",
+    ):
+        assert fact in html
 
 
 @pytest.mark.parametrize("path", ["/privacy", "/account-deletion"])
@@ -286,7 +318,8 @@ def test_support_describes_reviewer_access_without_publishing_or_attesting_crede
     assert "Play Console의 비공개 앱 액세스" in html
     assert "이메일·비밀번호는 이 페이지에 게시하지 않습니다" in html
     assert "이메일 소유권 검증 기능을 제공하지 않습니다" in html
-    assert "수신 가능 여부·담당자·응답 기한은 별도 운영 확인 대상" in html
+    assert "운영자 아르케가 직접 관리하며 개인정보·삭제 요청을 받습니다" in html
+    assert "응답 기한과 처리 일정은 요청 확인 후 안내" in html
     assert "추가 인증 면제를 이 문서만으로 보장하지 않습니다" in html
 
 

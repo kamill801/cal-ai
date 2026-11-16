@@ -13,7 +13,7 @@ import jwt
 from app.services.analytics_repository import get_analytics_repository
 from app.services.coach_repository import get_coach_repository
 from app.services.persistence import PersistenceError, get_persistence_repository
-from app.services.storage import StorageConfigurationError, get_storage_adapter
+from app.services.storage import StorageConfigurationError, get_storage_adapter, is_write_once_object_key
 
 
 class AccountDeletionError(RuntimeError):
@@ -80,6 +80,17 @@ class SupabaseAccountAdmin:
             allow_missing_user=True,
         )
 
+    @staticmethod
+    def user_is_missing(response: httpx.Response) -> bool:
+        if response.status_code != 404:
+            return False
+        try:
+            body = response.json()
+        except ValueError:
+            return False
+        # Supabase's initial and versioned APIs use different machine-code fields.
+        return isinstance(body, dict) and "user_not_found" in (body.get("error_code"), body.get("code"))
+
     def _request(
         self, method, path, *, payload=None, allow_missing_user=False,
     ):
@@ -91,17 +102,39 @@ class SupabaseAccountAdmin:
                 response = client.request(method, self.base_url + path, headers=headers, json=payload)
             if 200 <= response.status_code < 300:
                 return
-            if allow_missing_user and response.status_code == 404:
-                try:
-                    body = response.json()
-                except ValueError:
-                    body = None
-                if isinstance(body, dict) and body.get("code") == "user_not_found":
-                    return
+            if allow_missing_user and self.user_is_missing(response):
+                return
         except (httpx.HTTPError, OSError, ValueError):
             pass
         # No upstream body, URL, token, exception chain, or key reaches the API response.
         raise AccountDeletionError("account_deletion_provider_unavailable") from None
+
+
+def _erasure_inventory_validator(owner_id: str, storage_factory):
+    storage = None
+
+    def validate(target):
+        nonlocal storage
+        if target.storage_provider == "local" and not target.object_key:
+            return
+        storage = storage or storage_factory()
+        if target.storage_provider != storage.provider:
+            raise StorageConfigurationError("storage_provider_mismatch")
+        if target.storage_provider == "local":
+            return
+        namespace_method = getattr(storage, "storage_namespace", None)
+        namespace = namespace_method() if callable(namespace_method) else None
+        if (
+            target.owner_id != owner_id or target.storage_provider != "r2"
+            or not target.object_key or not is_write_once_object_key(target.object_key)
+            or not target.object_key.startswith(f"uploads/{target.image_upload_id}/")
+            or not isinstance(namespace, str) or not namespace.strip()
+            or target.storage_namespace != namespace
+            or not callable(getattr(storage, "erase_account_object", None))
+        ):
+            raise StorageConfigurationError("erasure_inventory_unverified")
+
+    return validate
 
 
 def delete_account(owner_id: str) -> str:
@@ -115,14 +148,21 @@ def delete_account(owner_id: str) -> str:
     account_deletion_worker_secret()
     get_coach_repository()
     get_analytics_repository()
-    stage = repository.begin_account_deletion(owner_id)
+    try:
+        stage = repository.begin_account_deletion(
+            owner_id, validate_uploads=_erasure_inventory_validator(owner_id, get_storage_adapter),
+        )
+    except (StorageConfigurationError, OSError, ValueError):
+        raise AccountDeletionError("account_deletion_storage_unavailable") from None
     return "deleted" if stage == 3 else "pending"
 
 
 def _resume_account_deletion(
     owner_id: str, admin: SupabaseAccountAdmin, *, max_objects: int, deadline: float, lease_token: str,
+    repository=None, storage_factory=None,
 ) -> str:
-    repository = get_persistence_repository()
+    repository = repository if repository is not None else get_persistence_repository()
+    storage_factory = storage_factory or get_storage_adapter
 
     def checkpoint_allowed() -> bool:
         if not repository.account_deletion_lease_current(owner_id, lease_token):
@@ -134,6 +174,13 @@ def _resume_account_deletion(
     stage = repository.get_account_deletion_stage(owner_id)
     if stage is None or stage == 3:
         return "deleted" if stage == 3 else "pending"
+    try:
+        repository.preflight_account_deletion(
+            owner_id, lease_token=lease_token,
+            validate_uploads=_erasure_inventory_validator(owner_id, storage_factory),
+        )
+    except (StorageConfigurationError, OSError, ValueError):
+        raise AccountDeletionError("account_deletion_storage_unavailable") from None
     if stage == 0:
         for _ in range(32):
             if not checkpoint_allowed():
@@ -169,7 +216,7 @@ def _resume_account_deletion(
         for item in objects:
             if not checkpoint_allowed():
                 break
-            storage = storage or get_storage_adapter()
+            storage = storage or storage_factory()
             if item["storage_provider"] != storage.provider:
                 raise StorageConfigurationError("storage_provider_mismatch")
             namespace_method = getattr(storage, "storage_namespace", None)

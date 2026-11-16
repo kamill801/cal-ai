@@ -2,10 +2,11 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { getApiBaseUrl } from "../api/config";
 import { TrustBuddy } from "../components/TrustBuddy";
+import { ConsentCheckbox } from "./PrivacyConsentScreen";
 import type { RequestStatus } from "../flow/scanToSaveFlow";
 import { colors, radii, shadows, spacing, typography } from "../theme";
 
-export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, onDeleteAccount, hasProfile = true, accountDeletionPending = false, deletionStatus, deletionError }: { readonly onBack?: () => void; readonly onSignOut?: () => void; readonly onDeleteData: () => void; readonly onDeleteAccount?: () => void; readonly hasProfile?: boolean; readonly accountDeletionPending?: boolean; readonly deletionStatus: RequestStatus; readonly deletionError?: string }) {
+export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, onDeleteAccount, hasProfile = true, accountDeletionPending = false, deletionStatus, deletionError, analyticsEnabled = false, canChangeAnalytics = false, consentStatus = "idle", consentError, onChangeAnalytics, onRevokeHealth, onRetryConsent }: { readonly onBack?: () => void; readonly onSignOut?: () => void; readonly onDeleteData: () => void; readonly onDeleteAccount?: () => void; readonly hasProfile?: boolean; readonly accountDeletionPending?: boolean; readonly deletionStatus: RequestStatus; readonly deletionError?: string; readonly analyticsEnabled?: boolean; readonly canChangeAnalytics?: boolean; readonly consentStatus?: RequestStatus; readonly consentError?: string; readonly onChangeAnalytics?: (enabled: boolean) => void; readonly onRevokeHealth?: () => void; readonly onRetryConsent?: () => void }) {
   const isDeleting = deletionStatus === "loading";
   const [confirmation, setConfirmation] = useState<"profile" | "account">();
   const [confirmationText, setConfirmationText] = useState("");
@@ -36,11 +37,33 @@ export function SafetyPrivacyScreen({ onBack, onSignOut, onDeleteData, onDeleteA
       </View>
 
       <View style={styles.card}>
+        <Text style={styles.sectionTitle}>건강정보 사용 동의</Text>
+        <Text style={styles.subtitle}>철회하면 앞으로의 건강·운동 기록 전송과 이용 분석을 중단해요. 기존 기록이 자동으로 삭제되지는 않아요. 기록이나 계정 삭제는 아래에서 별도로 요청할 수 있어요.</Text>
+        <TouchableOpacity style={[styles.secondaryButton, (!canChangeAnalytics || isDeleting || consentStatus === "loading") && styles.buttonDisabled]}
+          disabled={!canChangeAnalytics || isDeleting || consentStatus === "loading"} onPress={onRevokeHealth}
+          accessibilityRole="button" accessibilityLabel="건강정보 사용 동의 철회" accessibilityState={{ disabled: !canChangeAnalytics || isDeleting || consentStatus === "loading" }}>
+          <Text style={styles.secondaryButtonText}>건강정보 사용 동의 철회</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.card}>
         <Text style={styles.sectionTitle}>사진과 기록</Text>
         <ChecklistItem title="음식 사진" body="선택한 사진은 비공개 저장소에 보관하고, 음식과 영양 범위를 분석하기 위해 OpenAI에 전송해요." />
         <ChecklistItem title="분석 결과" body="칼로리와 영양값은 사진을 바탕으로 한 추정치예요. 저장 전에 음식 이름과 영양값을 직접 확인하고 수정할 수 있어요." />
-        <ChecklistItem title="건강 기록" body="목표, 식사, 운동, 체중과 회복 기록은 목표 계산과 코칭에 사용해요. 일부 기능 이용 기록은 서비스 이용 현황과 오류 확인에도 사용되며 계정과 연결될 수 있어요." />
+        <ChecklistItem title="건강 기록" body="동의 후 목표, 식사, 운동, 체중과 회복 기록을 서버에 저장하고 목표 계산과 코칭에 사용해요. 서비스 이용 분석은 별도로 선택하며 계정과 연결될 수 있어요." />
         <ChecklistItem title="신체 사진" body="신체 체크인 사진은 별도로 동의한 뒤 선택해서 전송해요. 신원, 질환, 외모 점수를 추정하지 않으며, 현재 제공되는 관찰이 실제 AI 분석인지 모의 결과인지 확인할 수 있어요." />
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>서비스 이용 분석 (선택)</Text>
+        <Text style={styles.subtitle}>화면·기능 이용, 오류 코드와 접속 시각을 계정·프로필·세션과 연결해 서버로 보내요. 건강 입력값과 사진 내용은 분석 속성으로 보내지 않아요. 꺼도 기록 기능을 이용할 수 있어요. 철회는 앞으로의 수집을 중단하며 기존 기록의 삭제는 아래에서 별도로 요청할 수 있어요.</Text>
+        <ConsentCheckbox label="서비스 이용 분석에 동의합니다 (선택)" checked={analyticsEnabled}
+          disabled={!canChangeAnalytics || isDeleting || consentStatus === "loading"}
+          onChange={() => onChangeAnalytics?.(!analyticsEnabled)} />
+        {consentStatus === "loading" ? <Text style={styles.subtitle} accessibilityRole="progressbar">동의 설정 저장 중</Text> : null}
+        {!canChangeAnalytics ? <Text style={styles.subtitle}>건강 기록 사용 동의를 확인한 뒤 변경할 수 있어요.</Text> : null}
+        {consentError ? <Text style={styles.errorText} accessibilityRole="alert">{consentError}</Text> : null}
+        {consentError && onRetryConsent ? <TouchableOpacity style={styles.linkButton} onPress={onRetryConsent} disabled={consentStatus === "loading"} accessibilityRole="button"><Text style={styles.linkText}>동의 설정 다시 시도</Text></TouchableOpacity> : null}
       </View>
 
       <View style={styles.card}>

@@ -1,5 +1,15 @@
 # Privacy Operations And Required Decisions
 
+Historical November 11 inventory. Read `RELEASE-FOLLOWUP-2026-11-16.md` first
+for the current checkpoint. Later bounded synthetic provider tests have evidence
+in the November 13/14 lifecycle documents; do not repeat this older "untested"
+status as current. The November 16 candidate adds an independent default-off
+retention gate, pending-upload expiry handling, atomic erasure preflight and
+separate versioned health/optional-analytics consent. The old production revision
+still lacks that independent retention gate, so its CRON warning below remains
+relevant until a guarded revision is actually promoted. No general activation
+or final operating-policy approval is implied.
+
 Status: reviewed technical inventory and operating checklist, **not a final legal
 policy, a declaration submission, or permission to activate deletion**.
 Operator/contact already selected by the owner: 아르케 / areche.ai.kr@gmail.com.

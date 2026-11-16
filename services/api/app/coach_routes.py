@@ -49,7 +49,7 @@ from app.services.analysis_provider import AnalysisProviderConfigurationError, A
 from app.services.body_analysis_provider import get_body_analysis_provider
 from app.services.image_uploads import ImageUploadError, resolve_analysis_image_reference
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
-from app.services.storage import StorageConfigurationError, get_storage_adapter
+from app.services.storage import StorageConfigurationError, get_storage_adapter, is_write_once_object_key
 
 
 router = APIRouter(prefix="/v1/profiles", tags=["coach"])
@@ -125,14 +125,27 @@ def delete_profile_data(
             additional_image_upload_ids=body_image_ids,
         )
         storage = get_storage_adapter()
+        erase = getattr(storage, "erase_account_object", None)
         # Validate the full deletion set before changing metadata or erasing any object.
         try:
             for image_record in image_records:
                 if image_record.object_key and image_record.storage_provider != storage.provider:
                     raise StorageConfigurationError("storage_provider_mismatch")
                 if image_record.storage_provider != "local":
-                    if not image_record.owner_id or not image_record.object_key:
+                    if (
+                        not owner_id or image_record.owner_id != owner_id
+                        or image_record.owner_id != profile.owner_id or not image_record.object_key
+                    ):
                         raise StorageConfigurationError("image_ownership_unverified")
+                    if (
+                        image_record.storage_provider != "r2"
+                        or not is_write_once_object_key(image_record.object_key)
+                        or not image_record.object_key.startswith(
+                            f"uploads/{image_record.image_upload_id}/"
+                        )
+                        or not callable(erase)
+                    ):
+                        raise StorageConfigurationError("erasure_proof_unavailable")
                     namespace_method = getattr(storage, "storage_namespace", None)
                     namespace = namespace_method() if callable(namespace_method) else None
                     if (
@@ -147,18 +160,24 @@ def delete_profile_data(
                 False, "server",
             ) from None
 
+        get_analytics_repository()
+        meals.claim_profile_erasure(
+            profile_id, owner_id=owner_id, expected_uploads=image_records,
+            additional_image_upload_ids=body_image_ids,
+        )
         for image_record in image_records:
             if image_record.object_key:
-                meals.mark_image_upload_deleting(image_record.image_upload_id)
-                storage.delete_object(object_key=image_record.object_key)
+                if image_record.storage_provider == "local":
+                    storage.delete_object(object_key=image_record.object_key)
+                elif erase(object_key=image_record.object_key) is not True:
+                    raise StorageConfigurationError("erasure_guard_unverified")
 
-        meals.delete_profile_artifacts(
+        meals.complete_profile_erasure(
             profile_id,
             owner_id=owner_id,
             additional_image_upload_ids=body_image_ids,
+            expected_uploads=image_records,
         )
-        get_analytics_repository().delete_profile_data(profile_id, owner_id=profile.owner_id)
-        repository.delete_profile(profile_id)
         return ProfileDeletionResponse(
             profile_id=profile_id,
             status="deleted",
@@ -167,7 +186,7 @@ def delete_profile_data(
         )
     except CoachNotFoundError as exc:
         raise _not_found(exc) from exc
-    except StorageConfigurationError as exc:
+    except (StorageConfigurationError, OSError, ValueError) as exc:
         raise _error(503, "storage_delete_unavailable", "사진 삭제를 완료하지 못했어요. 잠시 후 다시 시도해 주세요.", True, "server") from exc
     except PersistenceError as exc:
         raise _persistence_error() from exc

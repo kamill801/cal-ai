@@ -45,6 +45,39 @@ export interface AuthenticatedProfile {
   profileId: string | null;
 }
 
+export interface PrivacyConsentStatus {
+  policyVersion: string;
+  healthDataConsent: boolean;
+  analyticsConsent: boolean;
+  consentedAt: string | null;
+}
+
+export interface ApiPrivacyConsentStatus {
+  policy_version: string;
+  health_data_consent: boolean;
+  analytics_consent: boolean;
+  consented_at: string | null;
+}
+
+export interface ApiPrivacyConsentRequest {
+  policy_version: string;
+  health_data_consent: boolean;
+  analytics_consent: boolean;
+}
+
+export function mapApiPrivacyConsent(value: unknown): PrivacyConsentStatus {
+  if (!value || typeof value !== "object") throw new Error("privacy_consent_response_invalid");
+  const status = value as Partial<ApiPrivacyConsentStatus>;
+  if (typeof status.policy_version !== "string" || !status.policy_version.trim()
+    || typeof status.health_data_consent !== "boolean" || typeof status.analytics_consent !== "boolean"
+    || !(status.consented_at === null || (typeof status.consented_at === "string" && Boolean(status.consented_at.trim())))
+    || (status.analytics_consent && !status.health_data_consent)) {
+    throw new Error("privacy_consent_response_invalid");
+  }
+  return { policyVersion: status.policy_version, healthDataConsent: status.health_data_consent,
+    analyticsConsent: status.analytics_consent, consentedAt: status.consented_at };
+}
+
 export interface NutrientGap {
   nutrient: "protein_g" | "carbs_g" | "fat_g" | "calories_kcal";
   amount: number;

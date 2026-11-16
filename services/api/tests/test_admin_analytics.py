@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import admin_routes, main
@@ -237,10 +238,13 @@ def test_admin_auth_does_not_fall_back_to_consumer_supabase(monkeypatch) -> None
     assert ready.json()["admin"]["status"] == "misconfigured"
 
 
-def test_analytics_properties_reject_freeform_sensitive_payloads(monkeypatch) -> None:
+@pytest.mark.parametrize("property_key", [
+    "note", "answer", "clarification", "duration_minutes", "goal_type", "session_rpe", "training_frequency",
+])
+def test_analytics_properties_reject_freeform_sensitive_payloads(monkeypatch, property_key) -> None:
     monkeypatch.setenv("AUTH_PROVIDER", "disabled")
     payload = event_payload("app_opened")
-    payload["properties"] = {"note": "must never reach analytics storage"}
+    payload["properties"] = {property_key: "must never reach analytics storage"}
     response = client.post("/v1/analytics/events", json=payload)
     assert response.status_code == 422
 

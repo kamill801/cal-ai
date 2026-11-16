@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from types import SimpleNamespace
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -19,7 +20,10 @@ from app.services import account_deletion as deletion
 from app.services.analytics_repository import get_analytics_repository
 from app.services.auth import AuthenticatedUser
 from app.services.coach_repository import get_coach_repository
+from app.schemas import ImageUploadRequest
+from app.services.image_retention import cleanup_expired_image_uploads
 from app.services.persistence import PersistenceError, get_persistence_repository
+from app.services.storage import StorageConfigurationError
 from test_account_deletion import (
     FOREIGN, ONBOARDING, OWNER, admin, client, delete, headers, job, profile, upload,
 )
@@ -54,6 +58,62 @@ def postgres(monkeypatch, admin):
 @pytest.fixture
 def pg_client(postgres, client):
     return client
+
+
+def test_real_postgres_retention_failures_rotate_across_bounded_runs(postgres):
+    repository, _ = postgres
+    namespace = "r2-v1:" + "a" * 64
+    for index in range(101):
+        identifier = f"retention-{index:03}"
+        repository.save_image_upload(
+            payload=ImageUploadRequest(local_asset_id=identifier, file_name="fixture.png",
+                                       content_type="image/png", byte_size=351),
+            image_upload_id=identifier, image_reference="r2://fixture/" + identifier,
+            storage_provider="r2", object_key="uploads/" + identifier,
+            storage_namespace=namespace, cleanup_after="2020-01-01T00:00:00+00:00",
+        )
+    calls = []
+
+    def erase(*, object_key):
+        calls.append(object_key)
+        return object_key.endswith("100")
+
+    storage = SimpleNamespace(provider="r2", storage_namespace=lambda: namespace,
+                              erase_account_object=erase)
+    for _ in range(2):
+        with pytest.raises(StorageConfigurationError, match="erasure_guard_unverified"):
+            cleanup_expired_image_uploads(
+                repository, storage_factory=lambda: storage, now_iso="2026-11-13T12:00:00+00:00",
+                deadline=45, clock=lambda: 0,
+            )
+    assert calls[100] == "uploads/retention-100"
+    assert repository.get_image_upload("retention-100").upload_status == "deleted"
+    pending = repository.get_image_upload("retention-000")
+    assert pending.upload_status == "deleting"
+    assert pending.cleanup_after == "2020-01-01T00:00:00+00:00"
+
+
+@pytest.mark.parametrize("cleanup_after", [None, "2020-01-01T00:00:00+00:00"])
+def test_real_postgres_abandoned_upload_quota_and_retention(postgres, cleanup_after):
+    repository, _ = postgres
+    namespace = "r2-v1:" + "a" * 64
+    repository.save_image_upload(
+        payload=ImageUploadRequest(local_asset_id="pending", file_name="fixture.png",
+                                   content_type="image/png", byte_size=70),
+        image_upload_id="pending", image_reference="r2://fixture/pending",
+        storage_provider="r2", object_key="uploads/pending", storage_namespace=namespace,
+        upload_status="pending", upload_expires_at="2020-01-01T00:00:00+00:00",
+        cleanup_after=cleanup_after,
+    )
+    assert repository.sum_image_upload_bytes() == 70
+    storage = SimpleNamespace(provider="r2", storage_namespace=lambda: namespace,
+                              erase_account_object=lambda **_: True)
+    assert cleanup_expired_image_uploads(
+        repository, storage_factory=lambda: storage, now_iso="2026-11-15T12:00:00+00:00",
+        deadline=45, clock=lambda: 0,
+    ) == 1
+    assert repository.get_image_upload("pending").upload_status == "deleted"
+    assert repository.sum_image_upload_bytes() == 0
 
 
 def test_real_postgres_deletes_owned_rows_and_preserves_other_user(pg_client, postgres, admin):

@@ -203,6 +203,7 @@ def test_retention_cleanup_requires_secret_and_marks_expired_upload_deleted(monk
         cleanup_after="2020-01-01T00:00:00+00:00",
     )
     monkeypatch.setenv("CRON_SECRET", "test-cleanup-secret")
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "true")
 
     unauthorized = client.get("/internal/cleanup-images")
     response = client.get(

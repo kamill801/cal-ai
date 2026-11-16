@@ -86,12 +86,23 @@ def test_real_signed_token_is_accepted(signed_token_setup):
     token = jwt.encode(claims, key, algorithm=algorithm)
     assert auth.authenticate_bearer_token(f"Bearer {token}", env).user_id == "verified-owner"
     with TestClient(main.app) as client:
-        response = client.post("/v1/analytics/events", headers={
-            "Authorization": f"Bearer {token}",
-        }, json={
+        headers = {"Authorization": f"Bearer {token}"}
+        event = {
             "event_name": "app_opened", "session_id": "signed_initial", "screen": "today",
             "user_id": "forged-payload-owner",
+        }
+        denied = client.post("/v1/analytics/events", headers=headers, json=event)
+        assert denied.status_code == 403
+        assert denied.json()["detail"]["code"] == "health_data_consent_required"
+        policy = client.get("/v1/privacy-consent", headers=headers)
+        assert policy.status_code == 200
+        accepted = client.put("/v1/privacy-consent", headers=headers, json={
+            "policy_version": policy.json()["policy_version"],
+            "health_data_consent": True,
+            "analytics_consent": True,
         })
+        assert accepted.status_code == 200
+        response = client.post("/v1/analytics/events", headers=headers, json=event)
     assert response.status_code == 200
     repo = get_analytics_repository()
     assert repo.user_detail("verified-owner") is not None

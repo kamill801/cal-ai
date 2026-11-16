@@ -238,6 +238,8 @@ def test_r2_image_upload_complete_persists_ready_metadata(monkeypatch) -> None:
     assert pending_upload is not None
     assert pending_upload.upload_status == "pending"
     assert pending_upload.upload_expires_at == presign_body["expires_at"]
+    assert pending_upload.cleanup_after is not None
+    assert pending_upload.cleanup_after > pending_upload.upload_expires_at
 
     complete_response = client.post(
         "/image-uploads/complete",

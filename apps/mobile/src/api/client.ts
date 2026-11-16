@@ -11,6 +11,7 @@ import type {
   ApiMealLogHistory,
   ApiAuthenticatedProfileResponse,
   ApiOnboardingResponse,
+  PrivacyConsentStatus,
   OnboardingRequest,
   ApiSavedImpactResponse,
   ApiBodyCheckIn,
@@ -35,6 +36,7 @@ import {
   mapApiMealLogDeleteResult,
   mapApiMealLogHistory,
   mapApiAuthenticatedProfile,
+  mapApiPrivacyConsent,
   mapApiOnboardingResponse,
   mapApiSavedImpactResponse,
   mapApiBodyCheckIn,
@@ -114,6 +116,10 @@ export interface BillingStatus {
 }
 
 export interface CalAiApiClient {
+  getPrivacyConsent(): Promise<PrivacyConsentStatus>;
+  updatePrivacyConsent(input: { policyVersion: string; healthDataConsent: boolean; analyticsConsent: boolean }): Promise<PrivacyConsentStatus>;
+  clearPrivacyConsent(): void;
+  assertHealthConsent(): void;
   getTodayDashboard(): Promise<DashboardTodayResponse>;
   getAuthenticatedProfile(): Promise<AuthenticatedProfile>;
   createOnboarding(input: OnboardingRequest): Promise<OnboardingResponse>;
@@ -150,11 +156,49 @@ export interface CalAiApiClient {
   deleteAccount(): Promise<{ status: "deleted" | "pending" }>;
 }
 
-export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: string): CalAiApiClient {
+export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: string, onConsentRequired?: () => void): CalAiApiClient {
   const root = baseUrl.replace(/\/+$/, "");
-  const call = <T>(path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}) => request<T>(root, path, options, accessToken);
+  let consent: PrivacyConsentStatus | undefined;
+  let consentGeneration = 0;
+  const clearPrivacyConsent = () => { consent = undefined; consentGeneration += 1; };
+  const assertHealthConsent = () => {
+    if (!consent?.healthDataConsent) throw new ApiClientError({ code: "health_data_consent_required", status: 403, kind: "validation", message: "건강 기록 사용 안내를 확인하고 동의해 주세요." });
+  };
+  const call = async <T>(path: string, options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {}): Promise<T> => {
+    if (path !== "/v1/privacy-consent" && options.method !== "DELETE") assertHealthConsent();
+    try {
+      return await request<T>(root, path, options, accessToken);
+    } catch (error) {
+      if (error instanceof ApiClientError && ["health_data_consent_required", "analytics_consent_required"].includes(error.code)) {
+        clearPrivacyConsent();
+        onConsentRequired?.();
+      }
+      throw error;
+    }
+  };
+  const readConsent = async (options: { method?: "PUT"; body?: unknown } = {}): Promise<PrivacyConsentStatus> => {
+    const generation = ++consentGeneration;
+    // A pending/failed refresh must not leave an earlier authorization usable.
+    consent = undefined;
+    try {
+      const status = mapApiPrivacyConsent(await call<unknown>("/v1/privacy-consent", options));
+      if (generation !== consentGeneration) throw new Error("privacy_consent_superseded");
+      consent = status;
+      return status;
+    } catch (error) {
+      if (error instanceof ApiClientError) throw error;
+      throw new ApiClientError({ code: "privacy_consent_response_invalid", message: "동의 상태를 확인하지 못했어요. 다시 불러와 주세요.", retryable: true });
+    }
+  };
 
   return {
+    clearPrivacyConsent,
+    assertHealthConsent,
+    getPrivacyConsent: () => readConsent(),
+    updatePrivacyConsent(input) {
+      return readConsent({ method: "PUT", body: { policy_version: input.policyVersion,
+        health_data_consent: input.healthDataConsent, analytics_consent: input.analyticsConsent } });
+    },
     async getTodayDashboard() {
       return mapApiDashboardToday(await call<ApiDashboardTodayResponse>("/v1/dashboard/today"));
     },
@@ -376,19 +420,24 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
       };
     },
     async deleteProfile(profileId) {
-      return mapApiProfileDeletionResult(
+      const result = mapApiProfileDeletionResult(
         await call<ApiProfileDeletionResult>(`/v1/profiles/${encodeURIComponent(profileId)}`, { method: "DELETE" })
       );
+      clearPrivacyConsent();
+      return result;
     },
     async deleteAccount() {
       const result = await call<unknown>("/v1/account", { method: "DELETE", body: { confirm: true } });
-      if (result && typeof result === "object" && "status" in result && (result.status === "deleted" || result.status === "pending")) return { status: result.status };
+      if (result && typeof result === "object" && "status" in result && (result.status === "deleted" || result.status === "pending")) {
+        clearPrivacyConsent();
+        return { status: result.status };
+      }
       throw new ApiClientError({ code: "account_deletion_response_invalid", message: "삭제 상태를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요.", retryable: true });
     }
   };
 }
 
-async function request<T>(root: string, path: string, options: { method?: "GET" | "POST" | "DELETE"; body?: unknown } = {}, accessToken?: string): Promise<T> {
+async function request<T>(root: string, path: string, options: { method?: "GET" | "POST" | "PUT" | "DELETE"; body?: unknown } = {}, accessToken?: string): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${root}${path}`, {

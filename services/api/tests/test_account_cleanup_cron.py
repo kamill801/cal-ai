@@ -21,8 +21,10 @@ STORAGE_NAMESPACE = "r2://fixture-account/fixture-bucket"
 def cron(monkeypatch):
     monkeypatch.setenv("CRON_SECRET", "fixture-cron-secret")
     monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "true")
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "true")
     repository = SimpleNamespace(
         list_expired_image_uploads=Mock(return_value=[]),
+        record_image_retention_attempt=Mock(return_value=True),
         mark_image_upload_deleting=Mock(return_value=True),
         mark_image_upload_deleted=Mock(return_value=True),
     )
@@ -95,6 +97,52 @@ def test_disabled_worker_preserves_existing_retention_cron(cron, monkeypatch):
     cron.repository.mark_image_upload_deleted.assert_called_once_with("expired")
 
 
+@pytest.mark.parametrize("enabled", [None, "false", "", "yes", "1"])
+def test_cron_secret_alone_cannot_enable_retention(cron, monkeypatch, enabled):
+    if enabled is None:
+        monkeypatch.delenv("IMAGE_RETENTION_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("IMAGE_RETENTION_ENABLED", enabled)
+    cron.repository.list_expired_image_uploads.return_value = [_expired("ordinary-photo")]
+    assert _cleanup().json() == {"status": "ok", "deleted_images": 0}
+    cron.worker.assert_called_once()
+    main.get_storage_adapter.assert_not_called()
+    cron.repository.list_expired_image_uploads.assert_not_called()
+    cron.repository.record_image_retention_attempt.assert_not_called()
+    cron.repository.mark_image_upload_deleted.assert_not_called()
+
+
+def test_both_cleanup_switches_off_is_an_authenticated_noop(cron, monkeypatch):
+    monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "false")
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "false")
+    assert _cleanup().json() == {"status": "ok", "deleted_images": 0}
+    cron.worker.assert_not_called()
+    main.get_storage_adapter.assert_not_called()
+    cron.repository.list_expired_image_uploads.assert_not_called()
+
+
+@pytest.mark.parametrize("authorized", [False, True])
+def test_inactive_or_unauthorized_cron_does_not_open_persistence(cron, monkeypatch, authorized):
+    monkeypatch.setenv("ACCOUNT_DELETION_WORKER_ENABLED", "false")
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "false")
+    database = Mock(side_effect=PersistenceError("private database unavailable"))
+    monkeypatch.setattr(main, "get_persistence_repository", database)
+    response = TestClient(main.app).get(
+        "/internal/cleanup-images", headers=HEADERS if authorized else {},
+    )
+    assert response.status_code == (200 if authorized else 401)
+    database.assert_not_called()
+
+
+def test_disabled_retention_does_not_hide_account_worker_failure(cron, monkeypatch):
+    monkeypatch.setenv("IMAGE_RETENTION_ENABLED", "false")
+    cron.worker.return_value = {"failed": 1}
+    response = _cleanup()
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "account_deletion_cleanup_unavailable"
+    cron.repository.list_expired_image_uploads.assert_not_called()
+
+
 def test_account_worker_runs_before_retention_with_a_reserved_budget(cron):
     events = []
     cron.worker.side_effect = lambda **_kwargs: events.append("account") or {"failed": 0}
@@ -110,7 +158,8 @@ def test_account_worker_runs_before_retention_with_a_reserved_budget(cron):
 
 
 @pytest.mark.parametrize("operation", [
-    "list_expired_image_uploads", "mark_image_upload_deleting", "mark_image_upload_deleted",
+    "list_expired_image_uploads", "record_image_retention_attempt",
+    "mark_image_upload_deleting", "mark_image_upload_deleted",
 ])
 def test_retention_persistence_failure_cannot_starve_account_worker(cron, operation):
     cron.repository.list_expired_image_uploads.return_value = [_expired("tombstoned")]
@@ -336,15 +385,38 @@ def test_account_admission_preserves_retention_time_and_minimum_worker_budget(
 
 
 @pytest.mark.parametrize("verified", [True, False])
-def test_retention_prefers_erasure_hook_without_requiring_worker_completion_proof(cron, verified):
+def test_retention_requires_affirmative_erasure_proof_before_terminalizing(cron, verified):
     cron.storage.erase_account_object = Mock(return_value=verified)
     cron.repository.list_expired_image_uploads.return_value = [_expired("expired")]
     response = _cleanup()
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "deleted_images": 1}
+    if verified:
+        assert response.status_code == 200
+        assert response.json() == {"status": "ok", "deleted_images": 1}
+        cron.repository.mark_image_upload_deleted.assert_called_once_with("expired")
+    else:
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "storage_cleanup_unavailable"
+        cron.repository.mark_image_upload_deleted.assert_not_called()
     cron.storage.erase_account_object.assert_called_once_with(object_key="uploads/expired")
     cron.storage.delete_object.assert_not_called()
-    cron.repository.mark_image_upload_deleted.assert_called_once_with("expired")
+
+
+@pytest.mark.parametrize("unverified", [None, 1, "true"])
+def test_retention_rejects_ambiguous_erasure_acknowledgements(cron, unverified):
+    cron.storage.erase_account_object = Mock(return_value=unverified)
+    cron.repository.list_expired_image_uploads.return_value = [_expired("unverified")]
+    assert _cleanup().status_code == 503
+    cron.repository.mark_image_upload_deleted.assert_not_called()
+
+
+def test_remote_retention_without_erasure_hook_stays_retryable(cron):
+    cron.storage.provider = "r2"
+    cron.repository.list_expired_image_uploads.return_value = [
+        _expired("unverified", storage_provider="r2", storage_namespace=STORAGE_NAMESPACE),
+    ]
+    assert _cleanup().status_code == 503
+    cron.storage.delete_object.assert_not_called()
+    cron.repository.mark_image_upload_deleted.assert_not_called()
 
 
 @pytest.mark.parametrize("hook", [None, False])
@@ -371,7 +443,7 @@ def test_retention_does_not_call_erasure_hook_after_rejected_atomic_claim(cron):
 @pytest.mark.parametrize("error_type", [StorageConfigurationError, OSError, ValueError])
 def test_retention_erasure_hook_failure_is_sanitized_without_delete_fallback(cron, error_type):
     cron.storage.erase_account_object = Mock(side_effect=[
-        error_type("private erasure failure fixture-cron-secret"), False,
+        error_type("private erasure failure fixture-cron-secret"), True,
     ])
     cron.repository.list_expired_image_uploads.return_value = [
         _expired("failed"), _expired("independent"),
@@ -440,7 +512,7 @@ def test_full_account_budget_still_leaves_time_for_retention_erasure_hook(cron):
 
     def erase(**_kwargs):
         cron.clock.now += 16.0
-        return False
+        return True
 
     cron.worker.side_effect = account_work
     cron.repository.list_expired_image_uploads.return_value = [_expired("expired")]
@@ -505,7 +577,7 @@ def test_sqlite_tombstone_races_preserve_account_job_and_independent_retention(
     def erase(*, object_key):
         if tombstone_stage == "after_claim" and object_key == f"uploads/{tombstoned_upload}":
             repository.begin_account_deletion(owner)
-        return False
+        return True
 
     cron.storage.erase_account_object = Mock(side_effect=erase)
     response = _cleanup()
@@ -555,20 +627,23 @@ def test_remote_retention_rejects_missing_or_mismatched_namespace(
 def test_remote_retention_accepts_exact_nonempty_namespace(cron, use_hook):
     cron.storage.provider = "r2"
     if use_hook:
-        cron.storage.erase_account_object = Mock(return_value=False)
+        cron.storage.erase_account_object = Mock(return_value=True)
     cron.repository.list_expired_image_uploads.return_value = [_expired(
         "remote", storage_provider="r2", storage_namespace=STORAGE_NAMESPACE,
     )]
     response = _cleanup()
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok", "deleted_images": 1}
+    assert response.status_code == (200 if use_hook else 503)
     cron.storage.storage_namespace.assert_called_once_with()
     if use_hook:
         cron.storage.erase_account_object.assert_called_once_with(object_key="uploads/remote")
         cron.storage.delete_object.assert_not_called()
     else:
-        cron.storage.delete_object.assert_called_once_with(object_key="uploads/remote")
-    cron.repository.mark_image_upload_deleted.assert_called_once_with("remote")
+        cron.storage.delete_object.assert_not_called()
+    if use_hook:
+        assert response.json() == {"status": "ok", "deleted_images": 1}
+        cron.repository.mark_image_upload_deleted.assert_called_once_with("remote")
+    else:
+        cron.repository.mark_image_upload_deleted.assert_not_called()
 
 
 @pytest.mark.parametrize("adapter_namespace", [None, "", "   ", 123])

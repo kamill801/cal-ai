@@ -1,4 +1,4 @@
-import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, ProgressSummary, WeeklyCoachReport, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
+import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, PrivacyConsentStatus, ProgressSummary, WeeklyCoachReport, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -14,6 +14,7 @@ import { captureMealImageWithCamera, pickMealImageFromLibrary, type MealImagePic
 import { AnalyzeEvidenceScreen } from "./src/screens/AnalyzeEvidenceScreen";
 import { ClarificationScreen } from "./src/screens/ClarificationScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
+import { PrivacyConsentScreen } from "./src/screens/PrivacyConsentScreen";
 import { PlanScreen } from "./src/screens/PlanScreen";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { ReviewResultScreen } from "./src/screens/ReviewResultScreen";
@@ -67,8 +68,36 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const [billingStatus, setBillingStatus] = useState<BillingStatus | undefined>(undefined);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | undefined>(undefined);
-  const apiClient = useMemo(() => createCalAiApiClient(undefined, auth.session?.access_token), [auth.session?.access_token]);
-  const analyticsClient = useMemo(() => createAnalyticsEventClient(undefined, auth.session?.access_token, scope), [auth.session?.access_token, scope]);
+  const [privacyConsent, setPrivacyConsent] = useState<PrivacyConsentStatus>();
+  const [privacyStatus, setPrivacyStatus] = useState<RequestStatus>("loading");
+  const [privacyError, setPrivacyError] = useState<string>();
+  const [privacyAttempt, setPrivacyAttempt] = useState(0);
+  const [analyticsSuspended, setAnalyticsSuspended] = useState(false);
+  const [privacySaveIntent, setPrivacySaveIntent] = useState<{ health: boolean; analytics: boolean }>();
+  const privacyAccess = useRef({ active: true, health: false, analytics: false });
+  const privacyRequest = useRef(0);
+  const activeApiClient = useRef<ReturnType<typeof createCalAiApiClient> | undefined>(undefined);
+  const consentRequired = useCallback(() => {
+    if (!privacyAccess.current.active) return;
+    privacyAccess.current.health = false;
+    privacyAccess.current.analytics = false;
+    setPrivacyConsent(undefined);
+    setSessionReady(false);
+    setPrivacyAttempt((value) => value + 1);
+  }, []);
+  const apiClient = useMemo(() => {
+    const client = createCalAiApiClient(undefined, auth.session?.access_token, () => {
+      if (activeApiClient.current === client) consentRequired();
+    });
+    return client;
+  }, [auth.session?.access_token, consentRequired]);
+  activeApiClient.current = apiClient;
+  const consentClient = useRef<typeof apiClient | undefined>(undefined);
+  const healthConsentAccepted = consentClient.current === apiClient && privacyConsent?.healthDataConsent === true;
+  const analyticsAllowed = healthConsentAccepted && privacyConsent.analyticsConsent && !analyticsSuspended && !accountDeletionPending;
+  const analyticsClient = useMemo(() => createAnalyticsEventClient(undefined, auth.session?.access_token, scope,
+    () => activeApiClient.current === apiClient && privacyAccess.current.active && privacyAccess.current.health && privacyAccess.current.analytics,
+    () => { if (activeApiClient.current === apiClient) { apiClient.clearPrivacyConsent(); consentRequired(); } }), [auth.session?.access_token, scope, apiClient, consentRequired]);
   const photoSource = state.selectedImageUri ? { uri: state.selectedImageUri } : undefined;
   const analyticsScreen = state.screen === "today" ? appScreen : state.screen;
   const appOpenedRef = useRef(false);
@@ -76,6 +105,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   const lastViewEventRef = useRef<string | undefined>(undefined);
   const lastClarificationRef = useRef<string | undefined>(undefined);
   const workoutSaveInFlight = useRef(false);
+  const deletedProfileId = useRef<string | undefined>(undefined);
 
   const trackEvent = useCallback(
     (
@@ -84,13 +114,114 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       properties?: AnalyticsProperties,
       activeProfileId = profileId
     ): void => {
-      if (deletionStatus === "loading" || deletionStatus === "success") return;
+      if (!analyticsAllowed || deletionStatus === "loading" || deletionStatus === "success") return;
       void analyticsClient
         .trackEvent({ eventName, screen, profileId: activeProfileId, properties })
         .catch(() => undefined);
     },
-    [analyticsClient, profileId, deletionStatus]
+    [analyticsClient, profileId, deletionStatus, analyticsAllowed]
   );
+
+  useEffect(() => {
+    privacyAccess.current.active = true;
+    return () => {
+      privacyAccess.current.active = false;
+      privacyAccess.current.health = false;
+      privacyAccess.current.analytics = false;
+      privacyRequest.current += 1;
+      apiClient.clearPrivacyConsent();
+      void analyticsClient.clearSession().catch(() => undefined);
+    };
+  }, [apiClient, analyticsClient]);
+
+  useEffect(() => {
+    if (accountDeletionIntent) setAppScreen("safety");
+  }, [accountDeletionIntent]);
+
+  useEffect(() => {
+    if (!auth.ready || (auth.enabled && !auth.session) || accountDeletionIntent || accountDeletionPending || accountDeleted) return;
+    const generation = ++privacyRequest.current;
+    privacyAccess.current.health = false;
+    privacyAccess.current.analytics = false;
+    setPrivacyConsent(undefined);
+    setPrivacyStatus("loading");
+    setPrivacyError(undefined);
+    setSessionReady(false);
+    void apiClient.getPrivacyConsent().then((status) => {
+      if (!privacyAccess.current.active || generation !== privacyRequest.current) return;
+      consentClient.current = apiClient;
+      privacyAccess.current.health = status.healthDataConsent;
+      privacyAccess.current.analytics = status.healthDataConsent && status.analyticsConsent;
+      setAnalyticsSuspended(false);
+      setPrivacyConsent(status);
+      setPrivacySaveIntent(undefined);
+      setPrivacyStatus("success");
+      if (!status.analyticsConsent) void analyticsClient.clearSession().catch(() => undefined);
+    }).catch((error: unknown) => {
+      if (!privacyAccess.current.active || generation !== privacyRequest.current) return;
+      setPrivacyStatus("error");
+      setPrivacyError(error instanceof ApiClientError ? error.userMessage : "동의 상태를 불러오지 못했어요. 다시 시도해 주세요.");
+      if (error instanceof ApiClientError && error.code === "account_deletion_in_progress") {
+        setAccountDeletionPending(true);
+        setAppScreen("safety");
+      }
+    });
+    return () => { privacyRequest.current += 1; };
+  }, [apiClient, analyticsClient, auth.ready, auth.enabled, auth.session?.user.id, privacyAttempt, accountDeletionIntent, accountDeletionPending, accountDeleted]);
+
+  async function savePrivacyConsent(analyticsConsent: boolean, healthDataConsent = true): Promise<void> {
+    if (!privacyConsent || privacyStatus === "loading") return;
+    const generation = ++privacyRequest.current;
+    const policyVersion = privacyConsent.policyVersion;
+    privacyAccess.current.health = false;
+    privacyAccess.current.analytics = false;
+    apiClient.clearPrivacyConsent();
+    setPrivacySaveIntent({ health: healthDataConsent, analytics: analyticsConsent });
+    setPrivacyConsent({ ...privacyConsent, healthDataConsent: false, analyticsConsent: false });
+    setAnalyticsSuspended(true);
+    setPrivacyStatus("loading");
+    setPrivacyError(undefined);
+    try {
+      if (!privacyAccess.current.active || generation !== privacyRequest.current) return;
+      // Device cleanup failures must not prevent the server from receiving a revocation.
+      const [cleanup, update] = await Promise.allSettled([
+        analyticsClient.clearSession(),
+        apiClient.updatePrivacyConsent({ policyVersion, healthDataConsent, analyticsConsent })
+      ]);
+      if (update.status === "rejected") throw update.reason;
+      if (cleanup.status === "rejected") throw new ApiClientError({ code: "privacy_consent_local_cleanup_failed", message: "기기의 이용 분석 식별자를 정리하지 못했어요. 다시 시도해 주세요.", retryable: true });
+      const status = update.value;
+      if (!privacyAccess.current.active || generation !== privacyRequest.current) return;
+      consentClient.current = apiClient;
+      privacyAccess.current.health = status.healthDataConsent;
+      privacyAccess.current.analytics = status.healthDataConsent && status.analyticsConsent;
+      setAnalyticsSuspended(false);
+      setPrivacyConsent(status);
+      setPrivacySaveIntent(undefined);
+      setPrivacyStatus("success");
+      if (status.healthDataConsent) setDeletionStatus("idle");
+    } catch (error) {
+      if (!privacyAccess.current.active || generation !== privacyRequest.current) return;
+      privacyAccess.current.health = false;
+      apiClient.clearPrivacyConsent();
+      setPrivacyStatus("error");
+      if (error instanceof ApiClientError && error.code === "privacy_policy_version_changed") {
+        setPrivacyConsent(undefined);
+        setPrivacySaveIntent(undefined);
+        setPrivacyAttempt((value) => value + 1);
+        return;
+      }
+      setPrivacyError(`설정 적용을 확인하지 못해 기록 전송과 이용 분석을 중단했어요. 다시 시도해 주세요. ${error instanceof ApiClientError ? error.userMessage : "연결을 확인해 주세요."}`);
+    }
+  }
+
+  function retryPrivacyConsent(): void {
+    if (privacySaveIntent) {
+      void savePrivacyConsent(privacySaveIntent.analytics, privacySaveIntent.health);
+    } else {
+      setPrivacyAttempt((value) => value + 1);
+    }
+  }
 
   useEffect(() => {
     let isCurrent = true;
@@ -105,6 +236,8 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         }
         return;
       }
+      if (!healthConsentAccepted || !privacyAccess.current.health) return;
+      setSessionReady(false);
       try {
         setSessionRestoreError(undefined);
         if (accountDeletionIntent) {
@@ -117,8 +250,9 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         if (!isCurrent) {
           return;
         }
-        if (!restoredProfileId) {
-          await clearProfileId(scope);
+        const isDeletedProfile = Boolean(restoredProfileId && restoredProfileId === deletedProfileId.current);
+        if (!restoredProfileId || isDeletedProfile) {
+          if (!isDeletedProfile) await clearProfileId(scope);
           setProfileId(undefined);
           setCoachDashboard(undefined);
           setWorkoutPlan(undefined);
@@ -127,7 +261,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
           setWeeklyCoach(undefined);
           setLatestBodyCheckIn(undefined);
           setOnboardingResult(undefined);
-          setAppScreen("onboarding");
+          setAppScreen((current) => current === "safety" ? current : "onboarding");
           return;
         }
         setProfileId(restoredProfileId);
@@ -139,12 +273,12 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         if (action === "restrict") {
           setAgeRestricted(true);
         } else if (action === "open") {
-          setAppScreen("today");
+          setAppScreen((current) => current === "safety" ? current : "today");
         } else if (action === "clear") {
           await clearProfileId(scope);
           setProfileId(undefined);
         } else {
-          setAppScreen("today");
+          setAppScreen((current) => current === "safety" ? current : "today");
         }
       } catch (error) {
         if (isCurrent) {
@@ -168,7 +302,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     return () => {
       isCurrent = false;
     };
-  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient, sessionRestoreAttempt, accountDeletionIntent]);
+  }, [auth.enabled, auth.ready, auth.session?.user.id, apiClient, sessionRestoreAttempt, accountDeletionIntent, healthConsentAccepted]);
 
   useEffect(() => {
     if (profileId) {
@@ -177,16 +311,16 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }, [profileId, scope]);
 
   useEffect(() => {
-    if (!auth.ready || !sessionReady || (auth.enabled && !auth.session) || appOpenedRef.current) {
+    if (!analyticsAllowed || !auth.ready || !sessionReady || (auth.enabled && !auth.session) || appOpenedRef.current) {
       return;
     }
     appOpenedRef.current = true;
     trackEvent("app_opened", analyticsScreen);
-  }, [analyticsScreen, auth.enabled, auth.ready, auth.session, sessionReady, trackEvent]);
+  }, [analyticsAllowed, analyticsScreen, auth.enabled, auth.ready, auth.session, sessionReady, trackEvent]);
 
   useEffect(() => {
     const userId = auth.session?.user.id;
-    if (!userId || lastLoginUserIdRef.current === userId) {
+    if (!analyticsAllowed || !userId || lastLoginUserIdRef.current === userId) {
       return;
     }
     lastLoginUserIdRef.current = userId;
@@ -194,10 +328,10 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     trackEvent("login_completed", analyticsScreen, {
       provider: typeof provider === "string" ? provider : "supabase"
     });
-  }, [analyticsScreen, auth.session?.user.id, trackEvent]);
+  }, [analyticsAllowed, analyticsScreen, auth.session?.user.id, trackEvent]);
 
   useEffect(() => {
-    if (!sessionReady || (auth.enabled && !auth.session) || deletionStatus === "loading" || deletionStatus === "success") {
+    if (!analyticsAllowed || !sessionReady || (auth.enabled && !auth.session) || deletionStatus === "loading" || deletionStatus === "success") {
       return undefined;
     }
     const heartbeat = createForegroundHeartbeat(analyticsClient, {
@@ -206,7 +340,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     });
     heartbeat.start();
     return () => heartbeat.stop();
-  }, [analyticsClient, analyticsScreen, auth.enabled, auth.session, profileId, sessionReady, deletionStatus]);
+  }, [analyticsAllowed, analyticsClient, analyticsScreen, auth.enabled, auth.session, profileId, sessionReady, deletionStatus]);
 
   useEffect(() => {
     if (state.screen !== "today") {
@@ -241,7 +375,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }, [state.analysis, state.screen, trackEvent]);
 
   useEffect(() => {
-    if (appScreen !== "plan") {
+    if (!healthConsentAccepted || appScreen !== "plan") {
       return;
     }
     let isCurrent = true;
@@ -267,11 +401,11 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     return () => {
       isCurrent = false;
     };
-  }, [apiClient, appScreen]);
+  }, [apiClient, appScreen, healthConsentAccepted]);
 
   useEffect(() => {
     const command = state.pendingCommand;
-    if (!command) {
+    if (!healthConsentAccepted || !command) {
       return;
     }
 
@@ -309,10 +443,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
             const job = await apiClient.getAnalysisJob(activeCommand.jobId);
             if (isCurrent) {
               if ((job.status === "completed" || job.status === "needs_clarification") && job.result) {
-                trackEvent("analysis_completed", "analyzing", {
-                  status: job.status,
-                  confidence: job.result.summary.confidence
-                });
+                trackEvent("analysis_completed", "analyzing", { status: job.status });
               }
               dispatch({ type: "ANALYSIS_JOB_LOADED", job });
             }
@@ -325,10 +456,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
               value: activeCommand.value
             });
             if (isCurrent) {
-              trackEvent("clarification_answered", "clarifying", {
-                question_key: activeCommand.questionKey,
-                answer: activeCommand.value
-              });
+              trackEvent("clarification_answered", "clarifying");
               dispatch({ type: "CLARIFICATION_SUBMITTED", analysis: clarified.result, rangeNarrowing: clarified.rangeNarrowing });
             }
             return;
@@ -343,10 +471,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
               loggedOn: todayIso()
             });
             if (isCurrent) {
-              trackEvent("meal_saved", "review", {
-                result_id: activeCommand.resultId,
-                clarification: activeCommand.clarificationValue
-              });
+              trackEvent("meal_saved", "review");
               dispatch({ type: "MEAL_SAVED", impact });
             }
             return;
@@ -379,7 +504,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     return () => {
       isCurrent = false;
     };
-  }, [apiClient, profileId, state.pendingCommand, trackEvent]);
+  }, [apiClient, profileId, state.pendingCommand, trackEvent, healthConsentAccepted]);
 
   useEffect(() => {
     if (state.screen === "saved" && profileId) {
@@ -388,8 +513,8 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }, [profileId, state.screen]);
 
   async function submitOnboarding(input: OnboardingRequest): Promise<void> {
-    if (ageRestricted) return;
-    trackEvent("onboarding_started", "onboarding", { goal_type: input.goalType });
+    if (!healthConsentAccepted || ageRestricted) return;
+    trackEvent("onboarding_started", "onboarding");
     setOnboardingStatus("loading");
     setOnboardingError(undefined);
     try {
@@ -397,7 +522,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       trackEvent(
         "onboarding_completed",
         "onboarding",
-        { goal_type: input.goalType, training_frequency: input.trainingFrequency ?? "none" },
+        undefined,
         created.profileId
       );
       setOnboardingResult(created);
@@ -422,6 +547,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }
 
   async function refreshCoachData(activeProfileId: string): Promise<ProfileRefreshResult> {
+    if (!privacyAccess.current.health) return "failed";
     setCoachStatus("loading");
     setCoachError(undefined);
     try {
@@ -520,11 +646,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
       }
       setSavedWorkoutSessionId(savedSessionId);
       setWorkoutRefreshPending(true);
-      trackEvent("workout_completed", "training", {
-        workout_day_id: input.workoutDayId,
-        duration_minutes: input.durationMinutes,
-        session_rpe: input.sessionRpe
-      });
+      trackEvent("workout_completed", "training");
       await refreshSavedWorkout(profileId);
     } finally {
       workoutSaveInFlight.current = false;
@@ -690,6 +812,10 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
   }
 
   async function signOut(): Promise<void> {
+    privacyAccess.current.analytics = false;
+    setAnalyticsSuspended(true);
+    await analyticsClient.clearSession().catch(() => undefined);
+    if (!privacyAccess.current.active) return;
     const signedOut = await auth.signOut();
     if (!signedOut) {
       setSessionRestoreError("로그아웃하지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
@@ -702,51 +828,77 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     }
     setDeletionStatus("loading");
     setDeletionError(undefined);
+    privacyAccess.current.analytics = false;
+    setAnalyticsSuspended(true);
     try {
+      await analyticsClient.clearSession().catch(() => undefined);
+      if (!privacyAccess.current.active) return;
       await apiClient.deleteProfile(profileId);
-      await clearProfileId(scope);
-      setProfileId(undefined);
-      setCoachDashboard(undefined);
-      setWorkoutPlan(undefined);
-      setWorkoutHistory(undefined);
-      setProgress(undefined);
-      setWeeklyCoach(undefined);
-      setLatestBodyCheckIn(undefined);
-      setOnboardingResult(undefined);
-      setAppScreen("onboarding");
-      if (auth.enabled) {
-        await auth.signOut();
-      }
-      setDeletionStatus("success");
     } catch (error) {
+      if (!privacyAccess.current.active) return;
       setDeletionStatus("error");
       setDeletionError(error instanceof ApiClientError ? error.userMessage : "앱 데이터를 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.");
+      return;
     }
+    if (!privacyAccess.current.active) return;
+    // A confirmed deletion stays authoritative even if device storage cannot be cleared.
+    deletedProfileId.current = profileId;
+    privacyAccess.current.health = false;
+    privacyRequest.current += 1;
+    apiClient.clearPrivacyConsent();
+    setPrivacyConsent(undefined);
+    setProfileId(undefined);
+    setCoachDashboard(undefined);
+    setWorkoutPlan(undefined);
+    setWorkoutHistory(undefined);
+    setProgress(undefined);
+    setWeeklyCoach(undefined);
+    setLatestBodyCheckIn(undefined);
+    setOnboardingResult(undefined);
+    setAppScreen("onboarding");
+    setDeletionStatus("success");
+    await clearProfileId(scope).catch(() => undefined);
+    if (!privacyAccess.current.active) return;
+    if (auth.enabled) await auth.signOut().catch(() => false);
+    else setPrivacyAttempt((value) => value + 1);
   }
 
   async function deleteAccount(): Promise<void> {
     if (!auth.session || deletionStatus === "loading" || accountDeleted) return;
     setDeletionStatus("loading");
     setDeletionError(undefined);
+    privacyAccess.current.analytics = false;
+    setAnalyticsSuspended(true);
+    let result: Awaited<ReturnType<typeof apiClient.deleteAccount>>;
     try {
-      const result = await apiClient.deleteAccount();
-      if (result.status === "pending") {
-        setAccountDeletionPending(true);
-        setDeletionStatus("idle");
-        setDeletionError("계정 삭제 요청이 접수됐어요. 처리가 끝날 때까지 새 기록은 작성할 수 없어요. 잠시 후 삭제 상태를 다시 확인해 주세요.");
-        return;
-      }
-      setAccountDeleted(true);
-      setAccountDeletionPending(true);
-      setDeletionStatus("success");
-      dismissWebAccountDeletionIntent();
-      await clearProfileId(scope);
-      await auth.signOut();
+      await analyticsClient.clearSession().catch(() => undefined);
+      if (!privacyAccess.current.active) return;
+      result = await apiClient.deleteAccount();
     } catch (error) {
+      if (!privacyAccess.current.active) return;
       setDeletionStatus("error");
       setDeletionError(error instanceof ApiClientError ? error.userMessage : "계정 삭제를 완료하지 못했어요. 잠시 후 다시 시도해 주세요.");
       if (error instanceof ApiClientError && error.code === "account_deletion_in_progress") setAccountDeletionPending(true);
+      return;
     }
+    if (!privacyAccess.current.active) return;
+    privacyAccess.current.health = false;
+    privacyRequest.current += 1;
+    apiClient.clearPrivacyConsent();
+    setPrivacyConsent(undefined);
+    if (result.status === "pending") {
+      setAccountDeletionPending(true);
+      setDeletionStatus("idle");
+      setDeletionError("계정 삭제 요청이 접수됐어요. 처리가 끝날 때까지 새 기록은 작성할 수 없어요. 잠시 후 삭제 상태를 다시 확인해 주세요.");
+      return;
+    }
+    setAccountDeleted(true);
+    setAccountDeletionPending(true);
+    setDeletionStatus("success");
+    dismissWebAccountDeletionIntent();
+    await clearProfileId(scope).catch(() => undefined);
+    if (!privacyAccess.current.active) return;
+    await auth.signOut().catch(() => false);
   }
 
   function leavePrivacy(): void {
@@ -794,7 +946,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     status: coachStatus
   });
 
-  if (!auth.ready || !sessionReady || waitingForDashboard) {
+  if (!auth.ready) {
     return (
       <SafeAreaView style={styles.safeArea}>
         <StatusBar style="dark" />
@@ -841,8 +993,34 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         accountDeletionPending={accountDeletionPending}
         deletionStatus={deletionStatus}
         deletionError={deletionError}
+        analyticsEnabled={analyticsAllowed}
+        canChangeAnalytics={healthConsentAccepted && !accountDeletionPending}
+        consentStatus={privacyStatus}
+        consentError={privacyError}
+        onChangeAnalytics={(enabled) => void savePrivacyConsent(enabled)}
+        onRevokeHealth={() => void savePrivacyConsent(false, false)}
+        onRetryConsent={retryPrivacyConsent}
       />
     </View></SafeAreaView>;
+  }
+
+  if (!healthConsentAccepted) {
+    return <SafeAreaView style={styles.safeArea}><StatusBar style="dark" />
+      <PrivacyConsentScreen key={privacyConsent?.policyVersion ?? "pending"}
+        policyVersion={privacyConsent?.policyVersion} status={privacyStatus} error={privacyError}
+        onSubmit={(analyticsConsent) => void savePrivacyConsent(analyticsConsent)}
+        onRetry={retryPrivacyConsent}
+        onManage={() => setAppScreen("safety")}
+        onSignOut={auth.enabled ? () => void signOut() : undefined} />
+    </SafeAreaView>;
+  }
+
+  if (!sessionReady || waitingForDashboard) {
+    return <SafeAreaView style={styles.safeArea}><StatusBar style="dark" />
+      <View style={styles.sessionLoading} accessibilityLabel="프로필 불러오는 중">
+        <ActivityIndicator color={colors.leaf} /><Text style={styles.sessionLoadingText}>오늘의 기록을 불러오고 있어요</Text>
+        <TouchableOpacity style={styles.sessionSignOutButton} onPress={() => setAppScreen("safety")} accessibilityRole="button"><Text style={styles.sessionSignOutText}>개인정보와 계정 관리</Text></TouchableOpacity>
+      </View></SafeAreaView>;
   }
 
   if (ageRestricted) {
@@ -956,7 +1134,7 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
         />
       ) : null}
       {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} savedSessionId={savedWorkoutSessionId} refreshPending={workoutRefreshPending} status={coachStatus} error={coachError} onRefresh={() => void refreshSavedWorkout()} onGenerate={() => void generatePlan()} onStart={(workoutDayId) => trackEvent("workout_started", "training", { workout_day_id: workoutDayId })} onComplete={(input) => void completeWorkout(input)} />
+        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} savedSessionId={savedWorkoutSessionId} refreshPending={workoutRefreshPending} status={coachStatus} error={coachError} onRefresh={() => void refreshSavedWorkout()} onGenerate={() => void generatePlan()} onStart={() => trackEvent("workout_started", "training")} onComplete={(input) => void completeWorkout(input)} />
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen

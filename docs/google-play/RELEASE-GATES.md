@@ -236,3 +236,25 @@ Deletion acceptance/worker/write-once flags remain off, public policies remain
 drafts, provider erasure remains untested. Do not treat HTTP200, upload success,
 the reviewer's saved credentials, or the Console Save and release button as
 whole-service readiness or authorization to attest compliance.
+
+## Latest checkpoint: 2026-11-16
+
+Read `RELEASE-FOLLOWUP-2026-11-16.md` and `registration-state.json` for current
+evidence. The existing app/account was reverified; Console setup is now 9/11.
+Privacy URL was saved and independently reloaded. Feature graphic and medical
+disclaimer were saved November 15. Data safety, genuine Android screenshots,
+final operating facts and release signoff remain open. Internal AAB is still a
+draft and closed-test participants remain zero; no review or distribution.
+
+Historical November 13/14 bounded synthetic erasure/replay/scheduled-retention
+evidence supersedes the older blanket "provider erasure untested" note, but
+does not establish whole-account completion or ordinary-user production safety.
+General acceptance/worker/retention activation remains off. Current source
+hardening and consent UI require a new Android build and an approved guarded
+promotion; do not distribute the old binary as this candidate. The previous
+7/7 whole-app QA budget and bounded synthetic repair counters are preserved.
+
+The owner confirmed on November 16 that the business operator name is 아르케
+and that areche.ai.kr@gmail.com is directly managed and accepts privacy/deletion
+requests. This resolves the contact confirmation only, not the remaining
+provider, retention, request-fulfillment or eligibility decisions.

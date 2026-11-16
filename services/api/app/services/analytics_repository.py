@@ -31,6 +31,7 @@ from app.services.persistence import DEFAULT_API_DATA_PATH, PersistenceError
 REALTIME_WINDOW_MINUTES = 5
 FUNNEL_WINDOW_DAYS = 30
 DEFAULT_ANALYTICS_TIMEZONE = "Asia/Seoul"
+PRIVACY_CONSENT_VERSION = "2026-11-16.1"
 FUNNEL_STAGES = (
     ("app_opened", "앱 열기"),
     ("onboarding_completed", "목표 설정 완료"),
@@ -62,6 +63,10 @@ class AnalyticsOwnershipError(RuntimeError):
 
 
 class AnalyticsProfileOwnershipError(RuntimeError):
+    pass
+
+
+class AnalyticsConsentError(RuntimeError):
     pass
 
 
@@ -98,6 +103,7 @@ class AnalyticsRepository:
         if abs((received_at - occurred_at.astimezone(UTC)).total_seconds()) > 86400:
             occurred_at = received_at
         with self._connection() as conn:
+            self._require_analytics_consent(conn, user)
             self._upsert_user(conn, user, received_at)
             self._upsert_session(
                 conn,
@@ -134,6 +140,7 @@ class AnalyticsRepository:
     ) -> datetime:
         seen_at = now_utc()
         with self._connection() as conn:
+            self._require_analytics_consent(conn, user)
             self._upsert_user(conn, user, seen_at)
             self._upsert_session(
                 conn,
@@ -264,6 +271,64 @@ class AnalyticsRepository:
     def check_ready(self) -> None:
         with self._connection() as conn:
             conn.execute("select 1").fetchone()
+
+    def privacy_consent(self, owner_id: str) -> dict | None:
+        with self._connection() as conn:
+            row = conn.execute(
+                self._sql("select policy_version, health_data_consent, analytics_consent, consented_at "
+                          "from privacy_consents where owner_id = ?"), (owner_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_privacy_consent(
+        self, owner_id: str, *, policy_version: str, health_data_consent: bool,
+        analytics_consent: bool,
+    ) -> dict:
+        consented_at = iso(now_utc())
+        with self._connection() as conn:
+            self._lock_consent_owner(conn, owner_id)
+            conn.execute(
+                self._sql(
+                    "insert into privacy_consents "
+                    "(owner_id, policy_version, health_data_consent, analytics_consent, consented_at) "
+                    "values (?, ?, ?, ?, ?) on conflict(owner_id) do update set "
+                    "policy_version = excluded.policy_version, health_data_consent = excluded.health_data_consent, "
+                    "analytics_consent = excluded.analytics_consent, consented_at = excluded.consented_at"
+                ),
+                (owner_id, policy_version, int(health_data_consent), int(analytics_consent), consented_at),
+            )
+        return {"policy_version": policy_version, "health_data_consent": health_data_consent,
+                "analytics_consent": analytics_consent, "consented_at": consented_at}
+
+    def _require_analytics_consent(self, conn, user: AuthenticatedUser | None) -> None:
+        from app.services.auth import authentication_required
+        if not authentication_required():
+            return
+        if user is None:
+            raise AnalyticsConsentError("analytics_consent_required")
+        # Match deletion guards and consent writes: owner first, consent second.
+        # SQLite SELECT alone is not a transaction; reserve its write lock too.
+        if not self._postgres:
+            conn.execute("begin immediate")
+        self._lock_consent_owner(conn, user.user_id)
+        statement = ("select policy_version, health_data_consent, analytics_consent "
+                     "from privacy_consents where owner_id = ?")
+        # A concurrent opt-out must serialize with this event, not precede its write.
+        if self._postgres:
+            statement += " for share"
+        row = conn.execute(self._sql(statement), (user.user_id,)).fetchone()
+        if (not row or row["policy_version"] != PRIVACY_CONSENT_VERSION
+                or not row["health_data_consent"] or not row["analytics_consent"]):
+            raise AnalyticsConsentError("analytics_consent_required")
+
+    def _lock_consent_owner(self, conn, owner_id: str) -> None:
+        row = conn.execute(self._sql(
+            "insert into account_owner_state (owner_id, deleting) values (?, 0) "
+            "on conflict(owner_id) do update set deleting = account_owner_state.deleting "
+            "returning deleting"
+        ), (owner_id,)).fetchone()
+        if row["deleting"]:
+            raise PersistenceError("account_deletion_in_progress")
 
     def delete_profile_data(self, profile_id: str, *, owner_id: str | None) -> None:
         # Explicit foreign owners survive even if legacy rows reference this profile.
@@ -601,6 +666,9 @@ class AnalyticsRepository:
 
     def _ensure_schema(self) -> None:
         statements = (
+            "create table if not exists account_owner_state (owner_id text primary key, deleting integer not null default 0)",
+            "create table if not exists privacy_consents (owner_id text primary key, policy_version text not null, "
+            "health_data_consent integer not null, analytics_consent integer not null, consented_at text not null)",
             "create table if not exists admin_login_budget (id text primary key, window_id bigint not null, attempts integer not null)",
             "create table if not exists app_users (user_id text primary key, provider text, email text, display_name text, first_seen_at text not null, last_seen_at text not null)",
             "create table if not exists app_sessions (session_id text primary key, user_id text, profile_id text, started_at text not null, last_seen_at text not null, last_screen text not null)",

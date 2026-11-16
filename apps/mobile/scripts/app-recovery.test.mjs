@@ -33,9 +33,11 @@ function harness() {
     ...profileExports.exports, ApiClientError, isCurrent: true, scope: "fixture-owner",
     auth: { ready: true, enabled: true, session: { user: { id: "owner" } } },
     sessionReady: true, appScreen: "today", coachStatus: "idle", deletionStatus: "idle",
-    profileId: undefined, coachDashboard: undefined, sessionRestoreError: undefined, deletionError: undefined,
+    profileId: undefined, deletedProfileId: { current: undefined }, coachDashboard: undefined, sessionRestoreError: undefined, deletionError: undefined,
     ageRestricted: false, workoutRefreshPending: false, workoutSaveInFlight: { current: false },
     accountDeletionPending: false, accountDeleted: false, accountDeletionIntent: false,
+    healthConsentAccepted: true, analyticsAllowed: false, privacyAccess: { current: { health: true } },
+    privacyStatus: "success", privacyConsent: { policyVersion: "fixture", healthDataConsent: true }, privacyError: undefined,
     styles: {}, colors: {}, React: { createElement: (type, props, ...children) => ({ type, props: props ?? {}, children }) },
     ...Object.fromEntries(["SafeAreaView", "StatusBar", "View", "Text", "TouchableOpacity", "ActivityIndicator", "LoginScreen", "SafetyPrivacyScreen"].map((name) => [name, name])),
     apiClient: {
@@ -49,7 +51,8 @@ function harness() {
     clearProfileId: async () => { calls.clears += 1; },
     trackEvent() {}, todayIso: () => "2026-11-11", dispatch() {}, dismissWebAccountDeletionIntent() {},
     onboardingFlowErrorFromUnknown: (error) => ({ code: error.code, title: "save failed", message: error.message, retryable: error.retryable ?? true }),
-    signOut: () => { calls.signOut += 1; }, deleteAccount: () => { calls.deleteAccount += 1; }, deleteAppData() {}
+    signOut: () => { calls.signOut += 1; }, deleteAccount: () => { calls.deleteAccount += 1; }, deleteAppData() {},
+    savePrivacyConsent() {}, retryPrivacyConsent() {}
   };
   for (const name of ["ProfileId", "SessionReady", "SessionRestoreError", "SessionRestoreAttempt", "AgeRestricted", "AppScreen", "CoachStatus", "CoachError", "CoachDashboard", "WorkoutPlan", "WorkoutHistory", "Progress", "WeeklyCoach", "LatestBodyCheckIn", "OnboardingResult", "OnboardingStatus", "OnboardingError", "AccountDeletionPending", "SavedWorkoutSessionId", "WorkoutRefreshPending"]) {
     const key = name[0].toLowerCase() + name.slice(1);

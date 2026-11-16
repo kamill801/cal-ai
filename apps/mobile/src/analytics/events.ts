@@ -46,9 +46,11 @@ export function isAnalyticsEventName(value: string): value is AnalyticsEventName
   return ANALYTICS_EVENT_NAME_SET.has(value);
 }
 
+const OPERATIONAL_PROPERTY_KEYS = new Set(["provider", "source", "status", "stage", "code", "content_type", "byte_size"]);
+
 export function sanitizeAnalyticsProperties(properties: AnalyticsProperties = {}): Record<string, AnalyticsPrimitive> {
   return Object.entries(properties).reduce<Record<string, AnalyticsPrimitive>>((safe, [key, value]) => {
-    if (!isSafePropertyKey(key) || value === undefined) {
+    if (!OPERATIONAL_PROPERTY_KEYS.has(key) || value === undefined) {
       return safe;
     }
     if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) {
@@ -56,8 +58,4 @@ export function sanitizeAnalyticsProperties(properties: AnalyticsProperties = {}
     }
     return safe;
   }, {});
-}
-
-function isSafePropertyKey(key: string): boolean {
-  return /^[a-z][a-z0-9_]{0,39}$/.test(key);
 }

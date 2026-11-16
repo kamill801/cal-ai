@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app import main
 from app.admin_schemas import AnalyticsEventRequest, AnalyticsHeartbeatRequest
+from app.schemas import AnalysisJobCreateResponse, AnalysisJobRequest, ImageUploadRequest
 from app.services.analytics_repository import (
     AnalyticsOwnershipError,
     AnalyticsProfileOwnershipError,
@@ -13,7 +14,7 @@ from app.services.analytics_repository import (
 )
 from app.services.auth import AuthenticatedUser
 from app.services.coach_repository import get_coach_repository
-from app.services.persistence import PersistenceError
+from app.services.persistence import PersistenceError, get_persistence_repository
 
 
 @pytest.fixture
@@ -166,20 +167,47 @@ def test_profile_deletion_cleans_analytics_and_preserves_other_owners(client, ow
         assert conn.execute("select attempts from admin_login_budget").fetchone()["attempts"] == 1
 
 
-def test_failed_analytics_deletion_keeps_profile_for_retry(client, monkeypatch):
+@pytest.mark.parametrize("failed_table", ["product_events", "app_sessions", "app_users"])
+def test_failed_analytics_deletion_keeps_profile_for_retry(client, failed_table):
     profile = create_profile(client, "owner-a")
     assert send(client, "events", "owner-a", profile=profile).status_code == 200
     repo = get_analytics_repository()
-    original = repo.delete_profile_data
+    meals = get_persistence_repository()
+    upload = meals.save_image_upload(
+        payload=ImageUploadRequest(
+            local_asset_id="retry-fixture", file_name="fixture.jpg",
+            content_type="image/jpeg", byte_size=12,
+        ),
+        image_upload_id="retry-upload", image_reference="fixture://retry-upload",
+        storage_provider="local", owner_id="owner-a",
+    )
+    meals.save_analysis_job(
+        payload=AnalysisJobRequest(image_upload_id=upload.image_upload_id, profile_id=profile),
+        image_reference=upload.image_reference, owner_id="owner-a",
+        create_response=AnalysisJobCreateResponse(analysis_job_id="retry-job", status="queued"),
+    )
+    job = meals.get_analysis_job("retry-job")
+    original_profile = get_coach_repository().get_profile(profile)
+    before = snapshot()
+    with repo._connection() as conn:
+        conn.execute(f"create trigger fail_atomic_analytics_delete before delete on {failed_table} "
+                     "begin select raise(abort, 'synthetic atomic analytics failure'); end")
 
-    def fail(*args, **kwargs):
-        raise PersistenceError("synthetic_failure")
+    response = client.delete(f"/v1/profiles/{profile}", headers=headers("owner-a"))
 
-    monkeypatch.setattr(repo, "delete_profile_data", fail)
-    assert client.delete(f"/v1/profiles/{profile}", headers=headers("owner-a")).status_code == 503
-    assert get_coach_repository().get_profile(profile) is not None
-    monkeypatch.setattr(repo, "delete_profile_data", original)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "persistence_unavailable"
+    assert snapshot() == before
+    assert get_coach_repository().get_profile(profile) == original_profile
+    assert meals.get_image_upload(upload.image_upload_id) == upload
+    assert meals.get_analysis_job("retry-job") == job
+    with repo._connection() as conn:
+        conn.execute("drop trigger fail_atomic_analytics_delete")
     assert client.delete(f"/v1/profiles/{profile}", headers=headers("owner-a")).status_code == 200
+    assert get_coach_repository().get_profile(profile) is None
+    assert meals.get_image_upload(upload.image_upload_id) is None
+    assert meals.get_analysis_job("retry-job") is None
+    assert all(not rows for rows in snapshot().values())
 
 
 def test_analytics_cleanup_rolls_back_as_one_transaction(client):

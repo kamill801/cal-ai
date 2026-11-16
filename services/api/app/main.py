@@ -39,6 +39,7 @@ from app.schemas import (
 from app.coach_routes import router as coach_router
 from app.admin_routes import router as admin_router
 from app.public_routes import router as public_router
+from app.privacy_routes import consent_error, current_consent, router as privacy_router
 from app.account_routes import account_deletion_gate, router as account_router, worker_router as account_worker_router
 from app.analytics_routes import billing_router, router as analytics_router
 from app.services.analysis_provider import (
@@ -53,6 +54,7 @@ from app.services.analysis_results import apply_manual_nutrition_override, apply
 from app.services.analytics_repository import get_analytics_repository
 from app.services.account_deletion import AccountDeletionError, run_account_deletion_jobs
 from app.services.image_uploads import ImageUploadError, complete_presigned_image_upload, create_mock_image_upload, create_presigned_image_upload, resolve_analysis_image_reference, resolve_image_reference
+from app.services.image_retention import cleanup_expired_image_uploads
 from app.services.mock_analysis import get_mock_dashboard_today
 from app.services.persistence import PersistenceError, PersistenceRepository, get_persistence_repository
 from app.services.storage import StorageConfigurationError, get_storage_adapter, get_storage_readiness
@@ -94,6 +96,7 @@ app.include_router(analytics_router)
 app.include_router(billing_router)
 app.include_router(admin_router)
 app.include_router(public_router)
+app.include_router(privacy_router)
 app.include_router(account_router)
 app.include_router(account_worker_router)
 
@@ -143,6 +146,21 @@ async def optional_authentication(request: Request, call_next):
                 retryable=False, kind="validation",
             )
             return JSONResponse(status_code=403, content={"detail": detail.model_dump()})
+    analytics_request = path.startswith("/v1/analytics/") and request.method == "POST"
+    if authentication_required() and user is not None and (feature_request or analytics_request):
+        try:
+            consent = await run_in_threadpool(current_consent, user.user_id)
+        except PersistenceError:
+            return JSONResponse(status_code=503, content={
+                "detail": consent_error("privacy_consent_unavailable", unavailable=True),
+            })
+        code = None
+        if not consent.health_data_consent:
+            code = "health_data_consent_required"
+        elif analytics_request and not consent.analytics_consent:
+            code = "analytics_consent_required"
+        if code:
+            return JSONResponse(status_code=403, content={"detail": consent_error(code)})
     return await call_next(request)
 
 
@@ -368,7 +386,6 @@ def ready() -> ReadyResponse:
 @app.get("/internal/cleanup-images", response_model=RetentionCleanupResponse)
 def cleanup_expired_images(
     request: Request,
-    repository: PersistenceRepository = Depends(persistence_repository),
 ) -> RetentionCleanupResponse:
     started_at = monotonic()
     expected_secret = os.environ.get("CRON_SECRET", "")
@@ -396,65 +413,25 @@ def cleanup_expired_images(
             except (AccountDeletionError, PersistenceError):
                 account_failed = True
 
-    def check_retention_budget(*, reserve_seconds: float = 0) -> None:
-        remaining = deadline - monotonic()
-        if remaining <= 0 or remaining < reserve_seconds:
-            raise StorageConfigurationError("cleanup_budget_exhausted")
-
     deleted_images = 0
-    retention_failure: Exception | None = None
-    try:
-        check_retention_budget()
-        storage = get_storage_adapter()
-        erase = getattr(storage, "erase_account_object", None)
-        erase_object = erase if callable(erase) else storage.delete_object
-        erasure_reserve = 18 if callable(erase) else 10
-        check_retention_budget()
-        expired = repository.list_expired_image_uploads(
-            datetime.now(UTC).isoformat(timespec="seconds"), limit=100,
-        )
-        check_retention_budget()
-        for index, image_record in enumerate(expired):
-            check_retention_budget()
-            if index >= 100:
-                raise StorageConfigurationError("cleanup_batch_incomplete")
-            try:
-                if image_record.storage_provider != "local":
-                    namespace_method = getattr(storage, "storage_namespace", None)
-                    namespace = namespace_method() if callable(namespace_method) else None
-                    if (
-                        not isinstance(namespace, str) or not namespace.strip()
-                        or image_record.storage_namespace != namespace
-                    ):
-                        raise StorageConfigurationError("storage_namespace_mismatch")
-                if image_record.object_key:
-                    if image_record.storage_provider != storage.provider:
-                        raise StorageConfigurationError("storage_provider_mismatch")
-                    check_retention_budget(reserve_seconds=erasure_reserve)
-                    if not repository.mark_image_upload_deleting(image_record.image_upload_id):
-                        continue
-                    check_retention_budget(reserve_seconds=erasure_reserve)
-                    # Preserve guard objects; hook proof only gates full account erasure.
-                    erase_object(object_key=image_record.object_key)
-                check_retention_budget()
-                if repository.mark_image_upload_deleted(image_record.image_upload_id):
-                    deleted_images += 1
-            except (StorageConfigurationError, PersistenceError, OSError, ValueError) as exc:
-                # An upload may have been tombstoned after the retention snapshot.
-                retention_failure = retention_failure or exc
-    except (StorageConfigurationError, PersistenceError, OSError, ValueError) as exc:
-        retention_failure = retention_failure or exc
-
-    if retention_failure is not None:
-        if isinstance(retention_failure, PersistenceError):
+    # Cron authentication must not implicitly authorize a production-wide photo sweep.
+    if os.environ.get("IMAGE_RETENTION_ENABLED", "false").strip().lower() == "true":
+        try:
+            repository = get_persistence_repository()
+            deleted_images = cleanup_expired_image_uploads(
+                repository, storage_factory=get_storage_adapter,
+                now_iso=datetime.now(UTC).isoformat(timespec="seconds"), deadline=deadline, clock=monotonic,
+            )
+        except PersistenceError:
             raise persistence_unavailable_error() from None
-        raise api_error(
-            status_code=503,
-            code="storage_cleanup_unavailable",
-            message="사진 보관 기간 정리를 완료하지 못했어요.",
-            retryable=True,
-            kind="server",
-        ) from None
+        except (StorageConfigurationError, OSError, ValueError):
+            raise api_error(
+                status_code=503,
+                code="storage_cleanup_unavailable",
+                message="사진 보관 기간 정리를 완료하지 못했어요.",
+                retryable=True,
+                kind="server",
+            ) from None
     if account_failed:
         raise api_error(
             status_code=503, code="account_deletion_cleanup_unavailable",

@@ -10,23 +10,17 @@ from pydantic import BaseModel, Field, field_validator
 AnalyticsProperty = str | int | float | bool | None
 ANALYTICS_ALLOWED_PROPERTY_KEYS = frozenset(
     {
-        "answer",
         "byte_size",
-        "clarification",
         "code",
         "confidence",
         "content_type",
-        "duration_minutes",
         "exercise_count",
-        "goal_type",
         "provider",
         "question_key",
         "result_id",
-        "session_rpe",
         "source",
         "stage",
         "status",
-        "training_frequency",
         "workout_day_id",
     }
 )

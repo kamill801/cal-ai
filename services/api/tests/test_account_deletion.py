@@ -445,7 +445,7 @@ def test_provider_errors_timeouts_and_redirects_are_not_success(client, admin, r
 
 
 @pytest.mark.parametrize("expiry", ["2000-01-01T00:00:00+00:00", "2099-01-01T00:00:00+00:00"])
-def test_r2_late_put_after_expiry_keeps_manifest_and_repeated_sweeps(client, admin, monkeypatch, expiry):
+def test_r2_legacy_put_expiry_never_authorizes_acceptance(client, admin, monkeypatch, expiry):
     repo = get_persistence_repository()
     upload("pending", object_key="fixture/pending", expires=expiry)
     with repo._connection() as conn:
@@ -464,19 +464,13 @@ def test_r2_late_put_after_expiry_keeps_manifest_and_repeated_sweeps(client, adm
             objects.discard(object_key)
 
     monkeypatch.setattr(deletion, "get_storage_adapter", Storage)
-    assert delete(client).status_code == 202
-    assert deletion.run_account_deletion_jobs()["pending"] == 1
-    assert objects == set()
-    # A PUT authorized before expiry finishes after the first successful DELETE.
-    objects.add("fixture/pending")
-    with repo._connection() as conn:
-        conn.execute("update account_deletion_work set next_attempt_at = null")
-    assert deletion.run_account_deletion_jobs()["pending"] == 1
-    assert objects == set() and len(calls) == 2
-    assert len(admin.calls) == 1
-    assert repo.get_account_deletion_stage(OWNER) == 2
-    assert rows("account_deletion_objects")[0]["sweep_count"] == 2
-    assert delete(client).json() == {"status": "pending"}
+    assert delete(client).status_code == 503
+    assert delete(client).status_code == 503
+    assert objects == {"fixture/pending"} and calls == []
+    assert admin.calls == []
+    assert repo.get_account_deletion_stage(OWNER) is None
+    assert repo.get_image_upload("pending").object_key == "fixture/pending"
+    assert rows("account_deletion_objects") == []
 
 
 def test_persistence_outage_cannot_bypass_gate(client, monkeypatch):
@@ -521,7 +515,9 @@ def test_deleted_retry_succeeds_without_config_or_admin_calls(client, admin, mon
     assert SECRET not in repr(deletion.SupabaseAccountAdmin("https://fixture.supabase.co", SECRET))
 
 
-def test_provider_success_followed_by_checkpoint_outage_is_retryable(client, admin, monkeypatch):
+@pytest.mark.parametrize("missing_body", [{"code": "user_not_found"},
+                                        {"code": 404, "error_code": "user_not_found", "msg": "User not found"}])
+def test_provider_success_followed_by_checkpoint_outage_is_retryable(client, admin, monkeypatch, missing_body):
     repo = get_persistence_repository()
     original = repo.mark_account_identity_deleted
 
@@ -534,10 +530,17 @@ def test_provider_success_followed_by_checkpoint_outage_is_retryable(client, adm
     assert deletion.run_account_deletion_jobs()["failed"] == 1
     assert repo.get_account_deletion_stage(OWNER) == 1
     monkeypatch.setattr(repo, "mark_account_identity_deleted", original)
-    admin.responses.append(httpx.Response(404, json={"code": "user_not_found"}))
+    admin.responses.append(httpx.Response(404, json=missing_body))
     assert deletion.run_account_deletion_jobs()["deleted"] == 1
     assert delete(client).json() == {"status": "deleted"}
     assert repo.get_account_deletion_stage(OWNER) == 3
+
+
+@pytest.mark.parametrize("status,body", [(401, {"error_code": "user_not_found"}),
+    (404, {"code": "not_found"}), (404, {"msg": "User not found"}), (404, []),
+    (500, {"code": "user_not_found"})])
+def test_missing_user_detection_rejects_ambiguous_provider_errors(status, body):
+    assert not deletion.SupabaseAccountAdmin.user_is_missing(httpx.Response(status, json=body))
 
 
 def test_profile_a_deletion_preserves_same_owner_b_and_foreign_c(client, monkeypatch):
@@ -662,25 +665,39 @@ def test_profile_image_preflight_preserves_ownerless_local_fallback(client, monk
 
 
 def test_profile_image_preflight_allows_verified_owned_remote_scoped_deletion(client, monkeypatch):
+    from unittest.mock import Mock
+
     own, retained = profile(client), profile(client)
     repo = get_persistence_repository()
+    namespace = "r2-v1:" + "a" * 64
+    image_ids = {"selected": f"image-upload-{OWNER}", "retained": f"image-upload-{FOREIGN}"}
     for label, profile_id in (("selected", own), ("retained", retained)):
-        upload(label, object_key=f"fixture/{label}")
-        job(f"job-{label}", label, profile_id=profile_id)
-    with repo._connection() as conn:
-        conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'fixture-namespace'")
+        image_id = image_ids[label]
+        object_key = f"uploads/{image_id}/sealed-v1/image.jpg"
+        repo.save_image_upload(
+            payload=ImageUploadRequest(
+                local_asset_id=image_id, file_name="fixture.jpg", content_type="image/jpeg", byte_size=12,
+            ),
+            image_upload_id=image_id, image_reference=f"r2://fixture-bucket/{object_key}",
+            object_key=object_key, storage_provider="r2", storage_namespace=namespace, owner_id=OWNER,
+        )
+        job(f"job-{label}", image_id, profile_id=profile_id)
     get_analytics_repository()
     repo.prepare_account_deletion()
-    deleted_keys = []
-    monkeypatch.setattr("app.coach_routes.get_storage_adapter", lambda: SimpleNamespace(
-        provider="r2", storage_namespace=lambda: "fixture-namespace",
-        delete_object=lambda **kw: deleted_keys.append(kw["object_key"]),
-    ))
+    storage = SimpleNamespace(
+        provider="r2", storage_namespace=lambda: namespace,
+        erase_account_object=Mock(return_value=True),
+        delete_object=Mock(side_effect=AssertionError("delete-only fallback is unsafe")),
+    )
+    monkeypatch.setattr("app.coach_routes.get_storage_adapter", lambda: storage)
     response = client.delete(f"/v1/profiles/{own}", headers=headers())
     assert response.status_code == 200
-    assert deleted_keys == ["fixture/selected"]
-    assert repo.get_image_upload("selected") is None
-    assert repo.get_image_upload("retained") is not None
+    storage.erase_account_object.assert_called_once_with(
+        object_key=f"uploads/{image_ids['selected']}/sealed-v1/image.jpg",
+    )
+    storage.delete_object.assert_not_called()
+    assert repo.get_image_upload(image_ids["selected"]) is None
+    assert repo.get_image_upload(image_ids["retained"]) is not None
     assert get_coach_repository().get_profile(retained).owner_id == OWNER
 
 
@@ -769,14 +786,15 @@ def test_local_adapter_objects_can_complete_without_external_put_gate(client):
     assert complete(client).status_code == 200
 
 
-def test_unknown_remote_key_never_reports_complete(client):
+def test_unknown_remote_key_rejects_before_acceptance(client, admin):
     upload("unknown")
     with get_persistence_repository()._connection() as conn:
         conn.execute("update image_uploads set storage_provider = 'r2', upload_status = 'deleted'")
-    assert delete(client).status_code == 202
-    assert deletion.run_account_deletion_jobs()["pending"] == 1
-    assert rows("account_deletion_work")[0]["storage_uncertain"] == 1
-    assert delete(client).json() == {"status": "pending"}
+    assert delete(client).status_code == 503
+    assert get_persistence_repository().get_account_deletion_stage(OWNER) is None
+    assert get_persistence_repository().get_image_upload("unknown") is not None
+    assert rows("account_deletion_work") == []
+    assert admin.calls == []
 
 
 def test_acceptance_manifest_failure_rolls_back_tombstone(client, monkeypatch):
@@ -791,11 +809,13 @@ def test_acceptance_manifest_failure_rolls_back_tombstone(client, monkeypatch):
 
 
 def test_r2_pending_job_does_not_monopolize_fair_queue(client, monkeypatch):
-    upload("remote", object_key="fixture/remote")
+    image_id = f"image-upload-{OWNER}"
+    upload(image_id, object_key=f"uploads/{image_id}/sealed-v1/image.jpg")
     with get_persistence_repository()._connection() as conn:
         conn.execute("update image_uploads set storage_provider = 'r2', storage_namespace = 'fixture-namespace'")
     monkeypatch.setattr(deletion, "get_storage_adapter", lambda: SimpleNamespace(
-        provider="r2", storage_namespace=lambda: "fixture-namespace", delete_object=lambda **kwargs: None,
+        provider="r2", storage_namespace=lambda: "fixture-namespace", erase_account_object=lambda **kwargs: False,
+        delete_object=lambda **kwargs: pytest.fail("remote deletion requires erasure proof"),
     ))
     assert delete(client).status_code == 202
     assert delete(client, FOREIGN).status_code == 202
@@ -883,7 +903,7 @@ def test_postgres_schema_guards_and_checkpoint_sql_are_server_side(monkeypatch):
     statements = []
     tables = ["image_uploads", "analysis_jobs", "coach_profiles", "coach_events", "workout_plans",
               "clarifications", "meal_logs", "app_users", "app_sessions", "product_events",
-              "billing_subscriptions", "billing_payments"]
+              "billing_subscriptions", "billing_payments", "privacy_consents"]
 
     class Cursor:
         rowcount = 1
@@ -892,6 +912,8 @@ def test_postgres_schema_guards_and_checkpoint_sql_are_server_side(monkeypatch):
             self.statement = statement
 
         def fetchone(self):
+            if "returning deleting" in self.statement:
+                return {"deleting": 0}
             if "select version" in self.statement:
                 return {"version": PostgresPersistenceRepository._account_guard_version}
             if "select * from account_deletion_work" in self.statement:
