@@ -1,0 +1,166 @@
+{
+  "sourceCommit": "ca357c898ef17a9741edd81dec11b176b2e2947f",
+  "sourceManifestSha256": "d24416aa93c1d4a3b77a17a191119cbbcfd279467a7d7b1878a1129c927fd320",
+  "deployment": {
+    "id": "dpl_FiWHNS52GA2M9eaF4pryLEoa34W3",
+    "url": "cal-ai-c6c1sxq25-upglow.vercel.app",
+    "readyState": "READY",
+    "target": "production",
+    "projectId": "prj_l6Bc70asN999j5aMlyUXpB9zxcCk"
+  },
+  "promotedAt": "2026-11-16T13:56:22.584Z",
+  "immutableVerification": {
+    "health": {
+      "status": "ok"
+    },
+    "ready": {
+      "status": "ok",
+      "service": "cal-ai-api"
+    },
+    "providers": {
+      "database": {
+        "status": "ok",
+        "provider": "sqlite-or-postgres"
+      },
+      "storage": {
+        "status": "ok",
+        "provider": "r2"
+      },
+      "ai": {
+        "status": "ok",
+        "provider": "openai"
+      },
+      "body_ai": {
+        "status": "ok",
+        "provider": "mock"
+      },
+      "auth": {
+        "status": "ok",
+        "provider": "supabase"
+      },
+      "admin": {
+        "status": "ok",
+        "provider": "supabase"
+      }
+    },
+    "lifecycleFlags": {
+      "ACCOUNT_DELETION_ENABLED": false,
+      "ACCOUNT_DELETION_WORKER_ENABLED": false,
+      "R2_WRITE_ONCE_UPLOADS_ENABLED": false,
+      "IMAGE_RETENTION_ENABLED": false
+    },
+    "bundlePath": "/_expo/static/js/web/index-0465a7836beb6579ddcddd98e3533f73.js",
+    "bundleSha256": "8d9e2c6e1be78063323cdc77c90cc639ba4851b5ffc3502f188ea36db6f20243",
+    "mascotPaths": [
+      "/assets/assets/mascot/mascot-welcome.4d3c581083799e4d122fff18cf19e4e9.png",
+      "/assets/assets/mascot/mascot-meal.f07cee6d576edb1c9cc83c713fb2ef19.png",
+      "/assets/assets/mascot/mascot-analysis.30e1edd0acfdcab703693415a6570583.png",
+      "/assets/assets/mascot/mascot-workout.4eb87fd8df0587a2b8076fde6ca8831e.png",
+      "/assets/assets/mascot/mascot-progress.a881c4d291d03c94b9edb7e6b0336dda.png",
+      "/assets/assets/mascot/mascot-coach.986c1196b42501ab01770522641d407b.png",
+      "/assets/assets/mascot/mascot-celebrate.7c1a00badc438f616c6481182e72fd9d.png"
+    ],
+    "checkedAt": "2026-11-16T13:56:00.724Z"
+  },
+  "productionVerification": {
+    "health": {
+      "status": "ok"
+    },
+    "ready": {
+      "status": "ok",
+      "service": "cal-ai-api"
+    },
+    "providers": {
+      "database": {
+        "status": "ok",
+        "provider": "sqlite-or-postgres"
+      },
+      "storage": {
+        "status": "ok",
+        "provider": "r2"
+      },
+      "ai": {
+        "status": "ok",
+        "provider": "openai"
+      },
+      "body_ai": {
+        "status": "ok",
+        "provider": "mock"
+      },
+      "auth": {
+        "status": "ok",
+        "provider": "supabase"
+      },
+      "admin": {
+        "status": "ok",
+        "provider": "supabase"
+      }
+    },
+    "lifecycleFlags": {
+      "ACCOUNT_DELETION_ENABLED": false,
+      "ACCOUNT_DELETION_WORKER_ENABLED": false,
+      "R2_WRITE_ONCE_UPLOADS_ENABLED": false,
+      "IMAGE_RETENTION_ENABLED": false
+    },
+    "bundlePath": "/_expo/static/js/web/index-0465a7836beb6579ddcddd98e3533f73.js",
+    "bundleSha256": "8d9e2c6e1be78063323cdc77c90cc639ba4851b5ffc3502f188ea36db6f20243",
+    "mascotPaths": [
+      "/assets/assets/mascot/mascot-welcome.4d3c581083799e4d122fff18cf19e4e9.png",
+      "/assets/assets/mascot/mascot-meal.f07cee6d576edb1c9cc83c713fb2ef19.png",
+      "/assets/assets/mascot/mascot-analysis.30e1edd0acfdcab703693415a6570583.png",
+      "/assets/assets/mascot/mascot-workout.4eb87fd8df0587a2b8076fde6ca8831e.png",
+      "/assets/assets/mascot/mascot-progress.a881c4d291d03c94b9edb7e6b0336dda.png",
+      "/assets/assets/mascot/mascot-coach.986c1196b42501ab01770522641d407b.png",
+      "/assets/assets/mascot/mascot-celebrate.7c1a00badc438f616c6481182e72fd9d.png"
+    ],
+    "checkedAt": "2026-11-16T13:57:19.635Z"
+  },
+  "assetVerification": {
+    "mascots": [
+      {
+        "pose": "welcome",
+        "bytes": 145147,
+        "sha256": "8668f2e8d934b2f79cc1d0658e4c27303f7ec12916c5d5b457e837b265f55100",
+        "match": true
+      },
+      {
+        "pose": "meal",
+        "bytes": 146483,
+        "sha256": "63f83f50d54fac7b6e28d494e60ff68c488e6b1e2590cda3e1629ff1d7362de0",
+        "match": true
+      },
+      {
+        "pose": "analysis",
+        "bytes": 135963,
+        "sha256": "a84902bff3e6193b91c44c5c419860248eb9cf6fd43d206678e5dfaf20706ffd",
+        "match": true
+      },
+      {
+        "pose": "workout",
+        "bytes": 148037,
+        "sha256": "b28f63560d1ccd3764b1e9de6cf07d4cd3b9065cb8aa435cc15f2f477a513e7f",
+        "match": true
+      },
+      {
+        "pose": "progress",
+        "bytes": 150339,
+        "sha256": "73e2cf48431c3cf73de50f0fbd8bacbfb05924cacbb08fd0c7171b476327d9a1",
+        "match": true
+      },
+      {
+        "pose": "coach",
+        "bytes": 145169,
+        "sha256": "b85cd8aed09f2220f846bcb0608e0a7ade2d3fa3637ea2813ed9e8d0a24102a4",
+        "match": true
+      },
+      {
+        "pose": "celebrate",
+        "bytes": 109355,
+        "sha256": "66b79f08ec2c389a226158e6bfc7b1ddeea1cbf8de68ec80c5818ddac2cb55fa",
+        "match": true
+      }
+    ],
+    "faviconMatch": true,
+    "checkedAt": "2026-11-16T13:57:37.729Z"
+  }
+}
