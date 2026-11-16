@@ -1,5 +1,8 @@
 # Android Direct APK Test Handoff
 
+Historical only: this code1 binary is superseded by 0.1.1/code2 and lacks the
+current required consent screen. Use `ANDROID-DIRECT-TEST-2026-11-16.md`.
+
 The owner has a nearby Android tester and requested direct-install instructions.
 No Google Play tester email, Expo Go, Android Studio or cable is needed for this
 path. Direct APK testing is not Play closed-test participation.

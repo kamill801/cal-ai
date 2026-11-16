@@ -9,7 +9,10 @@ submission, Android runtime signoff, or legal/operating-policy approval.
   `4975788258134910868`, package `com.trustfirstnutrition.app`; no new app/account.
 - Console setup is **9/11**. Privacy URL saved with success confirmation and
   independent reload readback: `https://cal-ai-api.vercel.app/privacy`.
-- Internal testing is **1/3**, a saved AAB draft, not distributed. Closed-test
+- Internal testing is **1/3**, now updated to accepted AAB **2 (0.1.1)** in the
+  existing saved draft, reloaded with the title `0.1.1 - Consent validation`.
+  Code1 was removed only from this draft and remains in the artifact library.
+  No distribution was performed. Closed-test
   participation is **0**. Console requires 12 opted-in testers continuously for
   14 days before applying for production access. Direct APK use does not count
   as closed-test opt-in.
@@ -19,7 +22,10 @@ submission, Android runtime signoff, or legal/operating-policy approval.
 - Korean description and 1024x500 feature graphic were saved November 15.
   At least two actual privacy-safe Android phone screenshots remain owner input.
   Generated designs and web captures must not substitute for device evidence.
-- Production `dpl_8teiWGLvAmebMhG1ynNkjKzwNWts` remains the observed deployment.
+- Production `dpl_HNfxviUm9pmDQ3Rjos7J3bbHEcBq` is now promoted and the
+  canonical alias independently read back; it supersedes
+  `dpl_8teiWGLvAmebMhG1ynNkjKzwNWts`. Exact source/build evidence is in
+  `PRODUCTION-ANDROID-2026-11-16.md`.
   Public GET `/ready` reports configured R2, OpenAI food analysis, mock body
   analysis and Supabase auth. `/privacy` and `/account-deletion` return HTML.
   Public notices report account acceptance/worker off and new-upload TTL 7 days.
@@ -51,9 +57,11 @@ submission, Android runtime signoff, or legal/operating-policy approval.
   checks. Unsupported legacy/provider/namespace data must fail closed before
   identity deletion or irreversible source loss.
 
-The new code is not the live production revision or current uploaded binary.
-Build a new Android artifact after review; the old binary has no new consent UI
-and must not be described as compatible with the new required server gate.
+The new code is now live on the canonical web/API origin, with deletion,
+worker, retention and write-once flags explicitly off. The old Play draft
+binary has no new consent UI and must not be described as compatible with the
+new required server gate. New Android builds are tracked separately in
+`PRODUCTION-ANDROID-2026-11-16.md`; no Play distribution is authorized here.
 
 ## Candidate Verification
 
@@ -99,6 +107,11 @@ reverified on Free ($0/month, upcoming estimate $0); current usage was 5 Android
 builds, below its 15-build allowance. General deletion/retention activation,
 new paid AI calls, Play distribution and submission are excluded. Deployment
 and build completion must be recorded separately after actual readback.
+
+Completion readback is now in `PRODUCTION-ANDROID-2026-11-16.md`: canonical
+promotion verified, both builds FINISHED/downloaded, bounded signatures and
+static native/manifest checks completed, new AAB accepted/saved/reloaded in the
+existing inactive Play draft. This does not close runtime or policy gates.
 
 ## Safe Activation Runbook
 

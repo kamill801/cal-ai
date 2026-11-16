@@ -4,6 +4,10 @@ Prepared 2026-11-09 on `codex/android-play-readiness`, from main `1edc992`.
 The separately implemented equipment-photo feature is not included. This is a
 full-product release preparation branch, not a change to the product's scope.
 
+Current authoritative checkpoint: November 16 at the end of this file, plus
+`PRODUCTION-ANDROID-2026-11-16.md`. Earlier deployment/artifact and missing-item
+statements below are historical snapshots, not current release state.
+
 ## Latest checkpoint - 2026-11-11
 
 This section supersedes older progress snapshots below, not their evidence.
@@ -249,9 +253,13 @@ draft and closed-test participants remain zero; no review or distribution.
 Historical November 13/14 bounded synthetic erasure/replay/scheduled-retention
 evidence supersedes the older blanket "provider erasure untested" note, but
 does not establish whole-account completion or ordinary-user production safety.
-General acceptance/worker/retention activation remains off. Current source
-hardening and consent UI require a new Android build and an approved guarded
-promotion; do not distribute the old binary as this candidate. The previous
+General acceptance/worker/retention activation remains off. The owner approved
+guarded promotion and two Free-plan builds: source `9d2dbe4` is pushed on the
+separate release branch, canonical production now points to exact READY
+`dpl_HNfxviUm9pmDQ3Rjos7J3bbHEcBq`, and new APK/AAB 0.1.1/code2 are FINISHED.
+Actual downloads and bounded signature checks are recorded separately; they do
+not establish Android runtime or release signoff. Do not distribute the old
+binary as this revision. The previous
 7/7 whole-app QA budget and bounded synthetic repair counters are preserved.
 
 The owner confirmed on November 16 that the business operator name is 아르케
