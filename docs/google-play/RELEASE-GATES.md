@@ -281,9 +281,24 @@ is `DATA-SAFETY-2026-11-17.md`; the current schema-v4 worker/runbook is
 `account-deletion.md`. This corrects obsolete schema-v3, no-inventory acceptance
 and cron-secret-alone cleanup instructions, not the historical test reports.
 
-Data safety remains an unfinished draft, not certification. The next personal-
-information purpose/requiredness classification requires explicit approval after
-a safety review blocked its save. Provider-sharing exceptions, actual operating
-periods and personal-account health-app eligibility must not be guessed. No
-account conversion, legal attestation, policy publication or review submission
-was performed. General-user deletion and photo retention remain unactivated.
+Data safety remains an unfinished draft, not certification. After the initial
+safety-review block, the owner explicitly approved the age/sex required-
+collection, functionality and personalization draft. The item and page-level
+draft were saved, then reloaded; names, email, User IDs and age/sex values were
+individually read back. Six selected types remain unanswered and the app-scoped
+analytics session-ID classification remains open. Provider-sharing exceptions
+and actual operating periods must not be guessed.
+
+The owner also explicitly approved sending the Google eligibility inquiry.
+The exact existing app's support case `1-5575000041933`, titled `Organization
+account requirement for health app`, is Open after reload/detail readback.
+Console's preliminary AI guidance suggested general nutrition/fitness apps can
+use Personal accounts; this is not a human eligibility ruling or release
+approval. A support-specialist response was requested; do not initiate account
+conversion. See `GOOGLE-ELIGIBILITY-INQUIRY-DRAFT-2026-11-17.md`.
+
+Fresh Console dashboard readback still shows 9/11 setup, closed testing locked,
+zero opted-in testers and production application disabled. Genuine Android
+screenshots/results and final policy/declaration gates remain. No account
+conversion, legal attestation, policy publication or review submission was
+performed. General-user deletion and photo retention remain unactivated.
