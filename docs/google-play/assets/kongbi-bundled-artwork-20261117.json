@@ -1,0 +1,44 @@
+{
+  "version": "0.1.2",
+  "versionCode": 4,
+  "reports": [
+    {
+      "format": "apk",
+      "sevenMascotVisiblePixelHashesMatch": true,
+      "alphaValuesExact": true,
+      "transparentRgbReencoded": [
+        "meal",
+        "workout"
+      ],
+      "found": {
+        "progress": "res/-N.png",
+        "coach": "res/Uv.png",
+        "meal": "res/Vg.png",
+        "analysis": "res/W6.png",
+        "welcome": "res/iK.png",
+        "workout": "res/kZ.png",
+        "celebrate": "res/pz.png"
+      }
+    },
+    {
+      "format": "aab",
+      "sevenMascotVisiblePixelHashesMatch": true,
+      "alphaValuesExact": true,
+      "transparentRgbReencoded": [
+        "meal",
+        "workout"
+      ],
+      "found": {
+        "analysis": "base/res/drawable-mdpi-v4/assets_mascot_mascotanalysis.png",
+        "celebrate": "base/res/drawable-mdpi-v4/assets_mascot_mascotcelebrate.png",
+        "coach": "base/res/drawable-mdpi-v4/assets_mascot_mascotcoach.png",
+        "meal": "base/res/drawable-mdpi-v4/assets_mascot_mascotmeal.png",
+        "progress": "base/res/drawable-mdpi-v4/assets_mascot_mascotprogress.png",
+        "welcome": "base/res/drawable-mdpi-v4/assets_mascot_mascotwelcome.png",
+        "workout": "base/res/drawable-mdpi-v4/assets_mascot_mascotworkout.png"
+      }
+    }
+  ],
+  "launcherPath": "/private/tmp/cal-ai-kongbi-launcher-from-aab-20261117.webp",
+  "note": "Dimensions, all alpha values and every visible RGB value match. AAPT changed only RGB beneath fully transparent pixels in meal/workout. This proves bundled artwork, not device rendering."
+}

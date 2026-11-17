@@ -1,0 +1,224 @@
+{
+  "selfTest": {
+    "self_tests_passed": true,
+    "elf_byte_orders_and_classes_checked": true,
+    "binary_xml_utf8_utf16_checked": true,
+    "truncation_rejected": true,
+    "elf_low_alignment_detected": true,
+    "elf_incongruence_rejected": true
+  },
+  "artifacts": [
+    {
+      "artifact": "/private/tmp/trust-first-nutrition-0.1.2-4-20261117.apk",
+      "bytes": 68154085,
+      "sha256": "498671c938b368c00ec74a6ce657bdfefb14bb39513fba8929a0f68b20259112",
+      "errors": [],
+      "gaps": [
+        "current policy version literal not embedded; dynamic server-version flow requires source/runtime corroboration"
+      ],
+      "expected_download_matches": true,
+      "zip": {
+        "entries": 730,
+        "duplicates": [],
+        "crc_failure": null
+      },
+      "manifest": {
+        "package": "com.trustfirstnutrition.app",
+        "version_name": "0.1.2",
+        "version_code": "4",
+        "min_sdk": "24",
+        "target_sdk": "36",
+        "allow_backup_declared": "false",
+        "debuggable_declared": null,
+        "extract_native_libs_declared": "false",
+        "uses_cleartext_traffic_declared": null,
+        "permissions": [
+          {
+            "element": "uses-permission",
+            "name": "android.permission.CAMERA",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "android.permission.INTERNET",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "android.permission.WRITE_EXTERNAL_STORAGE",
+            "max_sdk": "28",
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "com.trustfirstnutrition.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+            "max_sdk": null,
+            "flags": null
+          }
+        ],
+        "expected_settings_match": true,
+        "debuggable_effectively_false": true,
+        "decoder": "bounded stdlib binary XML fallback; supplied Python cache empty"
+      },
+      "native": {
+        "entries": 56,
+        "elf64_entries": 28,
+        "elf32_entries": 28,
+        "elf64_load_segments": 86,
+        "elf64_min_load_alignment": 16384,
+        "abi_counts": {
+          "arm64-v8a": 14,
+          "armeabi-v7a": 14,
+          "x86": 14,
+          "x86_64": 14
+        },
+        "apk_uncompressed_native_entries": 56,
+        "apk_compressed_native_entries": 0,
+        "zip_16k_offset_failures": [],
+        "elf_failures": [],
+        "decoder": "bounded stdlib ELF program-header decoder; supplied Python cache empty"
+      },
+      "payload_literal_checks": {
+        "payload_present": true,
+        "api_origin_present": true,
+        "supabase_host_present": true,
+        "consent_route_present": true,
+        "current_policy_version_literal_present": false,
+        "policy_version_field_present": true,
+        "health_data_consent_field_present": true,
+        "analytics_consent_field_present": true
+      },
+      "artifact_unchanged_during_inspection": true,
+      "cryptographic_signatures_checked": true,
+      "static_gates_pass": true,
+      "signature": {
+        "format": "apk",
+        "verified": true,
+        "v1": false,
+        "v2": true,
+        "v3": false,
+        "errors": 0,
+        "warnings": 0,
+        "certificateMatches": true,
+        "certificateSha256": "C797C7DA080CB65B82BFB6789E7BADEA9AAA6660A3078205FE9955063244009F"
+      }
+    },
+    {
+      "artifact": "/private/tmp/trust-first-nutrition-0.1.2-4-20261117.aab",
+      "bytes": 46552674,
+      "sha256": "062115384b7db184b55434a82b525d94c80c572be697985692f7e3965e6fb9a9",
+      "errors": [],
+      "gaps": [
+        "current policy version literal not embedded; dynamic server-version flow requires source/runtime corroboration"
+      ],
+      "expected_download_matches": true,
+      "zip": {
+        "entries": 767,
+        "duplicates": [],
+        "crc_failure": null
+      },
+      "manifest": {
+        "package": "com.trustfirstnutrition.app",
+        "version_name": "0.1.2",
+        "version_code": "4",
+        "min_sdk": "24",
+        "target_sdk": "36",
+        "allow_backup_declared": "false",
+        "debuggable_declared": null,
+        "extract_native_libs_declared": "false",
+        "uses_cleartext_traffic_declared": null,
+        "permissions": [
+          {
+            "element": "uses-permission",
+            "name": "android.permission.CAMERA",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "android.permission.INTERNET",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "android.permission.WRITE_EXTERNAL_STORAGE",
+            "max_sdk": "28",
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE",
+            "max_sdk": null,
+            "flags": null
+          },
+          {
+            "element": "uses-permission",
+            "name": "com.trustfirstnutrition.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+            "max_sdk": null,
+            "flags": null
+          }
+        ],
+        "expected_settings_match": true,
+        "debuggable_effectively_false": true,
+        "decoder": "cached bundletool 1.17.2 with cached Gradle classpath",
+        "modules": [
+          "base"
+        ]
+      },
+      "native": {
+        "entries": 56,
+        "elf64_entries": 28,
+        "elf32_entries": 28,
+        "elf64_load_segments": 86,
+        "elf64_min_load_alignment": 16384,
+        "abi_counts": {
+          "arm64-v8a": 14,
+          "armeabi-v7a": 14,
+          "x86": 14,
+          "x86_64": 14
+        },
+        "apk_uncompressed_native_entries": 0,
+        "apk_compressed_native_entries": 0,
+        "zip_16k_offset_failures": [],
+        "elf_failures": [],
+        "decoder": "bounded stdlib ELF program-header decoder; supplied Python cache empty"
+      },
+      "payload_literal_checks": {
+        "payload_present": true,
+        "api_origin_present": true,
+        "supabase_host_present": true,
+        "consent_route_present": true,
+        "current_policy_version_literal_present": false,
+        "policy_version_field_present": true,
+        "health_data_consent_field_present": true,
+        "analytics_consent_field_present": true
+      },
+      "artifact_unchanged_during_inspection": true,
+      "cryptographic_signatures_checked": true,
+      "static_gates_pass": true,
+      "signature": {
+        "format": "aab",
+        "jarContentVerified": true,
+        "signedEntries": 764,
+        "unsignedEntries": 0,
+        "certificateMatches": true,
+        "certificateSha256": "C797C7DA080CB65B82BFB6789E7BADEA9AAA6660A3078205FE9955063244009F"
+      }
+    }
+  ],
+  "bundletoolValidateExit0": true,
+  "sourceCommit": "434bda1acbb037c4ac88221aa761b5b62064545c",
+  "version": "0.1.2",
+  "versionCode": 4,
+  "androidRuntimeVerified": false,
+  "signatureScope": "APK official apksig verification and AAB JarFile signed-content verification; not strict public-PKI trust certification."
+}
