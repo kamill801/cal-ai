@@ -28,7 +28,7 @@
     "android": {
       "allowBackup": false,
       "package": "com.trustfirstnutrition.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "CAMERA"
       ],

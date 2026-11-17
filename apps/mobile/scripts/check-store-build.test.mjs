@@ -96,7 +96,7 @@ test("keeps the intended app identity, version source and narrow permissions", (
   assert.equal(expo.scheme, "trustfirstnutrition");
   assert.equal(expo.android.package, "com.trustfirstnutrition.app");
   assert.equal(expo.version, "0.1.2");
-  assert.equal(expo.android.versionCode, 3);
+  assert.equal(expo.android.versionCode, 4);
   assert.equal(expo.android.allowBackup, false);
   assert.deepEqual(expo.android.permissions, ["CAMERA"]);
   for (const permission of ["SYSTEM_ALERT_WINDOW", "USE_BIOMETRIC", "USE_FINGERPRINT", "VIBRATE", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO", "READ_MEDIA_VISUAL_USER_SELECTED", "READ_EXTERNAL_STORAGE", "MANAGE_EXTERNAL_STORAGE"]) {
@@ -110,6 +110,22 @@ test("keeps the intended app identity, version source and narrow permissions", (
   assert.equal(eas.build.preview.environment, "preview");
   assert.equal(eas.build.production.environment, "production");
   assert.ok(expo.plugins.includes("./plugins/with-legacy-camera-storage.cjs"));
+});
+
+test("native SVG and Expo constants have one locked installation and one runtime resolution", () => {
+  const lock = readJson("../../../package-lock.json");
+  for (const [name, version] of [["react-native-svg", "15.12.1"], ["expo-constants", "18.0.14"]]) {
+    const copies = Object.entries(lock.packages).filter(([path]) => path.endsWith(`/node_modules/${name}`) || path === `node_modules/${name}`);
+    assert.deepEqual(copies.map(([path, pkg]) => [path, pkg.version]), [[`node_modules/${name}`, version]]);
+  }
+  const mobileRequire = createRequire(new URL("../package.json", import.meta.url));
+  const lucideRequire = createRequire(mobileRequire.resolve("lucide-react-native"));
+  assert.equal(lucideRequire.resolve("react-native-svg"), mobileRequire.resolve("react-native-svg"));
+  const constantPaths = ["expo", "expo-auth-session", "expo-linking"].map((name) => {
+    const dependencyRequire = createRequire(mobileRequire.resolve(name));
+    return dependencyRequire.resolve("expo-constants");
+  });
+  assert.equal(new Set(constantPaths).size, 1);
 });
 
 test("legacy camera storage permission is scoped, idempotent and preserves unrelated permissions", async () => {
