@@ -47,6 +47,8 @@ apps/admin/
 /design-qa.md
 /concept.html
 apps/mobile/assets/brand/source/
+apps/mobile/assets/mascot/source/
+apps/mobile/scripts/kongbi-visual-preview.tsx
 apps/mobile/src/dev/
 *.test.mjs
 *.test.cjs
