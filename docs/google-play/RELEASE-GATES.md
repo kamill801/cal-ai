@@ -4,8 +4,8 @@ Prepared 2026-11-09 on `codex/android-play-readiness`, from main `1edc992`.
 The separately implemented equipment-photo feature is not included. This is a
 full-product release preparation branch, not a change to the product's scope.
 
-Current authoritative checkpoint: November 16 at the end of this file, plus
-`PRODUCTION-ANDROID-2026-11-16.md`. Earlier deployment/artifact and missing-item
+Current authoritative checkpoint: November 17 at the end of this file, plus
+`ANDROID-KONGBI-2026-11-17.md` and `DATA-SAFETY-2026-11-17.md`. Earlier deployment/artifact and missing-item
 statements below are historical snapshots, not current release state.
 
 ## Latest checkpoint - 2026-11-11
@@ -266,3 +266,24 @@ The owner confirmed on November 16 that the business operator name is 아르케
 and that areche.ai.kr@gmail.com is directly managed and accepts privacy/deletion
 requests. This resolves the contact confirmation only, not the remaining
 provider, retention, request-fulfillment or eligibility decisions.
+
+## Latest checkpoint: 2026-11-17
+
+Code4 Kongbi APK/AAB and the existing inactive Play draft are recorded in
+`ANDROID-KONGBI-2026-11-17.md`. The owner is conducting Android physical testing;
+no result or genuine final phone screenshots have been supplied yet. No new
+build or distribution was performed for this documentation follow-up.
+
+Current source and canonical public privacy settings were compared with the
+Data safety form. All four lifecycle switches remain off and the technical
+photo expiry remains seven days. The source-to-declaration and retention matrix
+is `DATA-SAFETY-2026-11-17.md`; the current schema-v4 worker/runbook is
+`account-deletion.md`. This corrects obsolete schema-v3, no-inventory acceptance
+and cron-secret-alone cleanup instructions, not the historical test reports.
+
+Data safety remains an unfinished draft, not certification. The next personal-
+information purpose/requiredness classification requires explicit approval after
+a safety review blocked its save. Provider-sharing exceptions, actual operating
+periods and personal-account health-app eligibility must not be guessed. No
+account conversion, legal attestation, policy publication or review submission
+was performed. General-user deletion and photo retention remain unactivated.

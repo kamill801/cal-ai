@@ -1,9 +1,10 @@
 # Account Deletion Backend Contract
 
-Current schema-v3 operating contract, 2026-11-11. This supersedes the earlier
-pass-3 activation, acceptance-inventory, cron-order and check-then-write fencing
-instructions. Local implementation/test evidence is not provider-erasure or
-production activation approval.
+Current schema-v4 operating contract, source-audited 2026-11-17 at `948c09a`.
+This supersedes this file's old schema-v3, no-inventory acceptance and
+cron-secret-alone retention instructions. Local implementation/test evidence
+is not provider-erasure or production activation approval. See
+`DATA-SAFETY-2026-11-17.md` for the current policy/declaration matrix.
 Operator: 아르케. Support: areche.ai.kr@gmail.com, independent of the Supabase admin account.
 
 ## HTTP Contract
@@ -12,9 +13,9 @@ Operator: 아르케. Support: areche.ai.kr@gmail.com, independent of the Supabas
 The subject comes only from middleware identity. Extra target/body fields,
 query parameters, missing confirmation, and non-boolean confirmation are rejected.
 
-- `202 {"status":"pending"}`, `Retry-After: 30`: durable tombstone accepted;
-  source metadata remains until bounded worker batches inventory it before
-  removal. This means accepted, not completed or fully inventoried.
+- `202 {"status":"pending"}`, `Retry-After: 30`: durable tombstone accepted
+  after atomic inventory preflight; source metadata remains until bounded worker
+  batches capture manifests before removal. This means accepted, not completed.
 - `200 {"status":"deleted"}`: terminal checkpoint is durable. Authenticated
   completed retries do not require deletion configuration or provider calls.
 - Before acceptance, configuration/persistence failure returns sanitized `503`,
@@ -39,18 +40,19 @@ Keep the following server settings explicit on the staged deployment:
 ACCOUNT_DELETION_ENABLED=false
 ACCOUNT_DELETION_WORKER_ENABLED=false
 R2_WRITE_ONCE_UPLOADS_ENABLED=false
+IMAGE_RETENTION_ENABLED=false
 ```
 
-Leave `CRON_SECRET` absent at this checkpoint. The owner-entered
-`SUPABASE_SECRET_KEY` has been verified as sensitive Production metadata only;
-its value was not read, and matching provider authorization remains unverified.
-Production-only entry does not establish availability in a Preview deployment.
-Never copy credentials into this document, client/public variables or logs.
+The canonical public privacy page read on November 17 reports all four switches
+off and a seven-day new-upload expiry interval. This is not proof of automatic
+erasure, nor an approved legal retention period. No cron credentials were added
+or read in this audit. Production-only credentials do not establish availability
+in Preview. Never copy credentials into documents, client variables or logs.
 
 No concrete deletion-source blocker was identified for a flags-off staged
 deploy. New deletion acceptance rejects before tombstoning, and the worker is
 disabled. This does not disable existing tombstone access blocks or make the
-whole app read-only. Schema-v3 guard installation is not a prerequisite merely
+whole app read-only. Schema-v4 guard installation is not a prerequisite merely
 for deploying with these flags off. Repository initialization still performs
 additive DDL, including namespace columns, so verify the exact Neon
 database/schema and runtime role's existing initialization privileges.
@@ -60,7 +62,7 @@ without enabling deletion. Deployed login, deletion activation and Play
 submission remain separate gates. `/ready` or a successful build is not proof
 of migration installation, scheduler progress or real provider erasure.
 
-## Explicit Schema-v3 Migration
+## Explicit Schema-v4 Migration
 
 Before accepting any deletion, initialize the normal coach, analytics and
 persistence schemas, then call `prepare_account_deletion()` explicitly. HTTP
@@ -71,7 +73,7 @@ For later authorized execution only, in a privately configured environment
 targeting the independently verified database/schema and intended runtime role:
 
 ```bash
-cd /private/tmp/cal-ai-play-20261109/services/api
+cd /private/tmp/cal-ai-kongbi-20261116/services/api
 /private/tmp/cal-ai-release-venv-20261110/bin/python -B - <<'PY'
 import os
 from app.services.coach_repository import get_coach_repository
@@ -82,7 +84,7 @@ from app.services.persistence import (
 
 assert os.environ.get("DATABASE_URL")
 for flag in ("ACCOUNT_DELETION_ENABLED", "ACCOUNT_DELETION_WORKER_ENABLED",
-             "R2_WRITE_ONCE_UPLOADS_ENABLED"):
+             "R2_WRITE_ONCE_UPLOADS_ENABLED", "IMAGE_RETENTION_ENABLED"):
     assert os.environ.get(flag, "false").strip().lower() == "false"
 get_coach_repository()
 get_analytics_repository()
@@ -91,7 +93,7 @@ assert isinstance(repo, PostgresPersistenceRepository)
 repo.prepare_account_deletion()
 with repo._connection() as conn:
     repo._require_account_schema(conn)
-print("deletion_guard_schema=3")
+print("deletion_guard_schema=4")
 PY
 ```
 
@@ -102,7 +104,7 @@ fall back to SQLite. Verify the same role can initialize/use the protected worke
 tables; success as a different privileged role alone is insufficient.
 
 The migration uses a PostgreSQL advisory transaction lock, installs guards and
-indexes, then commits marker version 3. Its statement/lock timeout is 10 seconds,
+indexes, then commits marker version 4, including privacy-consent cleanup. Its statement/lock timeout is 10 seconds,
 not a hard whole-migration deadline. Guard-installation table locks belong to
 this explicit step; coordinate installation with traffic and verify the marker
 after commit. A failure must not be bypassed by manually advancing the marker.
@@ -122,10 +124,12 @@ shared 45-second deadline. It does not admit account work with less than 20
 seconds of account budget. Retention inventory is limited to 100 rows and
 skips tombstoned uploads. Failures do not silently become successful cleanup.
 
-**Adding `CRON_SECRET` also authorizes ordinary image retention even with both
-deletion flags false.** Provisioning this secret is therefore an operational
-cleanup gate, not an inert deletion-only setup step. Do not invoke the route
-or expose a scheduler credential until retention/storage changes are authorized.
+**Photo retention additionally requires `IMAGE_RETENTION_ENABLED=true` on this
+revision.** A cron secret alone no longer enables sweeping. The previous warning
+still applies to older deployments without that independent gate. Do not invoke
+cleanup or expose scheduler credentials until the exact deployed source and
+retention/storage changes are authorized. A cron credential can authorize other
+enabled work; it is not a harmless readiness probe.
 
 The checked-in Vercel cron targets this route at `0 18 * * *` (daily, UTC).
 At most three account visits per scheduled run is not three guaranteed completed
@@ -158,9 +162,11 @@ retained deletion state, not anonymous counters. No user JWT, refresh token,
 email or admin secret is persisted in these tables. Temporary reference rows
 are pruned during cleanup; successfully swept local manifest entries are removed.
 
-Acceptance drains same-owner writers through an owner-state row and commits a
-small tombstone/work record. It performs no account-wide enumeration or guard
-DDL. Stage 0 uses durable phases/keyset cursors and batches of at most 100 rows,
+Acceptance drains same-owner writers through an owner-state row, enumerates and
+validates the current erasure inventory in the same transaction, and only then
+commits the deleting flag and tombstone/work record. Inventory failure rolls
+back acceptance before identity deletion. It performs no guard DDL. Stage 0
+uses durable phases/keyset cursors, including consent, and batches of at most 100 rows,
 without account-sized `IN` lists. Upload keys/namespaces are captured in the
 manifest in the same transaction before their source rows are deleted. Inventory
 failure or a conflicting manifest rolls back that batch's source removal, not
@@ -204,8 +210,9 @@ not deletion authority. Local SQLite regressions cover isolation, batch rollback
 namespace binding, fencing, late writes and cron interaction. The leader reported
 six passing isolated PostgreSQL 16 tests, including owner-writer drain with
 foreign-writer progress and lease-expiry rollback. This is disposable local
-database evidence, not deployed Neon-role or real provider-erasure proof. No tests
-were rerun as part of this documentation-only update.
+database evidence, not deployed Neon-role or real provider-erasure proof.
+Fresh focused regression results for this audit are recorded separately in
+`DATA-SAFETY-2026-11-17.md`; historical suite counts above are not new runs.
 
 ## Storage And Owner Gates
 
@@ -221,7 +228,10 @@ were rerun as part of this documentation-only update.
   behavior, signed guard PUT and readback in the original account/bucket. Verify
   that no bucket lifecycle rule or other writer removes guards. Existing delete
   paths preserve sealed-key guards in code; actual bucket configuration and
-  provider behavior remain unverified. Negative HEAD, expiry and DELETE alone
+  provider behavior require current scope-specific verification. Prior November
+  13/14 owner-approved synthetic erasure/replay/scheduled-retention reports
+  supersede the historical blanket claim that no provider verification occurred.
+  They were not rerun here and do not authorize general-user cleanup. Negative HEAD, expiry and DELETE alone
   are not an authoritative drain barrier.
 - **Legacy inventory:** unconditional legacy PUTs, missing keys and unknown
   namespaces remain pending/blocked. Enabling write-once for future uploads does
@@ -241,12 +251,49 @@ were rerun as part of this documentation-only update.
   cancellation require separate review. This endpoint does not cancel paid
   subscriptions or erase backups; policy/terms acceptance remains the owner's gate.
 
-No secrets, cloud commands, permissions/terms acceptance, deployment, activation,
-commit or push were performed by this documentation-only update. Keep all three
-flags false until the applicable operational gates are independently closed.
+No secrets, cloud erasure, permissions/terms acceptance, production deployment or
+activation were performed by this documentation update. Keep all four flags off
+until the applicable operational gates and approvals are independently closed.
+
+## Expiry, Withdrawal And Request Handling
+
+Presign records pending-upload expiry/cleanup metadata. Successful completion
+resets `cleanup_after` from completion time using `IMAGE_TTL_DAYS`. Abandoned
+pending uploads must satisfy both cleanup and signed-upload expiry requirements.
+Expiry removes image content, not meal records, analysis, metadata, analytics or
+provider logs. Existing records can have different expiry values.
+
+Health/analytics withdrawal stops subsequent gated processing, not historical
+row retention. Sign-out/uninstall also does not erase server records. There is
+no general analytics auto-expiry. The latest owner consent/version/time is stored
+on change; this is not an immutable full consent history.
+
+The public `/account-deletion` page offers a managed email path without
+reinstalling the app. Current disabled acceptance means an in-app attempt does
+not accept a new request. Email intake is not proof of ownership or fulfillment.
+Before launch, approve and staff the following procedure:
+
+1. Receive only app name, desired action, sign-in method and reply contact.
+   Never routinely request passwords, tokens, API keys, identity documents or
+   body photos by email.
+2. Verify app-account control through an authenticated session or agreed safe
+   recovery process. Sender email alone is insufficient.
+3. Distinguish whole-account versus current-profile scope and retained security
+   state; profile deletion also removes account-wide analytics enrichment.
+4. Use the separately approved operational erasure process; monitor pending and
+   failed jobs and confirm storage/DB/Auth outcomes, not just logout or 202.
+5. Reply with the actual outcome and remaining scope. Record minimal handling
+   evidence under an approved support-case retention rule and staffed timeline.
+
+Security necessity is not itself a final legal retention exception. Determine
+minimum fields/access and a defensible end condition for tombstones/manifests
+and guards. Do not invent a 30/90-day TTL that breaks replay/access protection.
 
 ## Official References
 
+- [Google Play deletion requirements](https://support.google.com/googleplay/android-developer/answer/13327111?hl=en)
+- [Google Play Data safety definitions](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)
+- [OpenAI API data controls](https://developers.openai.com/api/docs/guides/your-data)
 - [Server-only deletion](https://supabase.com/docs/reference/python/auth-admin-deleteuser)
 - [API-key types](https://supabase.com/docs/guides/getting-started/api-keys)
 - [Auth implementation](https://github.com/supabase/auth/blob/master/internal/api/admin.go)
