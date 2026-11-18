@@ -18,11 +18,14 @@ import {
   Dumbbell
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { AdminApiError, getOverview, getUserDetail, loginAdmin } from "./api";
+import { AdminApiError, getBetaApplications, getOverview, getUserDetail, loginAdmin } from "./api";
+import { BETA_PAGE_SIZE, BetaApplications } from "./BetaApplications";
+import { AdminRequestGate } from "./adminRequestGate";
 import { supabase } from "./supabase";
 import type {
   AdminActivity,
   AdminAiOperationSummary,
+  AdminBetaApplications,
   AdminFunnelStep,
   AdminMetricKey,
   AdminOverview,
@@ -169,7 +172,7 @@ function LoginView() {
   );
 }
 
-function AdminShell({ session }: { session: Session }) {
+export function AdminShell({ session }: { session: Session }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [userDetail, setUserDetail] = useState<AdminUserDetail | null>(null);
@@ -178,30 +181,43 @@ function AdminShell({ session }: { session: Session }) {
   const [error, setError] = useState<string | null>(null);
   const [accessIssue, setAccessIssue] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [betaApplications, setBetaApplications] = useState<AdminBetaApplications | null>(null);
+  const [betaOffset, setBetaOffset] = useState(0);
+  const [betaLoading, setBetaLoading] = useState(true);
+  const [betaError, setBetaError] = useState<string | null>(null);
+  const [betaRefreshVersion, setBetaRefreshVersion] = useState(0);
+  const [requests] = useState(() => new AdminRequestGate());
 
   const accessToken = session.access_token;
 
+  const revokeAccess = useCallback(() => {
+    // Close the gate synchronously before another request can publish its result.
+    requests.revoke();
+    setOverview(null);
+    setUserDetail(null);
+    setSelectedUserId(null);
+    setBetaApplications(null);
+    setBetaError(null);
+    setBetaLoading(false);
+    setError(null);
+    setAccessIssue("관리자 접근 권한이 없거나 세션이 만료됐어요. 다시 로그인해 주세요.");
+  }, [requests]);
+
   useEffect(() => {
-    const controller = new AbortController();
+    const controller = requests.open();
     let pending = false;
     async function loadOverview() {
-      if (pending) return;
+      if (pending || requests.denied) return;
       pending = true;
       setLoadState("refreshing");
       setError(null);
       try {
         const nextOverview = await getOverview(accessToken, controller.signal);
-        if (controller.signal.aborted) return;
+        if (!requests.accepts(controller)) return;
         setOverview(nextOverview);
-        setAccessIssue(null);
       } catch (requestError) {
         if (controller.signal.aborted) return;
-        if (requestError instanceof AdminApiError && [401, 403].includes(requestError.status)) {
-          setOverview(null);
-          setUserDetail(null);
-          setSelectedUserId(null);
-        }
-        handleRequestError(requestError, setAccessIssue, setError);
+        handleRequestError(requestError, revokeAccess, setError);
       } finally {
         pending = false;
         if (!controller.signal.aborted) setLoadState("idle");
@@ -210,32 +226,29 @@ function AdminShell({ session }: { session: Session }) {
     void loadOverview();
     const interval = window.setInterval(() => void loadOverview(), REFRESH_MS);
     return () => {
-      controller.abort();
+      requests.release(controller);
       window.clearInterval(interval);
     };
-  }, [accessToken, refreshVersion]);
+  }, [accessToken, refreshVersion, revokeAccess, requests]);
 
   useEffect(() => {
     setUserDetail(null);
-    if (!selectedUserId || accessIssue) return;
+    if (!selectedUserId || requests.denied) return;
     const userId = selectedUserId;
-    const controller = new AbortController();
+    const controller = requests.open();
     let pending = false;
     async function loadUserDetail() {
-      if (pending) return;
+      if (pending || requests.denied) return;
       pending = true;
       setError(null);
       try {
         const nextDetail = await getUserDetail(userId, accessToken, controller.signal);
-        if (controller.signal.aborted) return;
+        if (!requests.accepts(controller)) return;
         setUserDetail(nextDetail);
       } catch (requestError) {
         if (controller.signal.aborted) return;
         setUserDetail(null);
-        if (requestError instanceof AdminApiError && [401, 403].includes(requestError.status)) {
-          setOverview(null);
-        }
-        handleRequestError(requestError, setAccessIssue, setError);
+        handleRequestError(requestError, revokeAccess, setError);
       } finally {
         pending = false;
       }
@@ -243,10 +256,44 @@ function AdminShell({ session }: { session: Session }) {
     void loadUserDetail();
     const interval = window.setInterval(() => void loadUserDetail(), REFRESH_MS);
     return () => {
-      controller.abort();
+      requests.release(controller);
       window.clearInterval(interval);
     };
-  }, [accessToken, selectedUserId, accessIssue, refreshVersion]);
+  }, [accessToken, selectedUserId, accessIssue, refreshVersion, revokeAccess, requests]);
+
+  useEffect(() => {
+    if (requests.denied) return;
+    const controller = requests.open();
+    let pending = false;
+    async function loadApplications() {
+      if (pending || requests.denied) return;
+      pending = true;
+      setBetaLoading(true);
+      setBetaError(null);
+      try {
+        const next = await getBetaApplications(accessToken, { limit: BETA_PAGE_SIZE, offset: betaOffset }, controller.signal);
+        if (!requests.accepts(controller)) return;
+        if (betaOffset > 0 && betaOffset >= next.total) {
+          setBetaApplications(null);
+          setBetaOffset(next.total ? Math.floor((next.total - 1) / BETA_PAGE_SIZE) * BETA_PAGE_SIZE : 0);
+          return;
+        }
+        setBetaApplications(next);
+      } catch (requestError) {
+        if (controller.signal.aborted) return;
+        handleRequestError(requestError, revokeAccess, setBetaError);
+      } finally {
+        pending = false;
+        if (requests.accepts(controller)) setBetaLoading(false);
+      }
+    }
+    void loadApplications();
+    const interval = window.setInterval(() => void loadApplications(), REFRESH_MS);
+    return () => {
+      requests.release(controller);
+      window.clearInterval(interval);
+    };
+  }, [accessToken, betaOffset, betaRefreshVersion, refreshVersion, revokeAccess, requests]);
 
   const selectUser = useCallback((userId: string) => {
     setSelectedUserId((currentUserId) => {
@@ -288,12 +335,17 @@ function AdminShell({ session }: { session: Session }) {
           <button
             className="icon-button"
             title="Refresh"
+            aria-label="전체 새로고침"
             type="button"
+            disabled={Boolean(accessIssue)}
             onClick={() => setRefreshVersion((value) => value + 1)}
           >
             <RefreshCw size={16} className={loadState === "refreshing" ? "spin" : undefined} />
           </button>
-          <button className="icon-button" title="Sign out" type="button" onClick={() => void supabase?.auth.signOut()}>
+          <button className="icon-button" title="Sign out" aria-label="로그아웃" type="button" onClick={() => {
+            revokeAccess();
+            void supabase?.auth.signOut().catch(() => undefined);
+          }}>
             <LogOut size={16} />
           </button>
         </div>
@@ -301,6 +353,14 @@ function AdminShell({ session }: { session: Session }) {
 
       {accessIssue ? <Banner tone="warning" message={accessIssue} /> : null}
       {error ? <Banner tone="error" message={error} /> : null}
+
+      <BetaApplications data={accessIssue ? null : betaApplications} offset={betaOffset}
+        loading={betaLoading} disabled={Boolean(accessIssue)} error={betaError}
+        onRefresh={() => setBetaRefreshVersion((value) => value + 1)}
+        onPage={(offset) => {
+          setBetaApplications(null);
+          setBetaOffset(offset);
+        }} />
 
       {loadState === "refreshing" && !overview && !accessIssue ? (
         <DashboardSkeleton />
@@ -370,15 +430,15 @@ function AdminShell({ session }: { session: Session }) {
 
 function handleRequestError(
   requestError: unknown,
-  setAccessIssue: (value: string | null) => void,
+  revokeAccess: () => void,
   setError: (value: string | null) => void
 ) {
   if (requestError instanceof AdminApiError && (requestError.status === 401 || requestError.status === 403)) {
-    setAccessIssue(requestError.message);
+    revokeAccess();
     return;
   }
 
-  setError(requestError instanceof Error ? requestError.message : "Unexpected admin API error.");
+  setError("관리자 데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.");
 }
 
 function MetricTile({ metricKey, value }: { metricKey: AdminMetricKey; value: number }) {

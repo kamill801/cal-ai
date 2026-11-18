@@ -178,6 +178,20 @@ class AdminUserDetailResponse(BaseModel):
     payments: list[AdminPaymentSummary]
 
 
+class AdminBetaApplication(BaseModel):
+    id: str
+    email: str
+    created_at: datetime
+
+
+class AdminBetaApplicationsResponse(BaseModel):
+    generated_at: datetime
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0, le=100000)
+    applications: list[AdminBetaApplication] = Field(max_length=100)
+
+
 class BillingStatusResponse(BaseModel):
     plan: str
     status: str

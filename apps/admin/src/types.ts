@@ -9,6 +9,20 @@ export type AdminMetricKey =
 
 export type AdminMetricMap = Record<AdminMetricKey, number>;
 
+export type AdminBetaApplication = {
+  id: string;
+  email: string;
+  created_at: string;
+};
+
+export type AdminBetaApplications = {
+  generated_at: string;
+  total: number;
+  limit: number;
+  offset: number;
+  applications: AdminBetaApplication[];
+};
+
 export type AdminFunnelStep = {
   step: string;
   users: number;

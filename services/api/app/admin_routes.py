@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 
-from app.admin_schemas import AdminOverviewResponse, AdminUserDetailResponse, AdminUserId
+from app.admin_schemas import AdminBetaApplicationsResponse, AdminOverviewResponse, AdminUserDetailResponse, AdminUserId
 from app.services.analytics_repository import get_analytics_repository
 from app.services.auth import (
     AuthConfigurationError,
@@ -12,6 +12,7 @@ from app.services.auth import (
 )
 from app.services.persistence import PersistenceError
 from app.services.admin_login import AdminLoginRequest, AdminLoginFailure, login_owner
+from app.services.recruitment_repository import RecruitmentPersistenceError, get_recruitment_repository
 
 
 router = APIRouter(prefix="/internal/admin", tags=["admin"])
@@ -37,12 +38,35 @@ def require_admin(
     try:
         return authenticate_admin_bearer_token(authorization)
     except AuthConfigurationError as exc:
+        headers = {"Cache-Control": "no-store, max-age=0"}
         if str(exc) == "admin_dashboard_disabled":
-            raise HTTPException(status_code=404, detail="not_found") from exc
-        raise HTTPException(status_code=503, detail="admin_auth_unavailable") from exc
+            raise HTTPException(status_code=404, detail="not_found", headers=headers) from exc
+        raise HTTPException(status_code=503, detail="admin_auth_unavailable", headers=headers) from exc
     except AuthenticationError as exc:
         status_code = 403 if str(exc) == "admin_forbidden" else 401
-        raise HTTPException(status_code=status_code, detail="admin_access_denied") from exc
+        raise HTTPException(status_code=status_code, detail="admin_access_denied",
+                            headers={"Cache-Control": "no-store, max-age=0"}) from exc
+
+
+@router.get("/beta-applications", response_model=AdminBetaApplicationsResponse)
+def admin_beta_applications(
+    response: Response,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100000),
+    admin: AuthenticatedUser = Depends(require_admin),
+) -> AdminBetaApplicationsResponse:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    try:
+        applications = get_recruitment_repository().list_applications(limit=limit, offset=offset)
+        get_analytics_repository().record_admin_audit(
+            admin_user_id=admin.user_id,
+            action="read",
+            resource_type="beta_applications",
+        )
+        return applications
+    except (RecruitmentPersistenceError, PersistenceError):
+        raise HTTPException(status_code=503, detail="admin_data_unavailable",
+                            headers={"Cache-Control": "no-store, max-age=0"}) from None
 
 
 @router.get("/overview", response_model=AdminOverviewResponse)

@@ -1,6 +1,7 @@
 import type {
   AdminActivity,
   AdminAiOperationSummary,
+  AdminBetaApplications,
   AdminFunnelStep,
   AdminOverview,
   AdminPayment,
@@ -81,6 +82,29 @@ export async function getUserDetail(userId: string, accessToken: string, signal?
       signal
     )
   );
+}
+
+export async function getBetaApplications(
+  accessToken: string,
+  { limit = 50, offset = 0 }: { limit?: number; offset?: number } = {},
+  signal?: AbortSignal
+): Promise<AdminBetaApplications> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+      !Number.isInteger(offset) || offset < 0 || offset > 100_000) {
+    throw new AdminApiError(400, "신청자 목록의 페이지 범위를 확인해 주세요.");
+  }
+  const query = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  const result = await requestJson<AdminBetaApplications>(`/internal/admin/beta-applications?${query}`, accessToken, signal);
+  if (!result || !Number.isSafeInteger(result.total) || result.total < 0 ||
+      result.limit !== limit || result.offset !== offset ||
+      typeof result.generated_at !== "string" || Number.isNaN(Date.parse(result.generated_at)) ||
+      !Array.isArray(result.applications) || result.applications.length > limit ||
+      !result.applications.every((item) => item && typeof item.id === "string" &&
+        typeof item.email === "string" && item.email.length <= 254 &&
+        typeof item.created_at === "string" && !Number.isNaN(Date.parse(item.created_at)))) {
+    throw new AdminApiError(502, "신청자 목록의 응답을 확인하지 못했어요. 다시 시도해 주세요.");
+  }
+  return result;
 }
 
 type AdminOverviewResponse = {

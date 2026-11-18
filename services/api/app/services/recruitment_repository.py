@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from app.admin_schemas import AdminBetaApplication, AdminBetaApplicationsResponse
 from app.services.persistence import DEFAULT_API_DATA_PATH
 
 
@@ -113,6 +114,35 @@ class RecruitmentRepository:
         with self._connection() as conn:
             self._ensure_schema(conn)
             return self._purge(conn, self._clock().astimezone(UTC).isoformat(timespec="microseconds"))
+
+    def list_applications(self, *, limit: int = 50, offset: int = 0) -> AdminBetaApplicationsResponse:
+        if not 1 <= limit <= 100 or not 0 <= offset <= 100000:
+            raise ValueError("invalid_recruitment_page")
+        now = self._clock().astimezone(UTC)
+        cutoff = now.isoformat(timespec="microseconds")
+        with self._connection() as conn:
+            # Viewing an unopened intake must not create tables or purge stored applications.
+            if self._postgres:
+                exists = conn.execute("select to_regclass('beta_recruitment_applications') as relation").fetchone()["relation"]
+            else:
+                exists = conn.execute(
+                    "select name from sqlite_master where type='table' and name=?",
+                    ("beta_recruitment_applications",),
+                ).fetchone()
+            if not exists:
+                total, rows = 0, []
+            else:
+                total = conn.execute(self._sql(
+                    "select count(*) as total from beta_recruitment_applications where expires_at>?"
+                ), (cutoff,)).fetchone()["total"]
+                rows = conn.execute(self._sql(
+                    "select id,email,created_at from beta_recruitment_applications where expires_at>? "
+                    "order by created_at desc,id desc limit ? offset ?"
+                ), (cutoff, limit, offset)).fetchall()
+        return AdminBetaApplicationsResponse(
+            generated_at=now, total=total, limit=limit, offset=offset,
+            applications=[AdminBetaApplication(**dict(row)) for row in rows],
+        )
 
 
 def get_recruitment_repository(environ: Mapping[str, str] | None = None) -> RecruitmentRepository:

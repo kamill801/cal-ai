@@ -352,6 +352,22 @@ h2 {
   overflow-x: auto;
 }
 
+.beta-section {
+  border-bottom: 1px solid #d9dde5;
+  padding: 22px 0;
+}
+
+.beta-heading { gap: 12px; }
+.beta-heading .icon-button { flex: 0 0 36px; }
+.beta-status { color: #697386; font-size: 12px; min-height: 28px; line-height: 1.5; }
+.beta-table { min-width: 520px; table-layout: fixed; }
+.beta-email { overflow-wrap: anywhere; }
+.beta-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.beta-pagination span { font-size: 12px; text-align: center; overflow-wrap: anywhere; }
+.beta-pagination .icon-button { flex: 0 0 36px; }
+.beta-error { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #8d2118; font-size: 13px; padding: 10px 0; }
+.icon-button:focus-visible { outline: 3px solid #2367c9; outline-offset: 2px; }
+
 table {
   border-collapse: collapse;
   min-width: 680px;

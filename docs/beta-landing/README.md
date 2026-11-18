@@ -65,6 +65,23 @@ No public applicant-list endpoint exists. Responses never echo email, DSN or sec
 Install links are public links restricted to this Expo account/project, not credentials.
 No admin entry point was added to the landing.
 
+### Owner-only application list
+
+The separate `cal-ai-admin` dashboard now loads
+`GET /internal/admin/beta-applications?limit=50&offset=0` using the existing admin
+JWT and owner allowlist. It shows email, original application time in Asia/Seoul,
+and the count of all retained, unexpired unique applications, newest first.
+This is independent of app registration and the current page; it is not a lifetime
+counter. The list excludes applications at or past their 30-day expiry even if
+the next cleanup has not run. A read neither purges applications nor renews consent.
+
+The API returns only `id`, `email`, `created_at` plus `generated_at`, `total`,
+`limit` and `offset`. It uses no-store responses, bounded pagination (1-100 rows),
+and the existing access audit without email values. No public listing, CSV export,
+new permission, environment variable, or migration is required. The dashboard
+supports manual/30-second refresh, empty/error/retry states, and clears applicant
+PII on logout or an authorization denial. API/admin deployments are separate.
+
 ## Activation and current release
 
 Production intake was approved and opened on 2026-11-19. See
