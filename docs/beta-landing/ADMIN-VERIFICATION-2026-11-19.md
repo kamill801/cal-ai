@@ -67,3 +67,38 @@ then promote API before admin. Previous admin deployment:
 
 Original dirty main worktree is preserved; feature work is isolated on
 `codex/beta-landing-20261118`.
+
+## Production release evidence
+
+Feature commit `9c3d1487f64f863b6bb66d2550ab36c3d7afe988` was committed and
+pushed on `codex/beta-landing-20261118`; remote hash matched the local commit.
+Staged production builds completed and were checked before promotion, API first:
+
+- API: `dpl_FZ4VhJHoz5ed2JL5Zh4A85ZrAHe5`,
+  `https://cal-ai-f6xkwzhnv-upglow.vercel.app`.
+- Admin: `dpl_4UQ6QUwrUmJLdXVx8WcCHXpTYVuV`,
+  `https://cal-ai-admin-7bidey3sa-upglow.vercel.app`.
+
+Both promotions succeeded. Canonical `https://cal-ai-api.vercel.app` returned
+401 with a sanitized response and no-store for anonymous applicant listing.
+Admin-origin authorization preflight passed on the staged API. Landing, existing
+hidden-web redirects, beta assets, policies, health, and open recruitment config
+were preserved. `/ready` reported database/storage/food-AI/auth/admin configured
+and healthy, with body AI still mock; no provider analysis was performed.
+
+Canonical `https://cal-ai-admin.vercel.app` served the new bundle
+`/assets/index-CMquX5XT.js`, including the beta endpoint and canonical API base.
+Root/asset returned 200; no-store/noindex were present. The bundle secret-pattern
+check passed. Supabase SDK's literal secret-key prefix guard is not a secret value.
+
+Actual owner-authenticated Neon listing remains **unverified**: the interactive
+admin tab was still on its login screen at the final check. No credentials were
+read, no applicant email was written to logs/screenshots, and no production
+application was created, changed, or deleted for this feature verification.
+
+Existing admin build-tool audit warnings were triaged without dependency changes:
+`npm audit --omit=dev` reported 0 vulnerabilities; the existing full lockfile has
+5 high-severity entries confined to dev dependencies (Vite/globbing/source-map
+chain). A separate build-tool security update remains advisable. This release
+does not certify that unrelated dependency, Play/device, provider-quality, or
+scheduled-retention gates are complete.
