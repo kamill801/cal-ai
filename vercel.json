@@ -2,7 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/index.py": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "services/api/app/web/**"
     }
   },
   "crons": [
@@ -13,6 +14,18 @@
   ],
   "buildCommand": "EXPO_PUBLIC_API_BASE_URL=/ npm --workspace apps/mobile run export:web:vercel",
   "routes": [
+    {
+      "src": "/(beta/?)?",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/(app(/.*)?|index.html|auth/callback/?)",
+      "dest": "api/index.py"
+    },
+    {
+      "src": "/recruitment/(.*)",
+      "dest": "api/index.py"
+    },
     {
       "src": "/(privacy|terms|support|account-deletion)/?",
       "dest": "api/index.py"
@@ -62,7 +75,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "api/index.py"
     }
   ]
 }

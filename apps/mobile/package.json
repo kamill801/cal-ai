@@ -8,7 +8,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "export:web:vercel": "expo export --platform web --output-dir dist-web-preview && rm -rf ../../public && mkdir -p ../../public && cp -R dist-web-preview/. ../../public/",
+    "export:web:vercel": "expo export --platform web --output-dir dist-web-preview && node ../../apps/landing/scripts/prepare.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/run-smoke-tests.mjs",
     "check:store": "node scripts/check-store-build.mjs --check",

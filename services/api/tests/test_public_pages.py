@@ -288,7 +288,7 @@ def test_non_boolean_flag_values_are_not_reflected_or_enabled(monkeypatch):
 
 def test_off_app_deletion_request_is_prominent_without_promising_automatic_erasure():
     html = TestClient(app).get("/account-deletion").text
-    assert html.index("앱 없이 계정 삭제 요청하기") < html.index("앱에서 계정 삭제 열기")
+    assert html.index("앱 없이 계정 삭제 요청하기") < html.index("계정과 연결된 데이터를 삭제하려면")
     document = PublicDocument(html)
     assert any(
         tag == "a" and attrs.get("href", "").startswith("mailto:areche.ai.kr@gmail.com?subject=")
@@ -336,7 +336,8 @@ def test_policy_facts_do_not_attest_play_account_or_operational_approval():
         assert f"https://support.google.com/googleplay/android-developer/answer/{official_page}" in facts
 
 
-def test_account_deletion_page_has_authenticated_flow_and_no_get_side_effect():
+def test_account_deletion_page_has_authenticated_flow_and_no_get_side_effect(monkeypatch):
+    monkeypatch.setenv("WEB_APP_ENABLED", "true")
     response = TestClient(app).get("/account-deletion")
     assert 'href="/?action=delete-account"' in response.text
     assert "로그인" in response.text

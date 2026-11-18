@@ -27,3 +27,4 @@ __pycache__/
 *.sqlite
 *.db
 .vercel
+services/api/app/web/preserved-app/

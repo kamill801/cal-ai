@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from app.schemas import (
@@ -39,6 +40,8 @@ from app.schemas import (
 from app.coach_routes import router as coach_router
 from app.admin_routes import router as admin_router
 from app.public_routes import router as public_router
+from app.landing_routes import WEB_DIRECTORY, router as landing_router
+from app.recruitment_routes import router as recruitment_router
 from app.privacy_routes import consent_error, current_consent, router as privacy_router
 from app.account_routes import account_deletion_gate, router as account_router, worker_router as account_worker_router
 from app.analytics_routes import billing_router, router as analytics_router
@@ -62,6 +65,8 @@ from app.services.targets import calculate_initial_target
 from app.services.coach import CoachNotFoundError, create_profile, merge_profile_meal_impact
 from app.services.coach_repository import get_coach_repository
 from app.services.auth import AuthConfigurationError, AuthenticationError, authenticate_bearer_token, authentication_required
+from app.services.recruitment import cleanup_expired_recruitment
+from app.services.recruitment_repository import RecruitmentPersistenceError
 
 ApiErrorKind = Literal["provider", "validation", "not_found", "server", "unknown"]
 DEFAULT_CORS_ALLOWED_ORIGINS = (
@@ -99,6 +104,9 @@ app.include_router(public_router)
 app.include_router(privacy_router)
 app.include_router(account_router)
 app.include_router(account_worker_router)
+app.include_router(landing_router)
+app.include_router(recruitment_router)
+app.mount("/beta-assets", StaticFiles(directory=WEB_DIRECTORY / "assets"), name="beta-assets")
 
 
 @app.middleware("http")
@@ -399,6 +407,13 @@ def cleanup_expired_images(
             kind="validation",
         )
 
+    # Independent beta-only cleanup must run even if image/account providers fail.
+    beta_cleanup_failed = False
+    try:
+        cleanup_expired_recruitment()
+    except RecruitmentPersistenceError:
+        beta_cleanup_failed = True
+
     deadline = started_at + 45
     account_failed = False
     if os.environ.get("ACCOUNT_DELETION_WORKER_ENABLED", "false").strip().lower() == "true":
@@ -432,6 +447,12 @@ def cleanup_expired_images(
                 retryable=True,
                 kind="server",
             ) from None
+    if beta_cleanup_failed:
+        raise api_error(
+            status_code=503, code="recruitment_cleanup_unavailable",
+            message="베타 신청 보관 기간 정리를 완료하지 못했어요.",
+            retryable=True, kind="server",
+        ) from None
     if account_failed:
         raise api_error(
             status_code=503, code="account_deletion_cleanup_unavailable",

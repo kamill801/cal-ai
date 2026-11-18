@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
 from app.services.storage import StorageConfigurationError, get_image_ttl_days
+from app.services.web_surface import web_app_enabled
 
 router = APIRouter(include_in_schema=False)
 
@@ -134,6 +135,11 @@ def lifecycle_settings_notice() -> str:
 
 def render_page(slug: str) -> HTMLResponse:
     title, body = PAGES[slug]
+    if slug == "account-deletion" and not web_app_enabled():
+        body = body.replace(
+            '<li><a href="/?action=delete-account">앱에서 계정 삭제 열기</a>를 누릅니다.</li>',
+            '<li>설치한 Android 앱을 엽니다. 웹 앱은 현재 비공개입니다. 앱 설치 없이 요청하려면 위의 삭제 요청 이메일을 이용해 주세요.</li>',
+        )
     effective_date, version = policy_metadata()
     title = escape(title)
     lifecycle_notice = lifecycle_settings_notice() if slug in {"privacy", "account-deletion"} else ""
