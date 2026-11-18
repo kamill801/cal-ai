@@ -65,7 +65,11 @@ No public applicant-list endpoint exists. Responses never echo email, DSN or sec
 Install links are public links restricted to this Expo account/project, not credentials.
 No admin entry point was added to the landing.
 
-## Activation (not performed by local development)
+## Activation and current release
+
+Production intake was approved and opened on 2026-11-19. See
+`RELEASE-2026-11-19.md` for deployment and live verification evidence. The source
+defaults below stay closed so a new unconfigured environment cannot accept data.
 
 All intake and beta-retention flags default OFF. Production/Vercel intake additionally
 requires a PostgreSQL `DATABASE_URL`; an ephemeral SQLite fallback cannot accept it.
@@ -80,6 +84,13 @@ BETA_RECRUITMENT_POLICY_APPROVED_VERSION=2026-11-18.1
 BETA_RECRUITMENT_RETENTION_DAYS=30
 BETA_RECRUITMENT_PUBLIC_ORIGIN=https://cal-ai-api.vercel.app
 ```
+
+Production also has a server-only sensitive `CRON_SECRET`, generated and registered
+with explicit user approval. Do not copy it into the mobile app, docs, chat or Git.
+The existing daily schedule is enabled and linked to the landing release; its
+authenticated handler returned 200. This does not prove a future scheduled run or
+that 30 days have elapsed. Monitor successful runs and errors before assuming
+expiry cleanup has completed. No general photo/account erasure flag was enabled.
 
 `BETA_ANDROID_INSTALL_URL` defaults to the previously verified 0.1.2 Kongbi build.
 It must be an HTTPS Expo build URL for the exact account/project, without query,
@@ -144,9 +155,11 @@ installed Chrome by default, adds no dependencies, and never writes production.
 - Local fixture evidence is not real Neon or production signup proof.
 - Existing authenticated app and Android behavior are unchanged, not newly certified.
 - Body-photo AI remains explicitly described as not operational real-photo analysis.
-- Public promotion was requested on 2026-11-18. Intake activation, policy approval
-  and any future email provider connection remain separate gates. No mail was sent
-  during implementation.
+- Public promotion, 30-day collection notice/intake and safe cron-secret registration
+  were explicitly approved. Any future email provider connection remains a separate
+  gate. No mail was sent during implementation or release.
 
 Deployment configuration reference checked against Vercel's official
 [vercel.json function configuration](https://vercel.com/docs/project-configuration/vercel-json#functions).
+Cron authentication and promotion behavior were checked against
+[Vercel's cron management documentation](https://vercel.com/docs/schedules/cron-jobs/manage-cron-jobs).
