@@ -2,6 +2,18 @@
 
 Last reviewed: 2026-08-26
 
+## Korean Strength Logging Benchmark
+
+Checked 2026-11-24, KST. [AppBrain's Korean Google Play Health & Fitness grossing chart](https://www.appbrain.com/stats/google-play-rankings/top_grossing/health_fitness/kr) is a chart snapshot, not a count of users or proof of revenue. Google Play download badges are global cumulative ranges, not Korean active users. Comparisons are based on official product pages and the Cal AI source, not a timed test of installed competitor apps.
+
+| Reference | Korea grossing rank | Play downloads | What we adapt |
+| --- | --- | --- | --- |
+| [Planfit](https://play.google.com/store/apps/details?hl=ko&id=com.mih.planfit) | 1 | 1M+ | Make starting today's personalized routine the main action. Keep the next target visible; treat [exercise videos and gym-specific equipment](https://planfit.ai/ko) as a separate product gap. |
+| [Gymwork](https://play.google.com/store/apps/details?hl=ko&id=pro.godok.gymwork) | 2 | 100K+ | Start a dismissible rest timer when a set is checked; make completion immediate. Do not copy premium programs, video, or social features. |
+| [BurnFit](https://play.google.com/store/apps/details?hl=ko&id=com.bunnit.haja.android) | 17 | 500K+ | Show the last set beside the current inputs and carry values forward when adding a set. Do not make effort terminology a prerequisite to saving. |
+
+Before the change, Cal AI could recommend a routine and show previous exercise summaries, but the logger captured one weight and one rep count per exercise after marking it complete. There was no per-set rest countdown, and session RPE was preselected as 7. The new default is start the planned session, enter and check individual sets, then optionally answer how the entire workout felt. It keeps Cal AI's nutrition and conservative recommendation loop instead of copying a competitor's structure or visual identity. The next validation gate is end-to-end use on the Android beta, including the decimal keyboard and timer after backgrounding.
+
 ## Decision Summary
 
 Cal AI should not try to out-YAZIO YAZIO with a larger recipe catalog or a broader fasting product. The product wedge is a trustworthy body-transformation loop for people who lift:

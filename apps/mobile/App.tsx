@@ -1,7 +1,7 @@
-import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, PrivacyConsentStatus, ProgressSummary, WeeklyCoachReport, WorkoutEffort, WorkoutHistory, WorkoutPlan } from "@cal-ai/shared";
+import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, PrivacyConsentStatus, ProgressSummary, WeeklyCoachReport, WorkoutHistory, WorkoutPlan, WorkoutSessionInput } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Platform, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { ApiClientError, createCalAiApiClient, type BillingStatus } from "./src/api";
 import { createAnalyticsEventClient, createForegroundHeartbeat, type AnalyticsEventName, type AnalyticsProperties } from "./src/analytics";
 import { useAuthSession, type AuthSessionState } from "./src/auth/useAuthSession";
@@ -611,16 +611,9 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     }
   }
 
-  async function completeWorkout(input: {
-    plan: WorkoutPlan;
-    workoutDayId: string;
-    durationMinutes: number;
-    completedExerciseIds: string[];
-    exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[];
-    sessionRpe: number;
-  }): Promise<void> {
+  async function completeWorkout(input: Omit<WorkoutSessionInput, "performedOn">): Promise<boolean> {
     if (!profileId || ageRestricted || workoutRefreshPending || workoutSaveInFlight.current || coachStatus === "loading") {
-      return;
+      return false;
     }
     workoutSaveInFlight.current = true;
     setCoachStatus("loading");
@@ -628,26 +621,19 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     try {
       let savedSessionId: string;
       try {
-        const saved = await apiClient.logWorkoutSession(profileId, {
-          planId: input.plan.id,
-          workoutDayId: input.workoutDayId,
-          performedOn: todayIso(),
-          durationMinutes: input.durationMinutes,
-          completedExerciseIds: input.completedExerciseIds,
-          exercisePerformance: input.exercisePerformance,
-          sessionRpe: input.sessionRpe
-        });
+        const saved = await apiClient.logWorkoutSession(profileId, { ...input, performedOn: todayIso() });
         savedSessionId = saved.id;
       } catch (error) {
         setCoachStatus("error");
         setCoachError({ ...onboardingFlowErrorFromUnknown(error), title: "운동 기록을 저장하지 못했어요" });
         if (error instanceof ApiClientError && error.status === 403 && error.code === "age_restricted") setAgeRestricted(true);
-        return;
+        return false;
       }
       setSavedWorkoutSessionId(savedSessionId);
       setWorkoutRefreshPending(true);
       trackEvent("workout_completed", "training");
       await refreshSavedWorkout(profileId);
+      return true;
     } finally {
       workoutSaveInFlight.current = false;
     }
@@ -1133,8 +1119,10 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
           onDeleteMeal={confirmDeleteMeal}
         />
       ) : null}
-      {state.screen === "today" && appScreen === "training" ? (
-        <TrainingScreen dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} savedSessionId={savedWorkoutSessionId} refreshPending={workoutRefreshPending} status={coachStatus} error={coachError} onRefresh={() => void refreshSavedWorkout()} onGenerate={() => void generatePlan()} onStart={() => trackEvent("workout_started", "training")} onComplete={(input) => void completeWorkout(input)} />
+      {profileId ? (
+        <View style={{ flex: 1, display: state.screen === "today" && appScreen === "training" ? "flex" : "none" }}>
+          <TrainingScreen key={profileId} visible={state.screen === "today" && appScreen === "training"} dashboard={coachDashboard} plan={workoutPlan} history={workoutHistory} refreshPending={Boolean(savedWorkoutSessionId && workoutRefreshPending)} status={coachStatus} error={coachError} onRefresh={() => void refreshSavedWorkout()} onGenerate={() => void generatePlan()} onStart={() => trackEvent("workout_started", "training")} onComplete={completeWorkout} />
+        </View>
       ) : null}
       {state.screen === "today" && appScreen === "progress" ? (
         <ProgressScreen
@@ -1222,7 +1210,8 @@ function showImagePickerError(error: unknown): void {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.canvasWarm
+    backgroundColor: colors.canvasWarm,
+    paddingTop: Platform.OS === "android" && Number(Platform.Version) >= 35 ? NativeStatusBar.currentHeight : undefined
   },
   content: { flex: 1 },
   sessionLoading: {

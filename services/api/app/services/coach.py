@@ -236,21 +236,29 @@ def log_workout_session(
     workout_day = next((day for day in plan.days if day.id == payload.workout_day_id), None)
     if workout_day is None:
         raise CoachNotFoundError("workout_day_not_found")
-    expected_ids = {exercise.id for exercise in workout_day.exercises}
+    exercises_by_id = {exercise.id: exercise for exercise in workout_day.exercises}
+    expected_ids = set(exercises_by_id)
     completed_ids = set(payload.completed_exercise_ids)
     performance_ids = {item.exercise_id for item in payload.exercise_performance}
     if not completed_ids.issubset(expected_ids) or not performance_ids.issubset(expected_ids):
         raise CoachNotFoundError("workout_exercise_not_found")
     if not performance_ids.issubset(completed_ids):
         raise CoachValidationError("workout_performance_not_completed")
+    if len(performance_ids) != len(payload.exercise_performance) or len(completed_ids) != len(payload.completed_exercise_ids):
+        raise CoachValidationError("workout_performance_duplicate")
+    performance = [_summarize_sets(item, exercises_by_id[item.exercise_id]) for item in payload.exercise_performance]
+    payload = payload.model_copy(update={"exercise_performance": performance})
     prior_sessions = repository.list_workout_sessions(profile_id)
-    completed = expected_ids.issubset(completed_ids)
-    if completed and payload.session_rpe >= 9:
+    completed = expected_ids.issubset(completed_ids) and all(
+        item.completed_sets is None or item.sets_completed >= exercises_by_id[item.exercise_id].sets
+        for item in performance
+    )
+    if completed and payload.session_rpe is not None and payload.session_rpe >= 9:
         feedback = "계획을 마쳤지만 체감 강도가 높았어요. 다음 운동은 증량보다 회복과 동작 품질을 먼저 확인해요."
     elif completed:
         feedback = "오늘 계획을 완료했어요. 기록한 중량과 반복을 기준으로 다음 증량 여부를 판단할 수 있어요."
     else:
-        feedback = "완료한 종목과 세트까지 기록했어요. 다음에는 남은 동작부터 이어가도 괜찮아요."
+        feedback = "오늘 완료한 세트를 기록했어요. 계획 전체를 완료한 것으로 표시하지는 않아요."
     saved_session = repository.save_workout_session(
         WorkoutSessionResponse(
             id=f"session-{uuid4()}",
@@ -273,6 +281,29 @@ def log_workout_session(
     return saved_session
 
 
+def _summarize_sets(item: ExercisePerformance, exercise: WorkoutExercise) -> ExercisePerformance:
+    if item.completed_sets is None:
+        return item
+    sets = sorted(item.completed_sets, key=lambda value: value.set_number)
+    timed = "초" in exercise.reps
+    if any((value.reps_completed if timed else value.duration_seconds) is not None for value in sets):
+        raise CoachValidationError("workout_set_measure_invalid")
+    loads = {value.load_kg for value in sets}
+    reps = [value.reps_completed for value in sets if value.reps_completed is not None]
+    # A single heavy set or a partial entry should not set the load for an entire exercise.
+    return item.model_copy(update={
+        "completed_sets": sets,
+        "load_kg": next(iter(loads)) if len(loads) == 1 else None,
+        "reps_completed": min(reps) if len(reps) == len(sets) else None,
+    })
+
+
+def _workout_volume(item: ExercisePerformance) -> float:
+    if item.completed_sets is not None:
+        return sum((value.reps_completed or 0) * (value.load_kg or 0) for value in item.completed_sets)
+    return item.sets_completed * (item.reps_completed or 0) * (item.load_kg or 0)
+
+
 def workout_history(profile_id: str, *, repository: CoachRepository, limit: int = 6) -> WorkoutHistoryResponse:
     require_profile(profile_id, repository)
     plan = repository.get_workout_plan(profile_id)
@@ -287,19 +318,14 @@ def workout_history(profile_id: str, *, repository: CoachRepository, limit: int 
             session_rpe=session.session_rpe,
             completed=session.completed,
             exercise_count=len(session.completed_exercise_ids),
-            total_volume_kg=round(
-                sum(
-                    item.sets_completed * (item.reps_completed or 0) * (item.load_kg or 0)
-                    for item in session.exercise_performance
-                ),
-                1,
-            ),
+            sets_completed=sum(item.sets_completed for item in session.exercise_performance),
+            total_volume_kg=round(sum(_workout_volume(item) for item in session.exercise_performance), 1),
         )
         for session in reversed(sessions[-limit:])
     ]
     summary = "첫 운동을 기록하면 최근 수행과 볼륨 변화가 여기에 쌓여요."
     if items:
-        summary = f"최근 {len(items)}회 운동을 기록했어요. 마지막 세션 체감 강도는 RPE {items[0].session_rpe}였어요."
+        summary = f"최근 {len(items)}회 운동을 기록했어요."
     return WorkoutHistoryResponse(profile_id=profile_id, total_sessions=len(sessions), sessions=items, summary=summary)
 
 
@@ -790,6 +816,7 @@ def _update_workout_recommendations(
                             reps_completed=performance.reps_completed,
                             load_kg=performance.load_kg,
                             effort=performance.effort,
+                            completed_sets=performance.completed_sets,
                             performed_on=payload.performed_on,
                         ),
                         "progression_action": action,
@@ -807,7 +834,7 @@ def _next_exercise_target(
     exercise: WorkoutExercise,
     performance: ExercisePerformance,
     *,
-    session_rpe: int,
+    session_rpe: int | None,
     prior_sessions: list[WorkoutSessionResponse],
     recovery_adjusted: bool,
 ) -> tuple[str, float | None, int | None, str]:
@@ -831,7 +858,7 @@ def _next_exercise_target(
             "최근 회복 기록이 낮아 이번에는 증량하지 않고 같은 강도에서 동작 품질을 확인해요.",
         )
 
-    if performance.effort == "hard" or session_rpe >= 9 or reps < lower:
+    if performance.effort == "hard" or (session_rpe is not None and session_rpe >= 9) or reps < lower:
         if performance.effort == "hard" and reps < lower:
             increment = _load_increment_kg(exercise.name)
             reduction = _round_up_to_increment(max(increment, load * 0.05), increment)
@@ -850,7 +877,7 @@ def _next_exercise_target(
         )
 
     reached_top = performance.sets_completed >= exercise.sets and reps >= upper
-    prior_top = _has_prior_top_set(exercise.id, upper, prior_sessions)
+    prior_top = _has_prior_top_set(exercise.id, upper, prior_sessions, load if performance.completed_sets is not None else None)
     if reached_top and (performance.effort == "easy" or prior_top):
         increment = _load_increment_kg(exercise.name)
         increase = _round_up_to_increment(max(increment, load * 0.025), increment)
@@ -887,11 +914,15 @@ def _parse_rep_range(value: str) -> tuple[int, int] | None:
     return lower, upper
 
 
-def _has_prior_top_set(exercise_id: str, upper_reps: int, sessions: list[WorkoutSessionResponse]) -> bool:
+def _has_prior_top_set(exercise_id: str, upper_reps: int, sessions: list[WorkoutSessionResponse], load: float | None) -> bool:
     for session in reversed(sessions):
         for item in session.exercise_performance:
             if item.exercise_id == exercise_id:
-                return bool(item.reps_completed is not None and item.reps_completed >= upper_reps and item.effort != "hard")
+                return bool(
+                    item.reps_completed is not None and item.reps_completed >= upper_reps and item.effort != "hard"
+                    and (load is None or item.load_kg == load)
+                    and (session.session_rpe is None or session.session_rpe < 9)
+                )
     return False
 
 

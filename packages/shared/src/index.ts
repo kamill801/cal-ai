@@ -666,11 +666,29 @@ export interface WorkoutExercisePerformanceSnapshot {
   setsCompleted: number;
   repsCompleted?: number;
   loadKg?: number;
-  effort: WorkoutEffort;
+  effort?: WorkoutEffort;
+  completedSets?: WorkoutSetLog[];
   performedOn: string;
 }
 
 export type WorkoutEffort = "easy" | "on_target" | "hard";
+
+export interface WorkoutSetLog {
+  setNumber: number;
+  repsCompleted?: number;
+  durationSeconds?: number;
+  loadKg?: number;
+}
+
+export interface WorkoutSessionInput {
+  planId: string;
+  workoutDayId: string;
+  performedOn: string;
+  durationMinutes: number;
+  completedExerciseIds: string[];
+  exercisePerformance: WorkoutExercisePerformance[];
+  sessionRpe?: number;
+}
 
 export interface WorkoutDay {
   id: string;
@@ -701,7 +719,7 @@ export interface WorkoutSession {
   durationMinutes: number;
   completedExerciseIds: string[];
   exercisePerformance: WorkoutExercisePerformance[];
-  sessionRpe: number;
+  sessionRpe?: number;
   completed: boolean;
   feedback: string;
   createdAt: string;
@@ -712,7 +730,8 @@ export interface WorkoutExercisePerformance {
   setsCompleted: number;
   repsCompleted?: number;
   loadKg?: number;
-  effort: WorkoutEffort;
+  effort?: WorkoutEffort;
+  completedSets?: WorkoutSetLog[];
 }
 
 export interface WorkoutHistoryItem {
@@ -720,9 +739,10 @@ export interface WorkoutHistoryItem {
   performedOn: string;
   workoutTitle: string;
   durationMinutes: number;
-  sessionRpe: number;
+  sessionRpe?: number;
   completed: boolean;
   exerciseCount: number;
+  setsCompleted?: number;
   totalVolumeKg: number;
 }
 
@@ -836,13 +856,20 @@ export interface ApiBodyCheckIn {
   created_at: string;
 }
 
+interface ApiWorkoutSetLog {
+  set_number: number;
+  reps_completed?: number | null;
+  duration_seconds?: number | null;
+  load_kg?: number | null;
+}
+
 export interface ApiWorkoutPlan {
   id: string;
   profile_id: string;
   goal_type: GoalType;
   days_per_week: number;
   session_minutes: number;
-  days: { id: string; title: string; focus: string; exercises: { id: string; name: string; sets: number; reps: string; target_rir: number; rest_seconds: number; rationale: string; last_performance?: { sets_completed: number; reps_completed?: number | null; load_kg?: number | null; effort: WorkoutEffort; performed_on: string } | null; progression_action?: WorkoutExercise["progressionAction"]; recommended_load_kg?: number | null; recommended_reps?: number | null; recommendation_reason?: string }[] }[];
+  days: { id: string; title: string; focus: string; exercises: { id: string; name: string; sets: number; reps: string; target_rir: number; rest_seconds: number; rationale: string; last_performance?: { sets_completed: number; reps_completed?: number | null; load_kg?: number | null; effort?: WorkoutEffort | null; completed_sets?: ApiWorkoutSetLog[] | null; performed_on: string } | null; progression_action?: WorkoutExercise["progressionAction"]; recommended_load_kg?: number | null; recommended_reps?: number | null; recommendation_reason?: string }[] }[];
   personalization_basis: string[];
   progression_rule: string;
   safety_note: string;
@@ -862,9 +889,10 @@ export interface ApiWorkoutSession {
     sets_completed: number;
     reps_completed?: number | null;
     load_kg?: number | null;
-    effort?: WorkoutEffort;
+    effort?: WorkoutEffort | null;
+    completed_sets?: ApiWorkoutSetLog[] | null;
   }>;
-  session_rpe: number;
+  session_rpe?: number | null;
   completed: boolean;
   feedback: string;
   created_at: string;
@@ -878,9 +906,10 @@ export interface ApiWorkoutHistory {
     performed_on: string;
     workout_title: string;
     duration_minutes: number;
-    session_rpe: number;
+    session_rpe?: number | null;
     completed: boolean;
     exercise_count: number;
+    sets_completed?: number;
     total_volume_kg: number;
   }>;
   summary: string;
@@ -1031,7 +1060,8 @@ export function mapApiWorkoutPlan(value: ApiWorkoutPlan): WorkoutPlan {
               setsCompleted: exercise.last_performance.sets_completed,
               repsCompleted: exercise.last_performance.reps_completed ?? undefined,
               loadKg: exercise.last_performance.load_kg ?? undefined,
-              effort: exercise.last_performance.effort,
+              effort: exercise.last_performance.effort ?? undefined,
+              completedSets: exercise.last_performance.completed_sets?.map(mapApiWorkoutSet),
               performedOn: exercise.last_performance.performed_on
             }
           : undefined,
@@ -1062,12 +1092,22 @@ export function mapApiWorkoutSession(value: ApiWorkoutSession): WorkoutSession {
       setsCompleted: item.sets_completed,
       repsCompleted: item.reps_completed ?? undefined,
       loadKg: item.load_kg ?? undefined,
-      effort: item.effort ?? "on_target"
+      effort: item.effort ?? undefined,
+      completedSets: item.completed_sets?.map(mapApiWorkoutSet)
     })),
-    sessionRpe: value.session_rpe,
+    sessionRpe: value.session_rpe ?? undefined,
     completed: value.completed,
     feedback: value.feedback,
     createdAt: value.created_at
+  };
+}
+
+function mapApiWorkoutSet(value: ApiWorkoutSetLog): WorkoutSetLog {
+  return {
+    setNumber: value.set_number,
+    repsCompleted: value.reps_completed ?? undefined,
+    durationSeconds: value.duration_seconds ?? undefined,
+    loadKg: value.load_kg ?? undefined
   };
 }
 
@@ -1080,9 +1120,10 @@ export function mapApiWorkoutHistory(value: ApiWorkoutHistory): WorkoutHistory {
       performedOn: session.performed_on,
       workoutTitle: session.workout_title,
       durationMinutes: session.duration_minutes,
-      sessionRpe: session.session_rpe,
+      sessionRpe: session.session_rpe ?? undefined,
       completed: session.completed,
       exerciseCount: session.exercise_count,
+      setsCompleted: session.sets_completed,
       totalVolumeKg: session.total_volume_kg
     })),
     summary: value.summary

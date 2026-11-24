@@ -112,7 +112,7 @@ test("an age restriction during profile discovery also reaches account controls"
   assert.match(text(context.renderRecovery()), /개인정보와 계정 관리/);
 });
 
-const workout = { plan: { id: "plan-a" }, workoutDayId: "day-a", durationMinutes: 30, completedExerciseIds: ["squat"], exercisePerformance: [], sessionRpe: 7 };
+const workout = { planId: "plan-a", workoutDayId: "day-a", durationMinutes: 30, completedExerciseIds: ["squat"], exercisePerformance: [], sessionRpe: 7 };
 
 test("confirmed workout save survives refresh failure and retries only reads", async () => {
   const { context, calls } = harness();
@@ -126,12 +126,12 @@ test("confirmed workout save survives refresh failure and retries only reads", a
   assert.equal(context.savedWorkoutSessionId, "saved-session", "acknowledge the POST before waiting for refresh");
   assert.equal(context.workoutRefreshPending, true);
   rejectRefresh(new Error("offline refresh"));
-  await saving;
+  assert.equal(await saving, true, "a confirmed POST is successful even if its refresh failed");
   assert.equal(calls.posts, 1);
   assert.equal(context.workoutRefreshPending, true);
   assert.equal(context.coachError.code, "workout_saved_refresh_failed");
   assert.equal(context.coachError.retryable, false);
-  await context.completeWorkout(workout);
+  assert.equal(await context.completeWorkout(workout), false);
   assert.equal(calls.posts, 1, "a pending refresh must not resubmit a confirmed save");
   context.apiClient.getProgress = async () => ({ bodyCheckIns: [] });
   await context.refreshSavedWorkout();

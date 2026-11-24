@@ -24,6 +24,7 @@ const tsconfig = {
     join(repoRoot, "apps/mobile/src/dev/asyncFlowSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/sessionRestoreSmoke.ts"),
     join(repoRoot, "apps/mobile/src/dev/authAccessSmoke.ts"),
+    join(repoRoot, "apps/mobile/src/dev/workoutLogSmoke.ts"),
     join(repoRoot, "apps/mobile/src/api/**/*.ts"),
     join(repoRoot, "apps/mobile/src/flow/**/*.ts"),
     join(repoRoot, "apps/mobile/src/session/profileRestore.ts"),

@@ -579,3 +579,93 @@ def test_low_recovery_blocks_workout_load_increase() -> None:
     assert updated["progression_action"] == "hold"
     assert updated["recommended_load_kg"] == 20
     assert "회복" in updated["recommendation_reason"]
+
+
+def test_set_logging_retains_actual_values_and_skips_effort() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    exercise = day["exercises"][0]
+    sets = [
+        {"set_number": 2, "load_kg": 22.5, "reps_completed": 8},
+        {"set_number": 1, "load_kg": 20, "reps_completed": 10},
+    ]
+    payload = {
+        "plan_id": plan["id"],
+        "workout_day_id": day["id"],
+        "performed_on": "2026-11-24",
+        "duration_minutes": 4,
+        "completed_exercise_ids": [exercise["id"]],
+        "exercise_performance": [{
+            "exercise_id": exercise["id"],
+            "sets_completed": 2,
+            "load_kg": 100,
+            "reps_completed": 99,
+            "completed_sets": sets,
+            "effort": None,
+        }],
+    }
+    route = f"/v1/profiles/{profile_id}/workout-sessions"
+    response = client.post(route, json=payload)
+    assert response.status_code == 200
+    session = response.json()
+    assert session["session_rpe"] is None and not session["completed"]
+    result = session["exercise_performance"][0]
+    assert result["effort"] is None and result["load_kg"] is None
+    assert result["reps_completed"] == 8
+    assert [item["set_number"] for item in result["completed_sets"]] == [1, 2]
+    assert get_coach_repository().list_workout_sessions(profile_id)[0].model_dump() == session
+    updated = client.get(f"/v1/profiles/{profile_id}/workout-plan").json()["days"][0]["exercises"][0]
+    assert updated["last_performance"]["completed_sets"] == result["completed_sets"]
+    assert updated["progression_action"] != "increase"
+    history = client.get(f"/v1/profiles/{profile_id}/workout-history").json()
+    assert "RPE" not in history["summary"]
+    assert history["sessions"][0]["session_rpe"] is None
+    assert history["sessions"][0]["sets_completed"] == 2
+    assert history["sessions"][0]["total_volume_kg"] == 380
+
+    payload["exercise_performance"][0]["completed_sets"] = [sets[0], sets[0]]
+    assert client.post(route, json=payload).status_code == 422
+    payload["exercise_performance"][0]["completed_sets"] = [{"set_number": 1, "duration_seconds": 45}]
+    payload["exercise_performance"][0]["sets_completed"] = 1
+    invalid = client.post(route, json=payload)
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "workout_set_measure_invalid"
+    assert len(get_coach_repository().list_workout_sessions(profile_id)) == 1
+
+
+def test_detailed_workouts_use_set_completion_and_only_increase_at_consistent_load() -> None:
+    profile_id = _create_profile()
+    plan = client.post(f"/v1/profiles/{profile_id}/workout-plans/generate").json()
+    day = plan["days"][0]
+    route = f"/v1/profiles/{profile_id}/workout-sessions"
+    entries = []
+    for exercise in day["exercises"]:
+        timed = "초" in exercise["reps"]
+        entries.append({
+            "exercise_id": exercise["id"],
+            "sets_completed": 1,
+            "completed_sets": [{"set_number": 1, **({"duration_seconds": 30} if timed else {"load_kg": 20, "reps_completed": 20})}],
+            "effort": "easy",
+        })
+    payload = {
+        "plan_id": plan["id"],
+        "workout_day_id": day["id"],
+        "performed_on": "2026-11-24",
+        "duration_minutes": 28,
+        "completed_exercise_ids": [exercise["id"] for exercise in day["exercises"]],
+        "exercise_performance": entries,
+        "session_rpe": 9,
+    }
+    partial = client.post(route, json=payload)
+    assert partial.status_code == 200 and partial.json()["completed"] is False
+    assert client.get(f"/v1/profiles/{profile_id}/dashboard/today").json()["training"]["completed_sessions"] == 0
+
+    for entry, exercise in zip(entries, day["exercises"]):
+        entry["sets_completed"] = exercise["sets"]
+        entry["completed_sets"] = [{**entry["completed_sets"][0], "set_number": i + 1} for i in range(exercise["sets"])]
+    complete = client.post(route, json=payload)
+    assert complete.status_code == 200 and complete.json()["completed"] is True
+    updated = client.get(f"/v1/profiles/{profile_id}/workout-plan").json()["days"][0]["exercises"][0]
+    assert updated["progression_action"] == "hold"
+    assert "체감 강도" in updated["recommendation_reason"]

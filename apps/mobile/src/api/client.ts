@@ -69,7 +69,7 @@ import {
   type WeeklyCoachReport,
   type WellnessCheckIn,
   type WorkoutPlan,
-  type WorkoutEffort,
+  type WorkoutSessionInput,
   type WorkoutHistory,
   type WorkoutSession
 } from "@cal-ai/shared";
@@ -147,7 +147,7 @@ export interface CalAiApiClient {
   createBodyCheckIn(profileId: string, input: { capturedOn: string; imageUploadId: string; view: "front" | "side" | "back"; consentToAiAnalysis: true }): Promise<BodyCheckIn>;
   generateWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
   getWorkoutPlan(profileId: string): Promise<WorkoutPlan>;
-  logWorkoutSession(profileId: string, input: { planId: string; workoutDayId: string; performedOn: string; durationMinutes: number; completedExerciseIds: string[]; exercisePerformance: { exerciseId: string; setsCompleted: number; repsCompleted?: number; loadKg?: number; effort: WorkoutEffort }[]; sessionRpe: number }): Promise<WorkoutSession>;
+  logWorkoutSession(profileId: string, input: WorkoutSessionInput): Promise<WorkoutSession>;
   getWorkoutHistory(profileId: string, limit?: number): Promise<WorkoutHistory>;
   getProgress(profileId: string): Promise<ProgressSummary>;
   getWeeklyCoach(profileId: string): Promise<WeeklyCoachReport>;
@@ -385,9 +385,15 @@ export function createCalAiApiClient(baseUrl = getApiBaseUrl(), accessToken?: st
               sets_completed: item.setsCompleted,
               reps_completed: item.repsCompleted ?? null,
               load_kg: item.loadKg ?? null,
-              effort: item.effort
+              effort: item.effort ?? null,
+              completed_sets: item.completedSets?.map((set) => ({
+                set_number: set.setNumber,
+                reps_completed: set.repsCompleted,
+                duration_seconds: set.durationSeconds,
+                load_kg: set.loadKg
+              }))
             })),
-            session_rpe: input.sessionRpe
+            session_rpe: input.sessionRpe ?? null
           }
         })
       );

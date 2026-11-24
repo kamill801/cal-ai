@@ -449,6 +449,8 @@ def _validation_error(exc: CoachValidationError) -> HTTPException:
     code = str(exc)
     messages = {
         "workout_performance_not_completed": "수행값은 완료로 체크한 운동에만 기록할 수 있어요.",
+        "workout_performance_duplicate": "같은 종목이 두 번 포함되어 있어요.",
+        "workout_set_measure_invalid": "이 종목의 기록 단위(횟수 또는 초)를 다시 확인해 주세요.",
     }
     return _error(422, code, messages.get(code, "입력값을 다시 확인해 주세요."), False, "validation")
 

@@ -9,8 +9,10 @@ async function main() {
   const { runApiClientSmoke } = require("./apiClientSmoke") as { runApiClientSmoke: () => Promise<void> };
   const { runSessionRestoreSmoke } = require("./sessionRestoreSmoke") as { runSessionRestoreSmoke: () => void };
   const { runAuthAccessSmoke } = require("./authAccessSmoke") as { runAuthAccessSmoke: () => Promise<void> };
+  const { runWorkoutLogSmoke } = require("./workoutLogSmoke") as { runWorkoutLogSmoke: () => void };
   runAsyncFlowSmoke();
   runSessionRestoreSmoke();
+  runWorkoutLogSmoke();
   await runApiClientSmoke();
   await runAuthAccessSmoke();
   console.log("mobile async/API smoke passed");

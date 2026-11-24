@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas import DashboardMeal, NutritionTarget, StoredOnboardingData
 
@@ -118,11 +118,25 @@ class BodyCheckInResponse(BaseModel):
     created_at: str
 
 
+class WorkoutSetLog(BaseModel):
+    set_number: int = Field(ge=1, le=20)
+    reps_completed: int | None = Field(default=None, ge=1, le=100)
+    duration_seconds: int | None = Field(default=None, ge=1, le=600)
+    load_kg: float | None = Field(default=None, ge=0, le=500)
+
+    @model_validator(mode="after")
+    def validate_measure(self) -> WorkoutSetLog:
+        if self.reps_completed is not None and self.duration_seconds is not None:
+            raise ValueError("A set can record repetitions or seconds, not both.")
+        return self
+
+
 class ExercisePerformanceSnapshot(BaseModel):
     sets_completed: int = Field(ge=0, le=20)
     reps_completed: int | None = Field(default=None, ge=0, le=100)
     load_kg: float | None = Field(default=None, ge=0, le=500)
-    effort: Literal["easy", "on_target", "hard"]
+    effort: Literal["easy", "on_target", "hard"] | None = None
+    completed_sets: list[WorkoutSetLog] | None = Field(default=None, max_length=20)
     performed_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -166,17 +180,26 @@ class ExercisePerformance(BaseModel):
     sets_completed: int = Field(ge=0, le=20)
     reps_completed: int | None = Field(default=None, ge=0, le=100)
     load_kg: float | None = Field(default=None, ge=0, le=500)
-    effort: Literal["easy", "on_target", "hard"] = "on_target"
+    effort: Literal["easy", "on_target", "hard"] | None = "on_target"
+    completed_sets: list[WorkoutSetLog] | None = Field(default=None, min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def validate_set_count(self) -> ExercisePerformance:
+        if self.completed_sets is not None:
+            numbers = {item.set_number for item in self.completed_sets}
+            if len(numbers) != len(self.completed_sets) or len(numbers) != self.sets_completed:
+                raise ValueError("Set numbers must be unique and match sets completed.")
+        return self
 
 
 class WorkoutSessionRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=180)
     workout_day_id: str = Field(min_length=1, max_length=180)
     performed_on: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    duration_minutes: int = Field(ge=5, le=240)
+    duration_minutes: int = Field(ge=1, le=240)
     completed_exercise_ids: list[str]
     exercise_performance: list[ExercisePerformance] = Field(default_factory=list)
-    session_rpe: int = Field(ge=1, le=10)
+    session_rpe: int | None = Field(default=None, ge=1, le=10)
 
 
 class WorkoutSessionResponse(WorkoutSessionRequest):
@@ -192,9 +215,10 @@ class WorkoutHistoryItem(BaseModel):
     performed_on: str
     workout_title: str
     duration_minutes: int
-    session_rpe: int
+    session_rpe: int | None = None
     completed: bool
     exercise_count: int = Field(ge=0)
+    sets_completed: int = Field(default=0, ge=0)
     total_volume_kg: float = Field(ge=0)
 
 
