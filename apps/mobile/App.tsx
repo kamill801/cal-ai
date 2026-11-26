@@ -1,7 +1,7 @@
 import type { BodyCheckIn, CoachDashboard, NutritionTarget, OnboardingRequest, OnboardingResponse, PrivacyConsentStatus, ProgressSummary, WeeklyCoachReport, WorkoutHistory, WorkoutPlan, WorkoutSessionInput } from "@cal-ai/shared";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Platform, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Dimensions, Platform, SafeAreaView, StatusBar as NativeStatusBar, StyleSheet, Text, TouchableOpacity, View, useWindowDimensions } from "react-native";
 import { ApiClientError, createCalAiApiClient, type BillingStatus } from "./src/api";
 import { createAnalyticsEventClient, createForegroundHeartbeat, type AnalyticsEventName, type AnalyticsProperties } from "./src/analytics";
 import { useAuthSession, type AuthSessionState } from "./src/auth/useAuthSession";
@@ -40,6 +40,10 @@ export default function App() {
 }
 
 function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
+  const { height: windowHeight } = useWindowDimensions();
+  const androidSystemBarSpace = Platform.OS === "android" && Math.abs(windowHeight - Dimensions.get("screen").height) < 1
+    ? { paddingTop: NativeStatusBar.currentHeight ?? 24, paddingBottom: 48 }
+    : undefined;
   const [state, dispatch] = useReducer(scanToSaveReducer, undefined, createInitialScanToSaveState);
   const [appScreen, setAppScreen] = useState<AppScreen>("onboarding");
   const [onboardingStatus, setOnboardingStatus] = useState<RequestStatus>("idle");
@@ -1065,8 +1069,9 @@ function OwnerApp({ auth, scope }: { auth: AuthSessionState; scope: string }) {
     );
   }
 
+  const quietMainScreen = state.screen === "today" && (appScreen === "today" || appScreen === "training" || appScreen === "progress");
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, quietMainScreen && styles.quietSafeArea, androidSystemBarSpace]}>
       <StatusBar style="dark" />
       <View style={styles.content}>
       {state.screen === "today" && appScreen === "onboarding" ? (
@@ -1208,6 +1213,7 @@ function showImagePickerError(error: unknown): void {
 }
 
 const styles = StyleSheet.create({
+  quietSafeArea: { backgroundColor: colors.surface },
   safeArea: {
     flex: 1,
     backgroundColor: colors.canvasWarm,

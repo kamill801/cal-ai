@@ -262,6 +262,14 @@ class TargetAdjustmentSuggestion(BaseModel):
     requires_confirmation: bool
 
 
+MAX_PROGRESS_WEIGHT_DAYS = 90
+
+
+class ProgressWeightPoint(BaseModel):
+    logged_on: date
+    weight_kg: float = Field(ge=30, le=250)
+
+
 class ProgressResponse(BaseModel):
     profile_id: str
     latest_weight_kg: float | None
@@ -270,6 +278,9 @@ class ProgressResponse(BaseModel):
     body_check_ins: list[BodyCheckInResponse]
     workouts_completed: int
     target_adjustment: TargetAdjustmentSuggestion
+    weight_history: list[ProgressWeightPoint] = Field(
+        default_factory=list, max_length=MAX_PROGRESS_WEIGHT_DAYS
+    )
 
 
 class WeeklyCoachEvidence(BaseModel):

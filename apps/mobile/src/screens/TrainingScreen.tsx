@@ -1,13 +1,12 @@
 import type { CoachDashboard, WorkoutDay, WorkoutEffort, WorkoutExercise, WorkoutHistory, WorkoutPlan, WorkoutSessionInput } from "@cal-ai/shared";
 import { Check, ChevronDown, ChevronUp, Minus, Plus, Timer, X } from "lucide-react-native";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Keyboard, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { CoachCard } from "../components/CoachCard";
 import { FlowStatusCard } from "../components/FlowStatusCard";
 import { TrustBuddy } from "../components/TrustBuddy";
 import type { FlowError, RequestStatus } from "../flow/scanToSaveFlow";
 import { buildWorkoutPerformance, createSetDraft, effortOptions, isTimedExercise, maxWorkoutSets, parseSetDraft, restSecondsRemaining, workoutIntensityLabel, type SetDraft } from "../flow/workoutLog";
-import { colors, radii, spacing, typography } from "../theme";
+import { colors, freshGreen, radii, spacing, typography } from "../theme";
 
 interface TrainingProps {
   readonly dashboard?: CoachDashboard;
@@ -165,6 +164,7 @@ export function TrainingScreen({ dashboard, plan, history, status, error, visibl
   const proteinGoal = dashboard?.nutrition.target.proteinG ?? 0;
   const protein = dashboard?.nutrition.consumed.proteinG ?? 0;
   const proteinPercent = proteinGoal ? Math.min(100, Math.round(protein / proteinGoal * 100)) : 0;
+  const restTime = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
 
   return (
     <View style={styles.screen}>
@@ -191,34 +191,41 @@ export function TrainingScreen({ dashboard, plan, history, status, error, visibl
         ) : null}
         {day && !session ? <PrimaryButton label="운동 시작" disabled={status === "loading" || refreshPending} onPress={startWorkout} /> : null}
 
-        {day?.exercises.map((exercise) => (
-          <ExerciseEntry key={`${session?.startedAt ?? "preview"}:${exercise.id}`} exercise={exercise} sets={drafts[exercise.id] ?? []}
-            active={session !== undefined} expanded={openExercise === exercise.id} effort={efforts[exercise.id]}
-            onExpand={() => setOpenExercise((value) => value === exercise.id ? undefined : exercise.id)}
-            onUpdate={(index, patch) => updateSet(exercise.id, index, patch)}
-            onCheck={(index) => toggleSet(exercise, index)}
-            onSetCount={(add) => changeSetCount(exercise, add)}
-            onEffort={(effort) => setEfforts((value) => ({ ...value, [exercise.id]: value[exercise.id] === effort ? undefined : effort }))}
-          />
+        {day?.exercises.map((exercise, index) => (
+          <Fragment key={`${session?.startedAt ?? "preview"}:${exercise.id}`}>
+            {session && index === 1 && openExercise === day.exercises[0]?.id ? <Text style={styles.nextLabel}>다음 종목</Text> : null}
+            <ExerciseEntry exercise={exercise} sets={drafts[exercise.id] ?? []}
+              active={session !== undefined} expanded={openExercise === exercise.id} effort={efforts[exercise.id]}
+              onExpand={() => setOpenExercise((value) => value === exercise.id ? undefined : exercise.id)}
+              onUpdate={(index, patch) => updateSet(exercise.id, index, patch)}
+              onCheck={(index) => toggleSet(exercise, index)}
+              onSetCount={(add) => changeSetCount(exercise, add)}
+              onEffort={(effort) => setEfforts((value) => ({ ...value, [exercise.id]: value[exercise.id] === effort ? undefined : effort }))}
+            />
+          </Fragment>
         ))}
 
         {!session && plan ? (
-          <CoachCard title="이 계획에 반영한 것">
+          <View style={styles.detailSection}>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>이 계획에 반영한 것</Text>
             {plan.personalizationBasis.map((basis) => <Text key={basis} style={styles.body}>{basis}</Text>)}
             <Text style={styles.caption}>{plan.progressionRule}</Text>
             <Text style={styles.caption}>{plan.safetyNote}</Text>
-          </CoachCard>
+          </View>
         ) : null}
         {!session && proteinGoal > 0 ? (
-          <CoachCard title={`오늘 단백질 ${protein} / ${proteinGoal}g`} tone="leaf">
+          <View style={styles.detailSection}>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>{`오늘 단백질 ${protein} / ${proteinGoal}g`}</Text>
             <View style={styles.progressTrack} accessible accessibilityRole="progressbar" accessibilityLabel="오늘 단백질 섭취 진행률" accessibilityValue={{ min: 0, max: 100, now: proteinPercent }}>
               <View style={[styles.progressFill, { width: `${proteinPercent}%` }]} />
             </View>
             <Text style={styles.body}>{dashboard?.nutrition.guidance}</Text>
-          </CoachCard>
+          </View>
         ) : null}
         {!session && plan ? (
-          <CoachCard title="최근 운동" eyebrow={`${history?.totalSessions ?? 0}회 기록`}>
+          <View style={styles.detailSection}>
+            <Text style={styles.caption}>{`${history?.totalSessions ?? 0}회 기록`}</Text>
+            <Text accessibilityRole="header" style={styles.sectionTitle}>최근 운동</Text>
             {!history?.sessions.length ? <Text style={styles.caption}>아직 저장한 운동이 없어요.</Text> : null}
             {history?.sessions.slice(0, 3).map((item) => (
               <View key={item.sessionId} style={styles.historyRow}>
@@ -232,22 +239,24 @@ export function TrainingScreen({ dashboard, plan, history, status, error, visibl
                 </View>
               </View>
             ))}
-          </CoachCard>
+          </View>
         ) : null}
       </ScrollView>
 
       {session ? (
-        <View style={styles.footer}>
+        <View style={[styles.footer, rest && styles.footerResting]}>
           {rest ? (
             <View style={styles.restBanner}>
-              <Timer size={18} color={colors.leaf} />
-              <Text style={[styles.strong, styles.headerCopy]}>{secondsLeft ? `휴식 ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}` : "휴식 완료"}</Text>
-              <TouchableOpacity style={styles.iconButton} onPress={() => setRest(undefined)} accessibilityRole="button" accessibilityLabel={secondsLeft ? "휴식 건너뛰기" : "휴식 안내 닫기"}>
-                <X size={19} color={colors.ink} />
+              <Timer size={18} color={freshGreen.ink} />
+              <View style={styles.timerCopy} accessible accessibilityLabel={secondsLeft ? `휴식 ${restTime}` : "휴식 완료"}>
+                {secondsLeft ? <><Text style={styles.timerLabel}>휴식</Text><Text style={styles.timerValue}>{restTime}</Text></> : <Text style={styles.eyebrow}>휴식 완료</Text>}
+              </View>
+              <TouchableOpacity style={styles.restControl} onPress={() => setRest(undefined)} accessibilityRole="button" accessibilityLabel={secondsLeft ? "휴식 건너뛰기" : "휴식 안내 닫기"}>
+                <Text style={styles.eyebrow}>{secondsLeft ? "건너뛰기" : "닫기"}</Text>
               </TouchableOpacity>
             </View>
           ) : null}
-          <PrimaryButton label="운동 끝내기" onPress={finishWorkout} disabled={completedSets === 0 || hasInvalidSet} />
+          <View style={rest ? styles.compactFinish : styles.fullFinish}><PrimaryButton compact={!!rest} label="운동 끝내기" onPress={finishWorkout} disabled={completedSets === 0 || hasInvalidSet} /></View>
         </View>
       ) : null}
 
@@ -316,19 +325,21 @@ function ExerciseEntry({ exercise, sets, active, expanded, effort, onExpand, onU
   const timed = isTimedExercise(exercise);
   const last = exercise.lastPerformance;
   const count = sets.filter((item) => item.completed).length;
+  const total = active ? sets.length : exercise.sets;
+  const nextSetIndex = sets.findIndex((item) => !item.completed);
   const [showEffort, setShowEffort] = useState(false);
   const unit = timed ? (exercise.reps.includes("/측") ? "한쪽 초" : "시간(초)") : (exercise.reps.includes("/측") ? "한쪽 횟수" : "횟수");
   const target = [!timed && exercise.recommendedLoadKg !== undefined ? `${exercise.recommendedLoadKg}kg` : undefined,
     !timed && exercise.recommendedReps !== undefined ? `${exercise.recommendedReps}회` : exercise.reps].filter(Boolean).join(" × ");
   const selectedEffort = effortOptions.find((option) => option.key === effort)?.score;
   return (
-    <View style={[styles.exercise, expanded && styles.exerciseExpanded]}>
-      <TouchableOpacity onPress={onExpand} accessibilityRole="button" aria-expanded={expanded} style={styles.exerciseHeader}>
+    <View style={styles.exercise}>
+      <TouchableOpacity onPress={onExpand} accessibilityRole="button" aria-expanded={expanded} style={[styles.exerciseHeader, expanded && styles.exerciseHeaderExpanded]}>
         <View style={styles.headerCopy}>
-          <Text style={styles.strong}>{exercise.name}</Text>
-          <Text style={styles.caption}>{exercise.sets}세트 · {target}</Text>
+          <Text style={expanded ? styles.sectionTitle : styles.strong}>{exercise.name}</Text>
+          {expanded || !active ? <Text style={styles.caption}>{total}세트 · {target}</Text> : null}
         </View>
-        {active ? <Text style={count >= exercise.sets ? styles.eyebrow : styles.caption}>{count}/{exercise.sets}</Text> : null}
+        {active ? <Text style={count === total ? styles.eyebrow : styles.caption}>{count}/{total}</Text> : null}
         {expanded ? <ChevronUp size={19} color={colors.muted} /> : <ChevronDown size={19} color={colors.muted} />}
       </TouchableOpacity>
       {expanded ? (
@@ -340,7 +351,7 @@ function ExerciseEntry({ exercise, sets, active, expanded, effort, onExpand, onU
           ) : null}
           {active ? (
             <>
-              <View style={styles.setRow}>
+              <View style={[styles.setRow, styles.tableHeader]}>
                 <Text style={[styles.columnLabel, styles.setNumber]}>세트</Text>
                 <Text style={[styles.columnLabel, styles.previousColumn]}>지난번</Text>
                 {!timed ? <Text style={[styles.columnLabel, styles.inputColumn]}>무게(kg)</Text> : null}
@@ -353,15 +364,15 @@ function ExerciseEntry({ exercise, sets, active, expanded, effort, onExpand, onU
                 const invalid = parseSetDraft(item, index, timed) === null;
                 return (
                   <View key={index}>
-                    <View style={[styles.setRow, styles.setValues, item.completed && styles.checkedRow]}>
+                    <View style={[styles.setRow, styles.setValues, index === nextSetIndex && styles.nextSetRow]}>
                       <Text style={[styles.strong, styles.setNumber]}>{index + 1}</Text>
                       <Text style={[styles.previous, styles.previousColumn]}>{previousText || "—"}</Text>
                       {!timed ? (
-                        <View style={styles.inputColumn}><SetInput label={`${exercise.name} ${index + 1}세트 무게(kg)`} decimal value={item.load} onChange={(load) => onUpdate(index, { load })} /></View>
+                        <View style={styles.inputColumn}><SetInput label={`${exercise.name} ${index + 1}세트 무게(kg)`} completed={item.completed} decimal value={item.load} onChange={(load) => onUpdate(index, { load })} /></View>
                       ) : null}
-                      <View style={styles.inputColumn}><SetInput label={`${exercise.name} ${index + 1}세트 ${unit}`} value={item.amount} onChange={(amount) => onUpdate(index, { amount })} /></View>
-                      <TouchableOpacity accessibilityRole="checkbox" accessibilityLabel={`${exercise.name} ${index + 1}세트 완료`} aria-checked={item.completed} disabled={invalid && !item.completed} onPress={() => onCheck(index)} style={[styles.checkButton, item.completed && styles.checkedButton, invalid && !item.completed && styles.disabled]}>
-                        <Check size={18} strokeWidth={2.5} color={item.completed ? colors.surface : colors.muted} />
+                      <View style={styles.inputColumn}><SetInput label={`${exercise.name} ${index + 1}세트 ${unit}`} completed={item.completed} value={item.amount} onChange={(amount) => onUpdate(index, { amount })} /></View>
+                      <TouchableOpacity accessibilityRole="checkbox" accessibilityLabel={`${exercise.name} ${index + 1}세트 완료`} aria-checked={item.completed} hitSlop={2} disabled={invalid && !item.completed} onPress={() => onCheck(index)} style={[styles.checkButton, item.completed && styles.checkedButton, invalid && !item.completed && styles.disabled]}>
+                        {item.completed ? <Check size={18} strokeWidth={2.5} color={freshGreen.onFill} /> : null}
                       </TouchableOpacity>
                     </View>
                     {invalid ? <Text style={styles.validation}>{timed ? "시간은 1~600초로 입력해 주세요." : "무게는 0~500kg, 횟수는 1~100회로 입력해 주세요."}</Text> : null}
@@ -370,11 +381,11 @@ function ExerciseEntry({ exercise, sets, active, expanded, effort, onExpand, onU
               })}
               <View style={styles.setActions}>
                 <TouchableOpacity style={[styles.textButton, sets.length >= maxWorkoutSets && styles.disabled]} disabled={sets.length >= maxWorkoutSets} accessibilityRole="button" onPress={() => onSetCount(true)}>
-                  <Plus size={16} color={colors.leaf} /><Text style={styles.eyebrow}>세트 추가</Text>
+                  <Plus size={16} color={freshGreen.ink} /><Text style={styles.eyebrow}>세트 추가</Text>
                 </TouchableOpacity>
                 {sets.length > 1 && !sets[sets.length - 1].completed ? (
-                  <TouchableOpacity style={styles.iconButton} accessibilityRole="button" accessibilityLabel="마지막 세트 빼기" onPress={() => onSetCount(false)}>
-                    <Minus size={18} color={colors.muted} />
+                  <TouchableOpacity style={styles.textButton} accessibilityRole="button" accessibilityLabel="마지막 세트 빼기" onPress={() => onSetCount(false)}>
+                    <Minus size={14} color={colors.muted} /><Text style={styles.caption}>마지막 세트 빼기</Text>
                   </TouchableOpacity>
                 ) : null}
                 {count > 0 ? (
@@ -411,66 +422,81 @@ function EffortChoices({ selected, disabled, onSelect }: { readonly selected?: n
   );
 }
 
-function SetInput({ label, value, onChange, decimal, disabled }: { readonly label: string; readonly value: string; readonly onChange: (value: string) => void; readonly decimal?: boolean; readonly disabled?: boolean }) {
-  return <TextInput accessibilityLabel={label} value={value} editable={!disabled} onChangeText={onChange} inputMode={decimal ? "decimal" : "numeric"} selectTextOnFocus placeholder="—" placeholderTextColor={colors.muted} maxLength={decimal ? 8 : 3} style={styles.setInput} />;
+function SetInput({ label, value, onChange, decimal, disabled, completed }: { readonly label: string; readonly value: string; readonly onChange: (value: string) => void; readonly decimal?: boolean; readonly disabled?: boolean; readonly completed?: boolean }) {
+  const [focused, setFocused] = useState(false);
+  return <TextInput accessibilityLabel={label} value={value} editable={!disabled} onChangeText={onChange} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} inputMode={decimal ? "decimal" : "numeric"} selectTextOnFocus placeholder="—" placeholderTextColor={colors.muted} maxLength={decimal ? 8 : 3} style={[styles.setInput, completed && !focused && styles.completedInput, focused && styles.focusedInput]} />;
 }
 
-function PrimaryButton({ label, disabled, onPress }: { readonly label: string; readonly disabled?: boolean; readonly onPress: () => void }) {
+function PrimaryButton({ label, disabled, onPress, compact }: { readonly label: string; readonly disabled?: boolean; readonly onPress: () => void; readonly compact?: boolean }) {
   return (
-    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.primary, disabled && styles.disabled]}>
-      <Text style={styles.primaryText}>{label}</Text>
+    <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.primary, compact && styles.primaryCompact, disabled && styles.disabled]}>
+      <Text style={[styles.primaryText, compact && styles.primaryCompactText]}>{label}</Text>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { gap: spacing.md, padding: spacing.md, paddingBottom: spacing.lg },
-  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.xs, paddingVertical: spacing.sm },
+  screen: { flex: 1, backgroundColor: colors.surface },
+  content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
+  header: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 84, paddingVertical: spacing.md, marginBottom: spacing.sm, borderBottomWidth: 1, borderBottomColor: "#e2e8e7" },
   headerCopy: { flex: 1, minWidth: 0, gap: 2 },
-  eyebrow: { color: colors.leaf, ...typography.caption },
-  title: { color: colors.ink, ...typography.screenTitle },
+  eyebrow: { color: freshGreen.ink, ...typography.caption },
+  title: { color: colors.ink, ...typography.heroTitle },
   sectionTitle: { color: colors.ink, ...typography.sectionTitle },
   body: { color: colors.body, ...typography.body },
   strong: { color: colors.ink, ...typography.bodyStrong },
   caption: { color: colors.muted, ...typography.caption },
-  saved: { color: colors.leaf, ...typography.bodyStrong },
-  exercise: { backgroundColor: colors.surface, borderColor: colors.hairline, borderWidth: 1, borderRadius: 8 },
-  exerciseExpanded: { borderColor: colors.leaf },
-  exerciseHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 64, padding: spacing.md },
-  exerciseBody: { padding: spacing.sm, paddingTop: 0, gap: spacing.xs },
+  saved: { color: freshGreen.ink, ...typography.bodyStrong },
+  detailSection: { gap: spacing.sm, paddingVertical: spacing.lg, borderBottomColor: "#e2e8e7", borderBottomWidth: 1 },
+  nextLabel: { color: colors.muted, ...typography.caption, marginTop: spacing.md },
+  exercise: { borderBottomColor: "#e2e8e7", borderBottomWidth: 1 },
+  exerciseHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 46, paddingVertical: spacing.xs },
+  exerciseHeaderExpanded: { paddingTop: spacing.md },
+  exerciseBody: { gap: spacing.xs },
   setRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  setValues: { minHeight: 48, borderTopWidth: 1, borderTopColor: colors.hairline, paddingVertical: 2 },
-  checkedRow: { backgroundColor: colors.leafTint },
-  columnLabel: { color: colors.muted, ...typography.caption, textAlign: "center" },
+  tableHeader: { minHeight: 30, marginTop: spacing.xs, backgroundColor: "#f1f5f4" },
+  setValues: { minHeight: 49, borderBottomWidth: 1, borderBottomColor: "#e2e8e7", paddingVertical: 2 },
+  nextSetRow: { backgroundColor: freshGreen.tint },
+  columnLabel: { color: colors.muted, fontSize: 11, lineHeight: 15, fontWeight: "700", textAlign: "center" },
   setNumber: { width: 28, textAlign: "center" },
   previousColumn: { flex: 1.2, minWidth: 0, textAlign: "center" },
   inputColumn: { flex: 1, minWidth: 0 },
   checkColumn: { width: 44, textAlign: "center" },
-  previous: { color: colors.body, ...typography.caption },
-  setInput: { minHeight: 44, paddingHorizontal: 3, paddingVertical: 0, borderColor: colors.hairline, borderWidth: 1, borderRadius: 8, backgroundColor: colors.surface, textAlign: "center", color: colors.ink, ...typography.bodyStrong },
-  checkButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 8, borderColor: colors.hairline, borderWidth: 1, backgroundColor: colors.surface },
-  checkedButton: { borderColor: colors.leaf, backgroundColor: colors.leaf },
-  setActions: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs },
+  previous: { color: colors.body, fontSize: 11, lineHeight: 16, fontVariant: ["tabular-nums"] },
+  setInput: { minHeight: 44, paddingHorizontal: 3, paddingVertical: 0, borderColor: "#c8d5cf", borderWidth: 1, borderRadius: 5, backgroundColor: colors.surface, textAlign: "center", color: colors.ink, fontVariant: ["tabular-nums"], ...typography.bodyStrong },
+  completedInput: { borderColor: "transparent", backgroundColor: "transparent" },
+  focusedInput: { borderColor: freshGreen.indicator },
+  checkButton: { width: 40, height: 40, marginHorizontal: 2, alignItems: "center", justifyContent: "center", borderRadius: 5, borderColor: "#aebeba", borderWidth: 1, backgroundColor: colors.surface },
+  checkedButton: { borderColor: freshGreen.indicator, backgroundColor: freshGreen.fill },
+  setActions: { flexDirection: "row", justifyContent: "space-between", flexWrap: "wrap", alignItems: "center", gap: spacing.xs },
   textButton: { minHeight: 44, flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.xs },
   iconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   validation: { color: colors.body, ...typography.caption, paddingVertical: 2 },
-  footer: { paddingHorizontal: spacing.md, paddingVertical: spacing.xs, gap: spacing.xs, backgroundColor: colors.canvas, borderTopWidth: 1, borderTopColor: colors.hairline },
-  restBanner: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.leafTint, borderRadius: 8, paddingLeft: spacing.md },
+  footer: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, gap: spacing.xs, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: "#e2e8e7" },
+  footerResting: { backgroundColor: freshGreen.tint },
+  restBanner: { flexGrow: 1, flexBasis: 155, flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  timerCopy: { flex: 1, minWidth: 0 },
+  timerLabel: { color: colors.muted, fontSize: 11, lineHeight: 14 },
+  timerValue: { color: freshGreen.ink, fontSize: 23, lineHeight: 26, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  restControl: { minHeight: 44, justifyContent: "center", paddingHorizontal: spacing.xs },
+  compactFinish: { flexGrow: 1, flexBasis: 96 },
+  fullFinish: { width: "100%" },
   effortRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
   effortButton: { flexGrow: 1, flexBasis: 80, minHeight: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surface, borderRadius: 8, paddingHorizontal: 4, paddingVertical: spacing.xs },
   effortLabel: { textAlign: "center" },
-  primary: { minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: colors.leaf, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-  primaryText: { color: colors.surface, ...typography.bodyStrong, textAlign: "center" },
+  primary: { minHeight: 48, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: freshGreen.fill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  primaryText: { color: freshGreen.onFill, ...typography.bodyStrong, textAlign: "center" },
+  primaryCompact: { borderRadius: 6, minHeight: 44, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  primaryCompactText: { ...typography.caption },
   disabled: { opacity: 0.48 },
   modalOverlay: { flex: 1, justifyContent: "flex-end", alignItems: "center", backgroundColor: "rgba(22, 33, 26, 0.45)" },
-  finishSheet: { backgroundColor: colors.canvas, width: "100%", maxWidth: 520, maxHeight: "88%", borderTopLeftRadius: radii.control, borderTopRightRadius: radii.control },
+  finishSheet: { backgroundColor: colors.surface, width: "100%", maxWidth: 520, maxHeight: "88%", borderTopLeftRadius: radii.control, borderTopRightRadius: radii.control },
   sheetContent: { padding: spacing.lg, paddingBottom: spacing.xl, gap: spacing.sm },
   sheetHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   finishDuration: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   minutesInput: { width: 92, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: spacing.xs },
   minutesValue: { width: 64 },
   historyRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.hairline, paddingTop: spacing.sm },
-  progressTrack: { height: 8, overflow: "hidden", borderRadius: radii.pill, backgroundColor: colors.leafMuted },
-  progressFill: { height: "100%", borderRadius: radii.pill, backgroundColor: colors.leaf }
+  progressTrack: { height: 8, overflow: "hidden", borderRadius: radii.pill, backgroundColor: freshGreen.track },
+  progressFill: { height: "100%", borderRadius: radii.pill, backgroundColor: freshGreen.indicator }
 });

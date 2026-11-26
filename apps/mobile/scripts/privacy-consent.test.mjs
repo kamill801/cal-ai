@@ -269,7 +269,7 @@ function appHarness(initialStatus, deletionIntent = false) {
   const analytics = { trackEvent: async () => { calls.events += 1; }, clearSession: async () => { calls.clears += 1; await clearSession(); } };
   const apiExports = moduleFrom(resolve(mobile, "src/api/client.ts"));
   const overrides = {
-    react: h.React, "react-native": { ...nativeComponents(), StyleSheet: { create: (value) => value }, Platform: { OS: "web" }, Alert: {} },
+    react: h.React, "react-native": { ...nativeComponents(), StyleSheet: { create: (value) => value }, Platform: { OS: "web" }, Alert: {}, useWindowDimensions: () => ({ width: 390, height: 844 }) },
     "expo-status-bar": { StatusBar: "StatusBar" },
     "./src/api": { ...apiExports, createCalAiApiClient: () => api },
     "./src/analytics": { createAnalyticsEventClient: () => analytics, createForegroundHeartbeat: () => ({ start() { calls.heartbeat += 1; }, stop() {} }) },

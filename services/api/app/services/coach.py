@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from app.coach_schemas import (
@@ -15,11 +15,13 @@ from app.coach_schemas import (
     CoachProfile,
     ExercisePerformance,
     ExercisePerformanceSnapshot,
+    MAX_PROGRESS_WEIGHT_DAYS,
     MealLogHistoryResponse,
     MealLogSummary,
     RepeatMealLogRequest,
     NutritionSnapshot,
     ProgressResponse,
+    ProgressWeightPoint,
     TargetAdjustmentSuggestion,
     TrainingSnapshot,
     WeightLogRequest,
@@ -407,7 +409,27 @@ def progress(
         body_check_ins=repository.list_body_check_ins(profile_id),
         workouts_completed=sum(1 for session in repository.list_workout_sessions(profile_id) if session.completed),
         target_adjustment=_target_adjustment(profile, weights, meal_count),
+        weight_history=_recent_daily_weights(weights),
     )
+
+
+def _recent_daily_weights(weights: list[WeightLogResponse]) -> list[ProgressWeightPoint]:
+    # A UTC+ time zone can already be on tomorrow's calendar date.
+    latest_date = datetime.now(UTC).date() + timedelta(days=1)
+    by_day: dict[date, float] = {}
+    for log in weights:
+        try:
+            logged_on = date.fromisoformat(log.logged_on)
+        except ValueError:
+            continue
+        if logged_on <= latest_date:
+            # The repository returns logs in storage order; same-day updates replace the chart point.
+            by_day[logged_on] = log.weight_kg
+
+    return [
+        ProgressWeightPoint(logged_on=day, weight_kg=by_day[day])
+        for day in sorted(by_day)[-MAX_PROGRESS_WEIGHT_DAYS:]
+    ]
 
 
 def weekly_coach(

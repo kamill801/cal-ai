@@ -82,7 +82,6 @@ function buddyInstances(file) {
 for (const [file, pose] of [
   ["screens/LoginScreen.tsx", "welcome"],
   ["screens/OnboardingScreen.tsx", "welcome"],
-  ["screens/TodayDashboardScreen.tsx", "meal"],
   ["screens/AnalyzeEvidenceScreen.tsx", "analysis"],
   ["screens/ReviewResultScreen.tsx", "analysis"],
   ["screens/ClarificationScreen.tsx", "analysis"],
@@ -101,6 +100,12 @@ for (const [file, pose] of [
     assert.ok(instances[0].size > 0 && instances[0].size <= 112);
   });
 }
+
+test("today uses the meal pose in the header and the coach pose in next-action guidance", () => {
+  const instances = buddyInstances("screens/TodayDashboardScreen.tsx");
+  assert.deepEqual(instances.map(({ pose }) => pose), ["meal", "coach"]);
+  assert.ok(instances.every(({ size }) => size > 0 && size <= 112));
+});
 
 test("saved screen uses its existing celebration component without adding a second mascot", () => {
   assert.equal(buddyInstances("screens/SavedImpactScreen.tsx").length, 0);

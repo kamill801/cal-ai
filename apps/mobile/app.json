@@ -4,7 +4,7 @@
     "slug": "trust-first-nutrition",
     "owner": "arche-trustfirstnutrition",
     "scheme": "trustfirstnutrition",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "icon": "./assets/brand/app-icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -28,7 +28,7 @@
     "android": {
       "allowBackup": false,
       "package": "com.trustfirstnutrition.app",
-      "versionCode": 5,
+      "versionCode": 7,
       "permissions": [
         "CAMERA"
       ],

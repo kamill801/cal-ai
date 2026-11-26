@@ -774,10 +774,16 @@ export interface MealLogDeleteResult {
   status: "deleted";
 }
 
+export interface ProgressWeightPoint {
+  loggedOn: string;
+  weightKg: number;
+}
+
 export interface ProgressSummary {
   profileId: string;
   latestWeightKg?: number;
   weightChangeKg?: number;
+  weightHistory?: ProgressWeightPoint[];
   latestWellness?: WellnessCheckIn;
   bodyCheckIns: BodyCheckIn[];
   workoutsCompleted: number;
@@ -938,6 +944,7 @@ export interface ApiProgressSummary {
   profile_id: string;
   latest_weight_kg?: number | null;
   weight_change_kg?: number | null;
+  weight_history?: { logged_on: string; weight_kg: number }[] | null;
   latest_wellness?: ApiWellnessCheckIn | null;
   body_check_ins: ApiBodyCheckIn[];
   workouts_completed: number;
@@ -1155,6 +1162,7 @@ export function mapApiProgress(value: ApiProgressSummary): ProgressSummary {
     profileId: value.profile_id,
     latestWeightKg: value.latest_weight_kg ?? undefined,
     weightChangeKg: value.weight_change_kg ?? undefined,
+    weightHistory: value.weight_history?.map(({ logged_on, weight_kg }) => ({ loggedOn: logged_on, weightKg: weight_kg })),
     latestWellness: value.latest_wellness ? mapApiWellness(value.latest_wellness) : undefined,
     bodyCheckIns: value.body_check_ins.map(mapApiBodyCheckIn),
     workoutsCompleted: value.workouts_completed,

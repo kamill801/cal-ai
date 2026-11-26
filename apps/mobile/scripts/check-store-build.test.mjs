@@ -95,8 +95,8 @@ test("keeps the intended app identity, version source and narrow permissions", (
   assert.equal(expo.name, "Trust First Nutrition");
   assert.equal(expo.scheme, "trustfirstnutrition");
   assert.equal(expo.android.package, "com.trustfirstnutrition.app");
-  assert.equal(expo.version, "0.1.3");
-  assert.equal(expo.android.versionCode, 5);
+  assert.equal(expo.version, "0.1.4");
+  assert.equal(expo.android.versionCode, 7);
   assert.equal(expo.android.allowBackup, false);
   assert.deepEqual(expo.android.permissions, ["CAMERA"]);
   for (const permission of ["SYSTEM_ALERT_WINDOW", "USE_BIOMETRIC", "USE_FINGERPRINT", "VIBRATE", "RECORD_AUDIO", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_AUDIO", "READ_MEDIA_VISUAL_USER_SELECTED", "READ_EXTERNAL_STORAGE", "MANAGE_EXTERNAL_STORAGE"]) {

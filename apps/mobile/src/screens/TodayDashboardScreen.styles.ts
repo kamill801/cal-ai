@@ -1,324 +1,329 @@
 import { StyleSheet } from "react-native";
-import { colors, radii, shadows, spacing, typography } from "../theme";
+import { freshGreen } from "../theme";
+
+export const homeColors = {
+  paper: "#FFFFFF",
+  ink: "#182222",
+  muted: "#556462",
+  weak: "#657372",
+  line: "#E2E8E7",
+  track: "#EAF0EE",
+  outline: "#CBD8D3",
+  brand: freshGreen.ink,
+  cool: "#EFF4F6",
+  blue: "#466B82",
+  carb: "#6F96A8",
+  fat: "#B38761"
+};
 
 export const styles = StyleSheet.create({
-  container: {
-    gap: spacing.md,
-    padding: spacing.lg,
-    paddingBottom: spacing.xxl
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: spacing.md,
-    paddingTop: spacing.sm
-  },
-  topBarCopy: {
+  scroll: {
     flex: 1,
-    minWidth: 0
+    backgroundColor: homeColors.paper
   },
-  greeting: {
-    color: colors.body,
-    ...typography.bodyStrong
+  container: {
+    flexGrow: 1,
+    paddingHorizontal: 22,
+    paddingBottom: 24,
+    alignItems: "center"
+  },
+  page: {
+    width: "100%",
+    maxWidth: 540
+  },
+  masthead: {
+    minHeight: 84,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.line
+  },
+  mastheadCopy: {
+    flex: 1,
+    gap: 3
+  },
+  date: {
+    color: homeColors.weak,
+    fontSize: 12,
+    fontWeight: "700"
   },
   title: {
-    color: colors.ink,
-    ...typography.sectionTitle
+    color: homeColors.ink,
+    fontSize: 30,
+    fontWeight: "800"
   },
-  heroCard: {
-    position: "relative",
-    gap: spacing.md,
-    borderColor: colors.hairline,
-    borderRadius: radii.photo,
-    borderWidth: 1,
-    backgroundColor: colors.surface,
-    overflow: "hidden",
-    padding: spacing.lg,
-    ...shadows.card
+  summary: {
+    paddingTop: 19,
+    paddingBottom: 16
   },
-  spaceBetweenRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: spacing.sm
-  },
-  cardLabel: {
-    color: colors.muted,
-    ...typography.caption
-  },
-  goalLabel: {
-    color: colors.leaf,
-    ...typography.caption
-  },
-  kcalRow: {
-    alignItems: "baseline",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
+  metricTitle: {
+    color: homeColors.muted,
+    fontSize: 13,
+    fontWeight: "700"
   },
   kcal: {
-    color: colors.ink,
-    fontVariant: ["tabular-nums"],
-    ...typography.displayNumber
+    marginTop: 2,
+    color: homeColors.ink,
+    fontSize: 49,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"]
   },
   kcalUnit: {
-    color: colors.muted,
-    ...typography.bodyStrong
+    color: homeColors.muted,
+    fontSize: 18,
+    fontWeight: "700"
+  },
+  energyNote: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 4,
+    marginTop: 10,
+    marginBottom: 7
+  },
+  metricNote: {
+    color: homeColors.muted,
+    fontSize: 12,
+    fontVariant: ["tabular-nums"]
+  },
+  metricStrong: {
+    color: homeColors.ink,
+    fontWeight: "800"
   },
   progressTrack: {
-    height: 10,
-    overflow: "hidden",
-    borderRadius: radii.pill,
-    backgroundColor: colors.leafMuted
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: radii.pill,
-    backgroundColor: colors.leaf
-  },
-  weeklyCard: {
-    gap: spacing.md,
-    borderColor: colors.hairline,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    ...shadows.card
-  },
-  barRow: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    gap: spacing.sm,
-    height: 78
-  },
-  barSlot: {
-    flex: 1,
-    height: "100%",
-    justifyContent: "flex-end",
-    borderRadius: radii.pill,
-    backgroundColor: colors.leafTint,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: homeColors.track,
     overflow: "hidden"
   },
-  barFill: {
-    minHeight: 16,
-    borderTopLeftRadius: radii.pill,
-    borderTopRightRadius: radii.pill,
-    backgroundColor: colors.leaf
+  progressFill: {
+    height: "100%"
   },
-  legendRow: {
+  macros: {
+    flexDirection: "row",
+    gap: 11,
+    marginTop: 16
+  },
+  macro: {
+    flex: 1,
+    minWidth: 0
+  },
+  macroLabel: {
+    marginBottom: 2,
+    color: homeColors.muted,
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  proteinLabel: {
+    color: homeColors.brand
+  },
+  macroValue: {
+    marginBottom: 6,
+    color: homeColors.ink,
+    fontSize: 17,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"]
+  },
+  macroGoal: {
+    color: homeColors.muted,
+    fontSize: 11,
+    fontWeight: "500"
+  },
+  macroTrack: {
+    marginTop: "auto",
+    height: 3
+  },
+  captureActions: {
+    flexDirection: "row",
+    gap: 8
+  },
+  captureButton: {
+    flex: 1,
+    minHeight: 48,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 6,
+    backgroundColor: freshGreen.fill
+  },
+  captureTitle: {
+    flexShrink: 1,
+    color: freshGreen.onFill,
+    fontWeight: "800",
+    fontSize: 13
+  },
+  albumButton: {
+    width: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: homeColors.outline
+  },
+  mealsSection: {
+    marginTop: 21
+  },
+  sectionHeading: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.md
-  },
-  legendText: {
-    color: colors.muted,
-    ...typography.caption
-  },
-  scanButton: {
-    alignItems: "center",
-    flexDirection: "row",
+    alignItems: "baseline",
     justifyContent: "space-between",
-    gap: spacing.md,
-    borderRadius: radii.card,
-    backgroundColor: colors.leaf,
-    padding: spacing.lg,
-    minHeight: 74,
-    ...shadows.card
-  },
-  scanCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  scanTitle: {
-    color: colors.surface,
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "800"
-  },
-  scanSubtitle: {
-    color: "rgba(255, 255, 255, 0.78)",
-    marginTop: spacing.xs,
-    ...typography.caption
-  },
-  scanIcon: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 42,
-    height: 42,
-    borderRadius: radii.pill,
-    backgroundColor: "rgba(255, 255, 255, 0.16)"
-  },
-  scanIconText: {
-    color: colors.surface,
-    fontSize: 24,
-    fontWeight: "800"
-  },
-  secondaryActionRow: {
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  secondaryAction: {
-    flex: 1,
-    gap: spacing.xs,
-    borderColor: colors.hairline,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    ...shadows.card
-  },
-  secondaryActionTitle: {
-    color: colors.ink,
-    ...typography.bodyStrong
-  },
-  secondaryActionBody: {
-    color: colors.muted,
-    ...typography.caption
-  },
-  planAction: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md,
-    borderColor: colors.hairline,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    ...shadows.card
-  },
-  planActionIcon: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radii.control,
-    backgroundColor: colors.leafTint
-  },
-  planActionCopy: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing.xs
-  },
-  guidanceCard: {
-    gap: spacing.sm,
-    borderColor: colors.warningBorder,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.warningBg,
-    padding: spacing.lg,
-    ...shadows.card
-  },
-  coachRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md
-  },
-  coachCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  warningLabel: {
-    color: colors.warningText,
-    ...typography.caption
-  },
-  guidanceTitle: {
-    color: colors.ink,
-    ...typography.sectionTitle
-  },
-  guidanceBody: {
-    color: colors.body,
-    ...typography.body
-  },
-  section: {
-    gap: spacing.sm
+    gap: 8,
+    paddingBottom: 9
   },
   sectionTitle: {
-    color: colors.ink,
-    ...typography.sectionTitle
-  },
-  emptyState: {
-    gap: spacing.xs,
-    borderColor: colors.hairline,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.surfaceSoft,
-    padding: spacing.lg
-  },
-  emptyTitle: {
-    color: colors.ink,
-    ...typography.bodyStrong
-  },
-  mealRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    borderColor: colors.hairline,
-    borderRadius: radii.card,
-    borderWidth: 1,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    ...shadows.card
-  },
-  thumb: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.photo,
-    backgroundColor: colors.surfaceSoft
-  },
-  mealText: {
-    flex: 1,
-    minWidth: 0,
-    gap: spacing.xs
-  },
-  mealName: {
-    color: colors.ink,
-    ...typography.bodyStrong
-  },
-  mealMetaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  mealMeta: {
-    color: colors.muted,
-    ...typography.caption
-  },
-  mealKcal: {
-    color: colors.ink,
-    fontSize: 14,
-    lineHeight: 20,
+    color: homeColors.ink,
+    fontSize: 17,
     fontWeight: "800"
   },
+  meal: {
+    borderTopColor: homeColors.line,
+    borderTopWidth: 1
+  },
+  mealRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    minHeight: 69,
+    paddingVertical: 12
+  },
+  thumb: {
+    width: 43,
+    height: 43,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: homeColors.cool
+  },
+  mealCopy: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2
+  },
+  mealName: {
+    color: homeColors.ink,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  mealMeta: {
+    color: homeColors.muted,
+    fontSize: 11,
+    fontVariant: ["tabular-nums"]
+  },
   mealTrailing: {
-    alignItems: "flex-end",
-    flexShrink: 0,
-    gap: spacing.xs
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "42%"
+  },
+  mealKcal: {
+    flexShrink: 1,
+    textAlign: "right",
+    color: homeColors.ink,
+    fontSize: 14,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"]
+  },
+  mealKcalUnit: {
+    color: homeColors.muted,
+    fontSize: 10,
+    fontWeight: "600"
+  },
+  mealDetails: {
+    paddingBottom: 10,
+    gap: 6
+  },
+  detailMacros: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    columnGap: 14,
+    rowGap: 4
   },
   mealActions: {
-    alignItems: "center",
     flexDirection: "row",
-    gap: spacing.xs
+    flexWrap: "wrap",
+    gap: 8
   },
-  mealActionButton: {
-    width: 40,
-    height: 40,
+  mealAction: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderColor: colors.leafMuted,
-    borderRadius: radii.control,
+    gap: 6,
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderColor: homeColors.outline,
     borderWidth: 1,
-    backgroundColor: colors.leafTint
+    borderRadius: 6
   },
-  deleteActionButton: {
-    width: 40,
-    height: 40,
+  mealActionText: {
+    color: homeColors.brand,
+    fontSize: 12,
+    fontWeight: "700"
+  },
+  deleteText: {
+    color: homeColors.muted
+  },
+  disabled: {
+    opacity: 0.5
+  },
+  emptyState: {
+    gap: 4,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.line
+  },
+  homeNote: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    borderColor: colors.hairline,
-    borderRadius: radii.control,
-    borderWidth: 1,
-    backgroundColor: colors.surface
+    gap: 6,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.line
+  },
+  mutedText: {
+    flexShrink: 1,
+    color: homeColors.muted,
+    fontSize: 12
+  },
+  guidance: {
+    marginTop: 24,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.line
+  },
+  guidanceCopy: {
+    flex: 1,
+    gap: 4
+  },
+  guidanceLabel: {
+    color: homeColors.brand,
+    fontSize: 11,
+    fontWeight: "700"
+  },
+  settings: {
+    marginTop: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: homeColors.line
+  },
+  settingsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 54,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: homeColors.line
+  },
+  settingsCopy: {
+    flex: 1,
+    gap: 3
   }
 });

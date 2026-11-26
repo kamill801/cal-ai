@@ -37,6 +37,15 @@ export const colors = {
   success: "#22c55e"
 } as const;
 
+export const freshGreen = {
+  fill: "#9BD750",
+  onFill: "#20300F",
+  ink: "#466C21",
+  indicator: "#618F2A",
+  tint: "#F3F9E9",
+  track: "#E7F0D9"
+} as const;
+
 export const radii = {
   card: 16,
   control: 14,
